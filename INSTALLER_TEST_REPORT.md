@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.8
+Installer version: 1.0.9
 
 ## Installer Scope
 
@@ -58,6 +58,9 @@ Configuration is written to:
 | GitHub auto-update module | Added `electron-updater`, GitHub release provider config, Settings update controls, release publishing script, and source repo `.gitignore` | Fixed in 1.0.6 |
 | Auto-update notification flow | Added automatic update check after app launch and desktop notifications for update found, download midpoint, ready to install, and failure | Fixed in 1.0.7 |
 | Responsive UI and zoom QA | Reworked shell/settings/profile layouts and tested 150 screen/zoom combinations with no horizontal overflow, clipped buttons, or uncontained layout overflow | Fixed in 1.0.8 |
+| Multi-file upload ingestion | Verified local TXT, DOCX, PDF, and image detection/extraction helpers; lint and production audit passed | Fixed in 1.0.9 |
+| Prompt Library CRUD | Added New Prompt, Save Prompt, View/Edit, Delete, and responsive saved-prompt list UI | Fixed in 1.0.9 |
+| Upload disabled-state regression | Fixed remaining old single-file handler call used after recordings and kept model/style dropdowns enabled outside active processing | Fixed in 1.0.9 |
 
 ## Bugs Found And Fixed
 
@@ -108,6 +111,18 @@ Configuration is written to:
 12. Complete UI needed responsive behavior across screen sizes and zoom levels.
    - Cause: The app had a large minimum window size and older/newer settings CSS rules could fight each other on small screens and high zoom.
    - Fix: Lowered the Electron minimum window size, rebuilt the renderer stylesheet around flexible grids/wrapping controls/internal scroll areas, made Settings full-screen with responsive tabs, protected the PDF profile preview, and verified the main screen plus all settings panes across mobile, tablet, laptop, desktop, ultra-wide, and 80/90/100/110/125/150 percent zoom-equivalent layouts.
+
+13. Upload workflow needed multiple files and more source formats.
+   - Cause: The renderer and file dialog still behaved like a single media-file workflow.
+   - Fix: Added multi-selection upload, drag-and-drop multiple file handling, local text extraction for TXT/MD/CSV/JSON, DOCX XML extraction, PDF text extraction, image attachment notes, and a visible per-file processing queue.
+
+14. Prompt editing needed a complete local library.
+   - Cause: Prompt presets could be saved, but users did not have a clear saved-prompt library with all CRUD actions visible in one place.
+   - Fix: Added New Prompt, Save Prompt, View/Edit, Delete, and a responsive saved-prompt list in Settings.
+
+15. Some controls could stop working after upload/recording flows.
+   - Cause: Recording completion still called the removed single-file upload handler after the multi-file refactor.
+   - Fix: Updated recording completion to use the multi-file ingestion path and verified renderer syntax checks pass.
 
 ## Clean-System Test Note
 

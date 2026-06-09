@@ -8,6 +8,7 @@ const {
   convertToWav,
   createProjectRecord,
   detectMediaType,
+  extractTextFile,
   exportCompanyProfiles,
   exportMinutes,
   fetchOllamaModels,
@@ -182,14 +183,18 @@ app.on("activate", () => {
 
 ipcMain.handle("dialog:choose-file", async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Select meeting audio, video, or transcript",
-    properties: ["openFile"],
+    title: "Select meeting files",
+    properties: ["openFile", "multiSelections"],
     filters: [
-      { name: "Meeting Files", extensions: ["mp3", "wav", "m4a", "mp4", "mov", "mkv", "txt", "md"] }
+      { name: "Meeting Files", extensions: ["mp3", "wav", "m4a", "mp4", "mov", "mkv", "webm", "txt", "md", "csv", "json", "pdf", "docx", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] },
+      { name: "Audio", extensions: ["mp3", "wav", "m4a"] },
+      { name: "Video", extensions: ["mp4", "mov", "mkv", "webm"] },
+      { name: "Documents", extensions: ["txt", "md", "csv", "json", "pdf", "docx"] },
+      { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] }
     ]
   });
-  if (result.canceled) return null;
-  return result.filePaths[0];
+  if (result.canceled) return [];
+  return result.filePaths;
 });
 
 ipcMain.handle("dialog:choose-logo", async () => {
@@ -284,6 +289,52 @@ ipcMain.handle("meeting:transcribe-file", async (_event, payload) => {
     appendLog(app.getPath("userData"), "Transcription failed", error.stack || error.message);
     throw error;
   }
+});
+
+ipcMain.handle("meeting:ingest-files", async (_event, payload) => {
+  const filePaths = Array.isArray(payload.filePaths) ? payload.filePaths : [payload.filePath].filter(Boolean);
+  if (!filePaths.length) return { transcript: "", files: [] };
+
+  const sections = [];
+  const results = [];
+  for (let index = 0; index < filePaths.length; index += 1) {
+    const filePath = filePaths[index];
+    try {
+      const type = detectMediaType(filePath);
+      sendProgress("upload", `Processing ${index + 1} of ${filePaths.length}: ${path.basename(filePath)}`, Math.round((index / filePaths.length) * 90));
+      if (type === "audio" || type === "video") {
+        const workDir = path.join(app.getPath("userData"), "transcription-work", String(Date.now()), String(index));
+        const transcriptionSettings = { ...store.get("settings"), ...payload.settings };
+        const wavPath = await convertToWav(filePath, workDir, transcriptionSettings, (line) => sendProgress("transcription", line, 20 + Math.round((index / filePaths.length) * 40)));
+        const transcript = await transcribeWithLocalTool({
+          inputPath: wavPath,
+          workDir,
+          settings: transcriptionSettings,
+          onProgress: (line) => sendProgress("transcription", line, 45 + Math.round((index / filePaths.length) * 40))
+        });
+        sections.push(`Source File: ${path.basename(filePath)}\nFile Path: ${filePath}\n\n${cleanTranscript(transcript) || "No transcript text was produced for this file."}`);
+      } else if (type === "transcript" || type === "document") {
+        const extractedText = cleanTranscript(await extractTextFile(filePath));
+        sections.push(`Source File: ${path.basename(filePath)}\nFile Path: ${filePath}\n\n${extractedText || "No readable text was found in this file. If it is scanned or image-based, add notes manually."}`);
+      } else if (type === "image") {
+        sections.push([
+          `Source File: ${path.basename(filePath)}`,
+          `File Path: ${filePath}`,
+          "",
+          "Image attachment added. Review this image manually and add any visual details that should be included in the meeting record."
+        ].join("\n"));
+      } else {
+        throw new Error("Unsupported file type.");
+      }
+      results.push({ filePath, status: "ok", type });
+    } catch (error) {
+      appendLog(app.getPath("userData"), `File ingest failed: ${filePath}`, error.stack || error.message);
+      sections.push(`Source File: ${path.basename(filePath)}\nFile Path: ${filePath}\n\nCould not process this file: ${error.message}`);
+      results.push({ filePath, status: "failed", error: error.message });
+    }
+  }
+  sendProgress("upload", "Files processed.", 100);
+  return { transcript: cleanTranscript(sections.join("\n\n---\n\n")), files: results };
 });
 
 ipcMain.handle("meeting:generate-minutes", async (_event, payload) => {

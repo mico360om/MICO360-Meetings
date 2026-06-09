@@ -277,9 +277,14 @@
             </div>
             <div class="button-group">
               <button id="applyPromptPreset" class="secondary">Apply Preset</button>
+              <button id="newPrompt" class="secondary">New Prompt</button>
               <button id="savePrompt" class="secondary">Save Prompt</button>
               <button id="deletePrompt" class="secondary danger">Delete Prompt</button>
               <button id="resetPrompt" class="secondary">Reset</button>
+            </div>
+            <div class="prompt-library wide">
+              <strong>Saved Prompt Library</strong>
+              <div id="promptLibraryList" class="prompt-library-list"></div>
             </div>
             <textarea id="promptTemplate"></textarea>
           </div>
@@ -308,17 +313,18 @@
             <div class="panel-header">
               <h2>Input</h2>
               <div class="button-group">
-                <button id="chooseFile" class="secondary">Upload File</button>
+                <button id="chooseFile" class="secondary">Upload Files</button>
                 <button id="recordMic" class="secondary">Record Mic</button>
                 <button id="recordScreen" class="secondary">Record Screen</button>
               </div>
             </div>
 
             <div id="dropZone" class="drop-zone">
-              <strong>Drag audio, video, or transcript here</strong>
-              <span>MP3, WAV, M4A, MP4, MOV, MKV, TXT, MD</span>
+              <strong>Drag meeting files here</strong>
+              <span>Audio, video, transcripts, PDF, DOCX, images, CSV, JSON</span>
               <small id="selectedFile">No file selected</small>
             </div>
+            <div id="fileQueue" class="file-queue" aria-live="polite"></div>
 
             <label class="text-label" for="transcriptInput">Transcript</label>
             <textarea id="transcriptInput" placeholder="Paste or transcribe a meeting transcript here."></textarea>

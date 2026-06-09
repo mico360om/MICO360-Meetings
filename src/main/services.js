@@ -5,11 +5,15 @@ const { spawn } = require("child_process");
 const bundledFfmpegPath = require("ffmpeg-static");
 const { Document, Packer, Paragraph, TextRun } = require("docx");
 const { PDFDocument, StandardFonts, rgb } = require("pdf-lib");
+const { PDFParse } = require("pdf-parse");
 const JSZip = require("jszip");
 const { DEFAULT_PROMPT, MINUTES_SECTIONS } = require("../shared/constants");
 
 const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".mkv", ".webm"]);
+const TEXT_EXTENSIONS = new Set([".txt", ".md", ".csv", ".json"]);
+const DOCUMENT_EXTENSIONS = new Set([".docx", ".pdf"]);
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"]);
 const PROFILE_FIELDS = [
   "name",
   "companyName",
@@ -50,8 +54,62 @@ function detectMediaType(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (AUDIO_EXTENSIONS.has(ext)) return "audio";
   if (VIDEO_EXTENSIONS.has(ext)) return "video";
-  if (ext === ".txt" || ext === ".md") return "transcript";
+  if (TEXT_EXTENSIONS.has(ext)) return "transcript";
+  if (DOCUMENT_EXTENSIONS.has(ext)) return "document";
+  if (IMAGE_EXTENSIONS.has(ext)) return "image";
   return "unknown";
+}
+
+function labelForFile(filePath) {
+  return path.basename(filePath);
+}
+
+function formatAttachmentText(filePath, text) {
+  return [
+    `Source File: ${labelForFile(filePath)}`,
+    `File Path: ${filePath}`,
+    "",
+    text || "No readable text was found in this file."
+  ].join("\n");
+}
+
+function stripDocxXml(text) {
+  return String(text || "")
+    .replace(/<w:tab\/>/g, "\t")
+    .replace(/<\/w:p>/g, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/\s+\n/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+async function extractDocxText(filePath) {
+  const zip = await JSZip.loadAsync(fs.readFileSync(filePath));
+  const documentXml = await zip.file("word/document.xml")?.async("string");
+  if (!documentXml) throw new Error("This DOCX file does not contain readable document text.");
+  return stripDocxXml(documentXml);
+}
+
+async function extractPdfText(filePath) {
+  const parser = new PDFParse({ data: fs.readFileSync(filePath) });
+  try {
+    const parsed = await parser.getText();
+    return String(parsed.text || "").trim();
+  } finally {
+    await parser.destroy();
+  }
+}
+
+async function extractTextFile(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".docx") return extractDocxText(filePath);
+  if (ext === ".pdf") return extractPdfText(filePath);
+  return fs.readFileSync(filePath, "utf8");
 }
 
 function runCommand(command, args, options, onProgress) {
@@ -797,6 +855,7 @@ module.exports = {
   convertToWav,
   createProjectRecord,
   detectMediaType,
+  extractTextFile,
   exportMinutes,
   exportCompanyProfiles,
   fetchOllamaModels,

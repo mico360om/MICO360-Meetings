@@ -4,8 +4,12 @@ MICO360 Meetings is a local-first desktop assistant for turning meeting audio, v
 
 ## Features
 
+- Upload multiple files at once
 - Upload audio: MP3, WAV, M4A
-- Upload video: MP4, MOV, MKV
+- Upload video: MP4, MOV, MKV, WebM
+- Upload transcripts and notes: TXT, MD, CSV, JSON
+- Upload documents: PDF and DOCX
+- Attach image references: PNG, JPG, JPEG, WebP, BMP, GIF, TIFF
 - Paste transcript manually
 - Record microphone audio
 - Record screen with audio when supported by the operating system
@@ -14,6 +18,7 @@ MICO360 Meetings is a local-first desktop assistant for turning meeting audio, v
 - Editable minutes output
 - Formal Minutes, Short Summary, Detailed Minutes, Action Item Report, and Executive Summary styles
 - Custom prompt template per upload
+- Prompt Library with add, view/edit, and delete controls
 - DOCX, PDF, and TXT export
 - Branded PDF export with company name, prepared-by line, classification, footer, and logo
 - Local project history and meeting search
@@ -53,7 +58,7 @@ Build the installer:
 npm run dist
 ```
 
-Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.8`; use the `MICO360 Meetings Setup 1.0.8.exe` file to avoid older installer behavior. For local AI prerequisites, use:
+Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.9`; use the `MICO360 Meetings Setup 1.0.9.exe` file to avoid older installer behavior. For local AI prerequisites, use:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\installer\MICO360-Meetings-Prerequisites.ps1"
@@ -137,7 +142,7 @@ winget install Gyan.FFmpeg
 
 ## Workflow
 
-1. Upload a meeting audio/video file, drag a file into the drop zone, record audio, or paste a transcript.
+1. Upload one or more meeting files, drag files into the drop zone, record audio, or paste a transcript.
 2. Choose an Ollama model.
 3. Choose the output style.
 4. Open Settings to adjust AI, transcription, PDF profile, and prompt presets.

@@ -1,5 +1,6 @@
 const state = {
   selectedFile: null,
+  selectedFiles: [],
   currentProject: null,
   mediaRecorder: null,
   recordedChunks: [],
@@ -58,12 +59,15 @@ const elements = {
   chooseFile: $("#chooseFile"),
   dropZone: $("#dropZone"),
   selectedFile: $("#selectedFile"),
+  fileQueue: $("#fileQueue"),
   transcriptInput: $("#transcriptInput"),
   minutesOutput: $("#minutesOutput"),
   promptTemplate: $("#promptTemplate"),
   promptPreset: $("#promptPreset"),
   promptName: $("#promptName"),
+  promptLibraryList: $("#promptLibraryList"),
   applyPromptPreset: $("#applyPromptPreset"),
+  newPrompt: $("#newPrompt"),
   savePrompt: $("#savePrompt"),
   deletePrompt: $("#deletePrompt"),
   resetPrompt: $("#resetPrompt"),
@@ -130,6 +134,8 @@ function setProgress(progress = 0, detail = "") {
 function setBusy(isBusy, label = "Working...") {
   elements.generateBtn.disabled = isBusy;
   elements.chooseFile.disabled = isBusy;
+  elements.recordMic.disabled = isBusy;
+  elements.recordScreen.disabled = isBusy;
   setProgress(isBusy ? 8 : 0, isBusy ? label : "Meeting data stays local. Ollama is called only on 127.0.0.1.");
   elements.statusText.textContent = isBusy ? label : "Ready";
 }
@@ -206,6 +212,28 @@ function populatePromptPresets() {
   elements.promptPreset.innerHTML = [...builtIns, ...custom]
     .map((item) => `<option value="${escapeHtml(`${item.type}:${item.name}`)}">${item.type === "custom" ? "Saved - " : ""}${escapeHtml(item.name)}</option>`)
     .join("");
+  renderPromptLibrary();
+}
+
+function renderPromptLibrary() {
+  const prompts = state.settings.customPrompts || [];
+  if (!elements.promptLibraryList) return;
+  if (!prompts.length) {
+    elements.promptLibraryList.innerHTML = `<span class="empty-state">No saved prompts yet.</span>`;
+    return;
+  }
+  elements.promptLibraryList.innerHTML = prompts.map((prompt) => `
+    <div class="prompt-library-item" data-prompt-name="${escapeHtml(prompt.name)}">
+      <div>
+        <strong>${escapeHtml(prompt.name)}</strong>
+        <span>${escapeHtml((prompt.template || "").replace(/\s+/g, " ").slice(0, 120))}</span>
+      </div>
+      <div class="button-group">
+        <button class="secondary" data-prompt-action="view" data-prompt-name="${escapeHtml(prompt.name)}">View/Edit</button>
+        <button class="secondary danger" data-prompt-action="delete" data-prompt-name="${escapeHtml(prompt.name)}">Delete</button>
+      </div>
+    </div>
+  `).join("");
 }
 
 function updateSummaryLabels() {
@@ -386,17 +414,50 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
-async function handleFile(filePath) {
-  if (!filePath) return;
-  state.selectedFile = filePath;
-  elements.selectedFile.textContent = filePath;
-  setBusy(true, "Preparing local transcription...");
+function normalizeFilePaths(input) {
+  if (!input) return [];
+  const values = Array.isArray(input) ? input : [input];
+  return values.map((item) => {
+    if (typeof item === "string") return item;
+    return item?.path || "";
+  }).filter(Boolean);
+}
+
+function renderFileQueue(files = [], results = []) {
+  state.selectedFiles = files;
+  state.selectedFile = files[0] || null;
+  elements.selectedFile.textContent = files.length
+    ? `${files.length} file${files.length === 1 ? "" : "s"} selected`
+    : "No file selected";
+  elements.fileQueue.innerHTML = files.map((filePath) => {
+    const result = results.find((item) => item.filePath === filePath);
+    const status = result?.status || "queued";
+    const statusText = status === "ok" ? "Processed" : status === "failed" ? "Failed" : "Queued";
+    return `
+      <div class="file-queue-item ${status}">
+        <span>${escapeHtml(filePath.split(/[\\/]/).pop() || filePath)}</span>
+        <strong>${escapeHtml(statusText)}</strong>
+      </div>
+    `;
+  }).join("");
+}
+
+async function handleFiles(input) {
+  const filePaths = normalizeFilePaths(input);
+  if (!filePaths.length) return;
+  renderFileQueue(filePaths);
+  setBusy(true, `Processing ${filePaths.length} file${filePaths.length === 1 ? "" : "s"}...`);
   try {
-    setProgress(6, "Preparing selected file");
-    const result = await window.mico360.transcribeFile({ filePath, settings: getSettingsFromUi() });
-    elements.transcriptInput.value = result.transcript;
+    setProgress(6, "Preparing selected files");
+    const result = await window.mico360.ingestFiles({ filePaths, settings: getSettingsFromUi() });
+    renderFileQueue(filePaths, result.files || []);
+    const existing = elements.transcriptInput.value.trim();
+    elements.transcriptInput.value = existing
+      ? `${existing}\n\n---\n\n${result.transcript}`
+      : result.transcript;
     setDirty(true);
-    showStatus("Transcript ready", 100);
+    const failed = (result.files || []).filter((item) => item.status === "failed").length;
+    showStatus(failed ? `Files processed with ${failed} issue(s)` : "Files processed", 100);
   } catch (error) {
     showError(error);
   } finally {
@@ -486,7 +547,7 @@ async function startRecording(kind) {
       const blob = new Blob(state.recordedChunks, { type: "audio/webm" });
       const buffer = await blob.arrayBuffer();
       const filePath = await window.mico360.saveRecording({ buffer, extension: "webm" });
-      await handleFile(filePath);
+      await handleFiles([filePath]);
       elements.recordMic.textContent = "Record Mic";
       elements.recordScreen.textContent = "Record Screen";
     };
@@ -509,8 +570,10 @@ function wireEvents() {
   elements.newProject.addEventListener("click", () => {
     state.currentProject = null;
     state.selectedFile = null;
+    state.selectedFiles = [];
     elements.projectTitle.value = "";
     elements.selectedFile.textContent = "No file selected";
+    elements.fileQueue.innerHTML = "";
     elements.transcriptInput.value = "";
     elements.minutesOutput.value = "";
     setDirty(false);
@@ -666,6 +729,12 @@ function wireEvents() {
     await persistSettings();
     showStatus("Prompt preset applied", 100);
   });
+  elements.newPrompt.addEventListener("click", () => {
+    elements.promptName.value = "";
+    elements.promptTemplate.value = window.mico360.constants.defaultPrompt;
+    elements.promptTemplate.focus();
+    showStatus("New prompt ready", 100);
+  });
   elements.savePrompt.addEventListener("click", async () => {
     const name = elements.promptName.value.trim();
     const template = elements.promptTemplate.value.trim();
@@ -689,6 +758,7 @@ function wireEvents() {
     });
     populatePromptPresets();
     elements.promptPreset.value = `custom:${name}`;
+    renderPromptLibrary();
     showStatus("Prompt saved locally", 100);
   });
   elements.deletePrompt.addEventListener("click", async () => {
@@ -703,6 +773,7 @@ function wireEvents() {
     elements.promptName.value = "Default Meeting Minutes";
     elements.promptTemplate.value = window.mico360.constants.defaultPrompt;
     populatePromptPresets();
+    renderPromptLibrary();
     showStatus("Prompt deleted", 100);
   });
   elements.resetPrompt.addEventListener("click", async () => {
@@ -711,7 +782,30 @@ function wireEvents() {
     await persistSettings();
     showStatus("Prompt reset", 100);
   });
-  elements.chooseFile.addEventListener("click", async () => handleFile(await window.mico360.chooseFile()));
+  elements.promptLibraryList.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-prompt-action]");
+    if (!button) return;
+    const name = button.dataset.promptName;
+    const prompts = state.settings.customPrompts || [];
+    const prompt = prompts.find((item) => item.name === name);
+    if (button.dataset.promptAction === "view") {
+      if (!prompt) return;
+      elements.promptName.value = prompt.name;
+      elements.promptTemplate.value = prompt.template;
+      elements.promptPreset.value = `custom:${prompt.name}`;
+      showStatus("Prompt loaded for editing", 100);
+      return;
+    }
+    if (button.dataset.promptAction === "delete") {
+      state.settings = await window.mico360.saveSettings({
+        ...getSettingsFromUi(),
+        customPrompts: prompts.filter((item) => item.name !== name)
+      });
+      populatePromptPresets();
+      showStatus("Prompt deleted", 100);
+    }
+  });
+  elements.chooseFile.addEventListener("click", async () => handleFiles(await window.mico360.chooseFile()));
   elements.generateBtn.addEventListener("click", generateMinutes);
   elements.copyBtn.addEventListener("click", async () => {
     await navigator.clipboard.writeText(elements.minutesOutput.value);
@@ -757,8 +851,7 @@ function wireEvents() {
     });
   });
   elements.dropZone.addEventListener("drop", (event) => {
-    const file = event.dataTransfer.files[0];
-    if (file?.path) handleFile(file.path);
+    handleFiles(Array.from(event.dataTransfer.files));
   });
 
   window.mico360.onProgress(({ stage, message, progress }) => {

@@ -365,6 +365,52 @@ h2 {
   background: color-mix(in srgb, var(--brand) 10%, var(--panel));
 }
 
+.file-queue {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.file-queue:empty {
+  display: none;
+}
+
+.file-queue-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+}
+
+.file-queue-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-queue-item strong {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.file-queue-item.ok strong {
+  background: color-mix(in srgb, #197447 14%, transparent);
+  color: #197447;
+}
+
+.file-queue-item.failed strong {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
+
 textarea {
   width: 100%;
   min-width: 0;
@@ -697,6 +743,59 @@ progress {
   min-height: clamp(260px, 52vh, 560px);
 }
 
+.prompt-library {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 12px;
+  background: var(--panel-2);
+}
+
+.prompt-library > strong {
+  font-size: 14px;
+}
+
+.prompt-library-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  max-height: clamp(160px, 24vh, 280px);
+  overflow: auto;
+}
+
+.prompt-library-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--panel);
+}
+
+.prompt-library-item strong,
+.prompt-library-item span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.prompt-library-item span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.empty-state {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 @media (min-width: 1700px) {
   .app-shell {
     grid-template-columns: 320px minmax(0, 1fr);
@@ -768,6 +867,10 @@ progress {
   .button-group,
   .profile-actions {
     align-items: stretch;
+  }
+
+  .prompt-library-item {
+    grid-template-columns: 1fr;
   }
 
   .settings-panel {
@@ -844,5 +947,14 @@ progress {
 
   .preview-page {
     min-height: 380px;
+  }
+
+  .file-queue-item {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .file-queue-item span {
+    white-space: normal;
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "mico360-meetings",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Local-first desktop meeting minutes assistant powered by Ollama and Whisper.",
   "main": "src/main/main.js",
   "author": "MICO360",
@@ -16,11 +16,12 @@
   },
   "dependencies": {
     "docx": "^9.5.1",
-    "electron-updater": "^6.8.9",
     "electron-store": "^8.2.0",
+    "electron-updater": "^6.8.9",
     "ffmpeg-static": "^5.3.0",
     "jszip": "^3.10.1",
-    "pdf-lib": "^1.17.1"
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "electron": "^42.3.3",
@@ -29,6 +30,7 @@
   "build": {
     "appId": "com.mico360.meetings",
     "productName": "MICO360 Meetings",
+    "artifactName": "MICO360-Meetings-Setup-${version}.${ext}",
     "publish": {
       "provider": "github",
       "owner": "mico360om",
