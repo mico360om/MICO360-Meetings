@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.10
+Installer version: 1.0.11
 
 ## Installer Scope
 
@@ -64,6 +64,7 @@ Configuration is written to:
 | Full UI/UX regression pass | Added automated Electron UI scan covering dashboard, settings panes, validation toast, five viewport sizes, and screenshot capture with zero overflow findings | Fixed in 1.0.10 |
 | In-app error and success messages | Replaced blocking error alerts with responsive in-app toast messages and wrapped profile import/export errors | Fixed in 1.0.10 |
 | Desktop viewport fit | Updated wide desktop shell so panels and status bar fit inside the viewport while smaller screens remain scrollable | Fixed in 1.0.10 |
+| Re-transcript action | Added Re-Transcript button to reprocess the selected upload/recording and replace the transcript with a fresh result | Fixed in 1.0.11 |
 
 ## Bugs Found And Fixed
 
@@ -138,6 +139,10 @@ Configuration is written to:
 18. Complete app UI needed repeatable regression coverage.
    - Cause: Responsive checks were manual and could miss future regressions.
    - Fix: Added `npm run qa:ui`, which launches Electron, captures 26 screenshots, and checks dashboard/settings/validation surfaces across five viewport sizes for horizontal overflow and clipped controls.
+
+19. Users needed a quick way to transcribe the same upload again.
+   - Cause: Uploading the same file again appended text, and there was no dedicated re-transcription action.
+   - Fix: Added a `Re-Transcript` button that reprocesses the selected upload or recording and replaces the transcript content with the new result.
 
 ## Clean-System Test Note
 

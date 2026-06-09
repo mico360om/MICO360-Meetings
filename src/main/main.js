@@ -18,6 +18,10 @@ const {
   transcribeWithLocalTool
 } = require("./services");
 
+if (process.env.MICO360_USER_DATA_DIR) {
+  app.setPath("userData", process.env.MICO360_USER_DATA_DIR);
+}
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
 

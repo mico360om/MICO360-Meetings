@@ -57,6 +57,7 @@ const elements = {
   saveProfile: $("#saveProfile"),
   deleteProfile: $("#deleteProfile"),
   chooseFile: $("#chooseFile"),
+  reTranscript: $("#reTranscript"),
   dropZone: $("#dropZone"),
   selectedFile: $("#selectedFile"),
   fileQueue: $("#fileQueue"),
@@ -135,6 +136,7 @@ function setProgress(progress = 0, detail = "") {
 function setBusy(isBusy, label = "Working...") {
   elements.generateBtn.disabled = isBusy;
   elements.chooseFile.disabled = isBusy;
+  elements.reTranscript.disabled = isBusy;
   elements.recordMic.disabled = isBusy;
   elements.recordScreen.disabled = isBusy;
   setProgress(isBusy ? 8 : 0, isBusy ? label : "Meeting data stays local. Ollama is called only on 127.0.0.1.");
@@ -458,27 +460,38 @@ function renderFileQueue(files = [], results = []) {
   }).join("");
 }
 
-async function handleFiles(input) {
+async function handleFiles(input, options = {}) {
+  const replaceTranscript = Boolean(options.replaceTranscript);
   const filePaths = normalizeFilePaths(input);
   if (!filePaths.length) return;
   renderFileQueue(filePaths);
-  setBusy(true, `Processing ${filePaths.length} file${filePaths.length === 1 ? "" : "s"}...`);
+  setBusy(true, `${replaceTranscript ? "Re-transcribing" : "Processing"} ${filePaths.length} file${filePaths.length === 1 ? "" : "s"}...`);
   try {
     setProgress(6, "Preparing selected files");
     const result = await window.mico360.ingestFiles({ filePaths, settings: getSettingsFromUi() });
     renderFileQueue(filePaths, result.files || []);
     const existing = elements.transcriptInput.value.trim();
-    elements.transcriptInput.value = existing
-      ? `${existing}\n\n---\n\n${result.transcript}`
-      : result.transcript;
+    const nextTranscript = replaceTranscript || !existing
+      ? result.transcript
+      : `${existing}\n\n---\n\n${result.transcript}`;
+    elements.transcriptInput.value = nextTranscript;
     setDirty(true);
     const failed = (result.files || []).filter((item) => item.status === "failed").length;
-    showStatus(failed ? `Files processed with ${failed} issue(s)` : "Files processed", 100);
+    const doneMessage = replaceTranscript ? "Transcript refreshed" : "Files processed";
+    showStatus(failed ? `${doneMessage} with ${failed} issue(s)` : doneMessage, 100);
   } catch (error) {
     showError(error);
   } finally {
     setBusy(false);
   }
+}
+
+async function reTranscriptSelectedFiles() {
+  if (!state.selectedFiles.length) {
+    showError(new Error("Upload or record a file first, then use Re-Transcript."));
+    return;
+  }
+  await handleFiles(state.selectedFiles, { replaceTranscript: true });
 }
 
 async function generateMinutes() {
@@ -856,6 +869,7 @@ function wireEvents() {
     }
   });
   elements.chooseFile.addEventListener("click", async () => handleFiles(await window.mico360.chooseFile()));
+  elements.reTranscript.addEventListener("click", reTranscriptSelectedFiles);
   elements.generateBtn.addEventListener("click", generateMinutes);
   elements.copyBtn.addEventListener("click", async () => {
     await navigator.clipboard.writeText(elements.minutesOutput.value);

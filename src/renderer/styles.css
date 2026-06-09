@@ -421,6 +421,23 @@ h2 {
   margin-bottom: 12px;
 }
 
+.input-panel .panel-header {
+  align-items: stretch;
+  flex-direction: column;
+}
+
+.input-panel .button-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  gap: 6px;
+  width: 100%;
+}
+
+.input-panel .button-group button {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
 .drop-zone {
   display: grid;
   place-items: center;

@@ -102,7 +102,8 @@ async function main() {
     args: [rootDir],
     env: {
       ...process.env,
-      MICO360_DISABLE_AUTO_UPDATE: "1"
+      MICO360_DISABLE_AUTO_UPDATE: "1",
+      MICO360_USER_DATA_DIR: path.join(rootDir, "qa-artifacts", "user-data")
     }
   });
 
