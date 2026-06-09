@@ -1,0 +1,13 @@
+Meeting: Q3 Operations Planning
+Date: 2026-06-08 10:00 AM
+Attendees: Sara Khan, Omar Lewis, Priya Menon, Daniel Reed
+
+Sara: The purpose of today's meeting is to confirm the Q3 operations plan and agree on owners for the open items.
+Omar: The warehouse migration is on schedule. The risk is vendor availability in the final week of July.
+Priya: Finance needs the final vendor quote by June 20 before approving the remaining budget.
+Daniel: The support team can prepare customer notices by June 24, but we need the final downtime window.
+Sara: Decision made: we will keep the migration target for July 28, provided the quote is approved by June 21.
+Omar: I will confirm vendor availability and send the final quote to Priya by June 20.
+Priya: I will review the quote and confirm budget approval by June 21.
+Daniel: I will draft customer notices by June 24 and wait for the downtime window.
+Sara: Pending issue is the exact downtime window. Next meeting will be June 22 at 11:00 AM to review approval and readiness.

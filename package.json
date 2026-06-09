@@ -1,0 +1,74 @@
+{
+  "name": "mico360-meetings",
+  "version": "1.0.6",
+  "description": "Local-first desktop meeting minutes assistant powered by Ollama and Whisper.",
+  "main": "src/main/main.js",
+  "author": "MICO360",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder",
+    "publish:github": "electron-builder --publish always",
+    "lint": "node --check src/main/main.js && node --check src/main/preload.js && node --check src/main/services.js && node --check src/renderer/app.js"
+  },
+  "dependencies": {
+    "docx": "^9.5.1",
+    "electron-updater": "^6.8.9",
+    "electron-store": "^8.2.0",
+    "ffmpeg-static": "^5.3.0",
+    "jszip": "^3.10.1",
+    "pdf-lib": "^1.17.1"
+  },
+  "devDependencies": {
+    "electron": "^42.3.3",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.mico360.meetings",
+    "productName": "MICO360 Meetings",
+    "publish": {
+      "provider": "github",
+      "owner": "mico360om",
+      "repo": "MICO360-Meetings",
+      "releaseType": "release"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "examples/**/*",
+      "installer/**/*",
+      "INSTALLER_TEST_REPORT.md",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "installer",
+        "to": "installer"
+      }
+    ],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "asar": false,
+    "win": {
+      "target": "nsis",
+      "icon": "assets/app-icon.ico",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "include": "installer/installer.nsh",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "runAfterFinish": false
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    }
+  }
+}

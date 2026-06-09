@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MICO360 Meetings</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <img src="../../assets/logo.png" alt="MICO360" />
+          <div>
+            <strong>MICO360 Meetings</strong>
+            <span>Local AI minutes assistant</span>
+          </div>
+        </div>
+
+        <div class="search-box">
+          <input id="historySearch" type="search" placeholder="Search meetings" />
+        </div>
+        <div id="historyList" class="history-list"></div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h1>MICO360 Meetings</h1>
+            <p>Generate confidential meeting minutes locally with Ollama and Whisper.</p>
+          </div>
+          <div class="top-actions">
+            <button id="newProject" class="secondary">New Project</button>
+            <button id="saveProjectTop" class="primary">Save Project</button>
+            <button id="themeToggle" class="icon-button" title="Toggle dark and light mode">Theme</button>
+            <button id="settingsToggle" class="secondary">Settings</button>
+          </div>
+        </header>
+
+        <section id="settingsPanel" class="settings-panel hidden" aria-label="Application settings">
+          <div class="settings-header">
+            <div>
+              <strong>Settings</strong>
+              <span>Configure local AI, transcription, PDF profiles, and saved prompts.</span>
+            </div>
+            <div class="button-group">
+              <button id="settingsSave" class="primary">Save Settings</button>
+              <button id="settingsClose" class="secondary">Close</button>
+            </div>
+          </div>
+          <div class="settings-tabs" role="tablist">
+            <button class="settings-tab active" data-tab="ai">AI</button>
+            <button class="settings-tab" data-tab="transcription">Transcription</button>
+            <button class="settings-tab" data-tab="company">PDF Profile</button>
+            <button class="settings-tab" data-tab="prompts">Prompts</button>
+          </div>
+
+          <div class="settings-content active" data-pane="ai">
+            <div class="settings-copy">
+              <strong>Local AI</strong>
+              <span>Use a local text model for minutes generation. The same model and style controls are available in the generation row.</span>
+            </div>
+            <div class="summary-chip">
+              <span>Active model</span>
+              <strong id="selectedModelLabel">Not loaded</strong>
+            </div>
+            <div class="summary-chip">
+              <span>Output style</span>
+              <strong id="selectedStyleLabel">Formal Minutes</strong>
+            </div>
+            <button id="refreshModels" class="secondary" title="Refresh local Ollama models">Refresh Models</button>
+            <div class="update-box wide">
+              <div>
+                <strong>Application Updates</strong>
+                <span id="updateStatus">Updates are delivered from the official GitHub release channel.</span>
+              </div>
+              <div class="button-group">
+                <button id="checkUpdates" class="secondary">Check Updates</button>
+                <button id="installUpdate" class="primary" disabled>Install Update</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-content" data-pane="transcription">
+            <div class="settings-copy">
+              <strong>Speech To Text</strong>
+              <span>Bundled FFmpeg handles media conversion. Whisper runs locally through the selected engine.</span>
+            </div>
+            <div class="field">
+              <label for="engineSelect">Engine</label>
+              <select id="engineSelect">
+                <option value="faster-whisper">faster-whisper</option>
+                <option value="openai-whisper">OpenAI Whisper CLI</option>
+                <option value="whisper.cpp">whisper.cpp</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="whisperModel">Whisper model</label>
+              <input id="whisperModel" value="tiny" />
+            </div>
+            <div class="field">
+              <label for="languageInput">Language</label>
+              <input id="languageInput" placeholder="Optional, e.g. en" />
+            </div>
+            <div class="field wide">
+              <label for="whisperCppModel">whisper.cpp model path</label>
+              <input id="whisperCppModel" placeholder="C:\\models\\ggml-base.en.bin" />
+            </div>
+            <div class="field wide">
+              <label for="ffmpegPath">Custom FFmpeg path</label>
+              <input id="ffmpegPath" placeholder="Optional custom ffmpeg.exe path" />
+            </div>
+          </div>
+
+          <div class="settings-content" data-pane="company">
+            <div class="settings-copy">
+              <strong>PDF Company Profiles</strong>
+              <span>Create, import, export, and preview branded company profiles. Each profile can use its own logo and layout settings.</span>
+            </div>
+            <div class="field wide">
+              <label for="companyProfileSelect">Active profile</label>
+              <select id="companyProfileSelect"></select>
+            </div>
+            <div class="field">
+              <label for="companyProfileName">Profile name</label>
+              <input id="companyProfileName" placeholder="MICO360" />
+            </div>
+            <div class="field">
+              <label for="companyName">Company name</label>
+              <input id="companyName" placeholder="MICO360" />
+            </div>
+            <div class="field wide">
+              <label for="companyAddress">Address</label>
+              <input id="companyAddress" placeholder="Company address" />
+            </div>
+            <div class="field">
+              <label for="contactPerson">Contact person</label>
+              <input id="contactPerson" placeholder="Contact name" />
+            </div>
+            <div class="field">
+              <label for="contactEmail">Email</label>
+              <input id="contactEmail" placeholder="name@company.com" />
+            </div>
+            <div class="field">
+              <label for="contactPhone">Phone</label>
+              <input id="contactPhone" placeholder="+1 000 000 0000" />
+            </div>
+            <div class="field">
+              <label for="companyWebsite">Website</label>
+              <input id="companyWebsite" placeholder="https://company.com" />
+            </div>
+            <div class="field">
+              <label for="preparedBy">Prepared by</label>
+              <input id="preparedBy" placeholder="MICO360 Meetings" />
+            </div>
+            <div class="field">
+              <label for="classification">Classification</label>
+              <select id="classification">
+                <option>Confidential</option>
+                <option>Internal</option>
+                <option>Public</option>
+                <option>Draft</option>
+              </select>
+            </div>
+            <label class="check-field">
+              <input id="includeLogo" type="checkbox" />
+              <span>Include logo in PDF</span>
+            </label>
+            <div class="field wide">
+              <label for="pdfFooter">PDF footer</label>
+              <input id="pdfFooter" placeholder="Generated locally by MICO360 Meetings" />
+            </div>
+            <div class="field wide">
+              <label for="logoPath">Logo file</label>
+              <div class="inline-control">
+                <input id="logoPath" readonly placeholder="Default MICO360 logo" />
+                <button id="chooseLogo" class="secondary">Choose Logo</button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="logoPosition">Logo position</label>
+              <select id="logoPosition">
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+                <option value="top">Top</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="logoWidth">Logo width</label>
+              <input id="logoWidth" type="number" min="48" max="260" step="1" />
+            </div>
+            <div class="field">
+              <label for="logoCustomX">Custom X</label>
+              <input id="logoCustomX" type="number" min="0" max="612" step="1" />
+            </div>
+            <div class="field">
+              <label for="logoCustomY">Custom Y</label>
+              <input id="logoCustomY" type="number" min="0" max="792" step="1" />
+            </div>
+            <label class="check-field">
+              <input id="enablePageNumbers" type="checkbox" />
+              <span>Enable page numbers</span>
+            </label>
+            <div class="field">
+              <label for="pageNumberPosition">Page number position</label>
+              <select id="pageNumberPosition">
+                <option value="footer-right">Footer right</option>
+                <option value="footer-center">Footer center</option>
+                <option value="footer-left">Footer left</option>
+                <option value="header-right">Header right</option>
+                <option value="header-center">Header center</option>
+                <option value="header-left">Header left</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="footerAlignment">Footer alignment</label>
+              <select id="footerAlignment">
+                <option value="left">Left</option>
+                <option value="center">Center</option>
+                <option value="right">Right</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="footerSpacing">Footer spacing</label>
+              <input id="footerSpacing" type="number" min="18" max="72" step="1" />
+            </div>
+            <div class="field wide">
+              <label for="profileNotes">Profile notes</label>
+              <input id="profileNotes" placeholder="Optional notes or imported document text" />
+            </div>
+            <div class="profile-actions">
+              <button id="newProfile" class="secondary">New Profile</button>
+              <button id="saveProfile" class="secondary">Save Profile</button>
+              <button id="deleteProfile" class="secondary danger">Delete</button>
+              <button id="importProfiles" class="secondary">Import</button>
+              <select id="profileExportFormat">
+                <option value="pdf">PDF</option>
+                <option value="docx">Word</option>
+                <option value="xlsx">Excel</option>
+                <option value="csv">CSV</option>
+                <option value="json">JSON</option>
+              </select>
+              <button id="exportProfile" class="secondary">Export Active</button>
+              <button id="exportAllProfiles" class="secondary">Export All</button>
+            </div>
+            <div class="profile-preview wide">
+              <div class="preview-page">
+                <div id="previewLogo" class="preview-logo">Logo</div>
+                <div class="preview-header">
+                  <strong id="previewCompany">MICO360</strong>
+                  <span id="previewContact">Contact details</span>
+                </div>
+                <div class="preview-body">
+                  <span>Meeting Minutes Preview</span>
+                  <p>Profile layout preview for exported PDF and documents.</p>
+                </div>
+                <div id="previewFooter" class="preview-footer">Generated locally by MICO360 Meetings</div>
+                <div id="previewPageNumber" class="preview-page-number">Page 1</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-content prompt-settings" data-pane="prompts">
+            <div class="settings-copy">
+              <strong>Prompt Library</strong>
+              <span>Create named prompts, save them locally, and keep [TRANSCRIPT_HERE] where transcript text should be inserted.</span>
+            </div>
+            <div class="field">
+              <label for="promptPreset">Preset</label>
+              <select id="promptPreset"></select>
+            </div>
+            <div class="field">
+              <label for="promptName">Prompt name</label>
+              <input id="promptName" placeholder="My minutes prompt" />
+            </div>
+            <div class="button-group">
+              <button id="applyPromptPreset" class="secondary">Apply Preset</button>
+              <button id="savePrompt" class="secondary">Save Prompt</button>
+              <button id="deletePrompt" class="secondary danger">Delete Prompt</button>
+              <button id="resetPrompt" class="secondary">Reset</button>
+            </div>
+            <textarea id="promptTemplate"></textarea>
+          </div>
+        </section>
+
+        <section class="controls-row">
+          <div class="field">
+            <label for="projectTitle">Meeting title</label>
+            <input id="projectTitle" placeholder="Optional project title" />
+          </div>
+          <div class="field">
+            <label for="modelSelect">Ollama model</label>
+            <div class="inline-control">
+              <select id="modelSelect"></select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="styleSelect">Output style</label>
+            <select id="styleSelect"></select>
+          </div>
+          <button id="generateBtn" class="primary">Generate Minutes</button>
+        </section>
+
+        <section class="grid">
+          <div class="panel input-panel">
+            <div class="panel-header">
+              <h2>Input</h2>
+              <div class="button-group">
+                <button id="chooseFile" class="secondary">Upload File</button>
+                <button id="recordMic" class="secondary">Record Mic</button>
+                <button id="recordScreen" class="secondary">Record Screen</button>
+              </div>
+            </div>
+
+            <div id="dropZone" class="drop-zone">
+              <strong>Drag audio, video, or transcript here</strong>
+              <span>MP3, WAV, M4A, MP4, MOV, MKV, TXT, MD</span>
+              <small id="selectedFile">No file selected</small>
+            </div>
+
+            <label class="text-label" for="transcriptInput">Transcript</label>
+            <textarea id="transcriptInput" placeholder="Paste or transcribe a meeting transcript here."></textarea>
+          </div>
+
+          <div class="panel output-panel">
+            <div class="panel-header">
+              <h2>Minutes</h2>
+              <div class="button-group">
+                <button id="copyBtn" class="secondary">Copy</button>
+                <button id="saveProject" class="secondary">Save Edits</button>
+                <button data-export="docx" class="secondary">DOCX</button>
+                <button data-export="pdf" class="secondary">PDF</button>
+                <button data-export="txt" class="secondary">TXT</button>
+              </div>
+            </div>
+            <textarea id="minutesOutput" placeholder="Generated minutes will appear here and can be edited before export."></textarea>
+          </div>
+        </section>
+
+        <footer class="statusbar">
+          <div>
+            <strong id="statusText">Ready</strong>
+            <span id="progressDetail">Meeting data stays local. Ollama is called only on 127.0.0.1.</span>
+          </div>
+          <div class="progress-wrap">
+            <progress id="progressBar" max="100" value="0"></progress>
+            <span id="progressPercent">0%</span>
+          </div>
+        </footer>
+      </main>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>

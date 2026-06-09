@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "MICO360 Meetings Capture",
+  "version": "1.0.0",
+  "description": "Copy selected meeting transcript text for MICO360 Meetings.",
+  "permissions": ["activeTab", "scripting", "clipboardWrite"],
+  "action": {
+    "default_title": "Capture transcript",
+    "default_popup": "popup.html"
+  }
+}

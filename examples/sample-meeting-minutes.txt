@@ -1,0 +1,46 @@
+Meeting Title
+- Q3 Operations Planning
+
+Date and Time
+- 2026-06-08 10:00 AM
+
+Attendees
+- Sara Khan
+- Omar Lewis
+- Priya Menon
+- Daniel Reed
+
+Purpose of Meeting
+- Confirm the Q3 operations plan and agree on owners for open items.
+
+Meeting Summary
+- The team reviewed the warehouse migration timeline, budget approval dependency, customer communication needs, and vendor availability risk. The migration target remains July 28 if the vendor quote and budget approval are completed on time.
+
+Key Discussion Points
+- Warehouse migration is currently on schedule.
+- Vendor availability in the final week of July is a risk.
+- Finance requires the final vendor quote by June 20.
+- Customer notices can be prepared by June 24 after the downtime window is confirmed.
+
+Decisions Made
+- Keep the warehouse migration target date as July 28, provided budget approval is confirmed by June 21.
+
+Action Items
+| Task | Responsible Person | Deadline | Status |
+| --- | --- | --- | --- |
+| Confirm vendor availability and send final quote | Omar Lewis | June 20 | Pending |
+| Review quote and confirm budget approval | Priya Menon | June 21 | Pending |
+| Draft customer notices | Daniel Reed | June 24 | Pending |
+
+Pending Issues
+- Exact downtime window is not specified.
+
+Risks or Concerns
+- Vendor availability may affect the final July migration schedule.
+- Budget approval depends on receiving the final vendor quote on time.
+
+Next Meeting Notes
+- Next meeting is scheduled for June 22 at 11:00 AM to review approval and readiness.
+
+Closing Summary
+- Owners and deadlines were assigned. The project remains on track, with vendor and budget confirmation as the main dependencies.
