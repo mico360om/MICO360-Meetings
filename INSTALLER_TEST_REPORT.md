@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.11
+Installer version: 1.0.12
 
 ## Installer Scope
 
@@ -65,6 +65,7 @@ Configuration is written to:
 | In-app error and success messages | Replaced blocking error alerts with responsive in-app toast messages and wrapped profile import/export errors | Fixed in 1.0.10 |
 | Desktop viewport fit | Updated wide desktop shell so panels and status bar fit inside the viewport while smaller screens remain scrollable | Fixed in 1.0.10 |
 | Re-transcript action | Added Re-Transcript button to reprocess the selected upload/recording and replace the transcript with a fresh result | Fixed in 1.0.11 |
+| Recording details panel | Added live audio/video recording status, timer, file metadata, device details, pause/resume/stop/save/cancel controls, and stopped summary | Fixed in 1.0.12 |
 
 ## Bugs Found And Fixed
 
@@ -143,6 +144,10 @@ Configuration is written to:
 19. Users needed a quick way to transcribe the same upload again.
    - Cause: Uploading the same file again appended text, and there was no dedicated re-transcription action.
    - Fix: Added a `Re-Transcript` button that reprocesses the selected upload or recording and replaces the transcript content with the new result.
+
+20. Audio/video recording needed clear live details and controls.
+   - Cause: Recording only changed the button text and immediately saved/transcribed on stop, leaving users without a clear recording status, timer, device details, file metadata, or save/cancel choice.
+   - Fix: Added a responsive recording panel with Recording/Paused/Stopped states, blinking red indicator, timer, start time, generated file name, WebM format, quality/resolution, microphone/video status, live file size, save location, Pause/Resume/Stop/Save/Cancel controls, and a stopped recording summary.
 
 ## Clean-System Test Note
 

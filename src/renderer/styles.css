@@ -502,6 +502,144 @@ h2 {
   color: var(--danger);
 }
 
+.recording-panel {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 12px;
+  border: 1px solid color-mix(in srgb, var(--brand) 25%, var(--line));
+  border-radius: 8px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--brand) 4%, var(--panel));
+}
+
+.recording-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+
+.recording-head strong,
+.recording-head span,
+.recording-details strong,
+.recording-details span,
+.recording-summary strong,
+.recording-summary span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recording-head strong {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.recording-dot {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--brand);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--brand) 12%, transparent);
+}
+
+.recording-panel[data-status="recording"] .recording-dot {
+  animation: recordingPulse 1s ease-in-out infinite;
+}
+
+.recording-panel[data-status="paused"] .recording-dot {
+  background: #b36b00;
+}
+
+.recording-panel[data-status="stopped"] .recording-dot {
+  background: var(--muted);
+  box-shadow: none;
+}
+
+.recording-timer {
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: var(--panel);
+  color: var(--brand);
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+}
+
+.recording-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 132px), 1fr));
+  gap: 8px;
+}
+
+.recording-details div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: var(--panel);
+}
+
+.recording-details span,
+.recording-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.recording-details strong {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.recording-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 6px;
+}
+
+.input-panel:has(.recording-panel:not(.hidden)) {
+  overflow: auto;
+}
+
+.input-panel:has(.recording-panel:not(.hidden)) .panel-header {
+  margin-bottom: 8px;
+}
+
+.input-panel:has(.recording-panel:not(.hidden)) .panel-header .button-group,
+.input-panel:has(.recording-panel:not(.hidden)) .drop-zone,
+.input-panel:has(.recording-panel:not(.hidden)) .file-queue {
+  display: none;
+}
+
+.input-panel:has(.recording-panel:not(.hidden)) #transcriptInput {
+  min-height: 180px;
+}
+
+.recording-summary {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--panel);
+}
+
+@keyframes recordingPulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
 textarea {
   width: 100%;
   min-width: 0;

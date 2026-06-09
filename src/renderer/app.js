@@ -4,6 +4,7 @@ const state = {
   currentProject: null,
   mediaRecorder: null,
   recordedChunks: [],
+  recording: null,
   settings: {},
   projects: []
 };
@@ -77,6 +78,25 @@ const elements = {
   saveProject: $("#saveProject"),
   recordMic: $("#recordMic"),
   recordScreen: $("#recordScreen"),
+  recordingPanel: $("#recordingPanel"),
+  recordingStatus: $("#recordingStatus"),
+  recordingType: $("#recordingType"),
+  recordingTimer: $("#recordingTimer"),
+  recordingStart: $("#recordingStart"),
+  recordingFileName: $("#recordingFileName"),
+  recordingFormat: $("#recordingFormat"),
+  recordingQuality: $("#recordingQuality"),
+  recordingMicStatus: $("#recordingMicStatus"),
+  recordingCameraStatus: $("#recordingCameraStatus"),
+  recordingFileSize: $("#recordingFileSize"),
+  recordingSaveLocation: $("#recordingSaveLocation"),
+  pauseRecording: $("#pauseRecording"),
+  resumeRecording: $("#resumeRecording"),
+  stopRecording: $("#stopRecording"),
+  saveRecording: $("#saveRecording"),
+  cancelRecording: $("#cancelRecording"),
+  recordingSummary: $("#recordingSummary"),
+  recordingSummaryText: $("#recordingSummaryText"),
   statusText: $("#statusText"),
   progressDetail: $("#progressDetail"),
   progressBar: $("#progressBar"),
@@ -432,6 +452,40 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function formatDuration(ms = 0) {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+    : `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatFileSize(bytes = 0) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function getRecordingFileName(kind) {
+  const label = kind === "screen" ? "video" : "audio";
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
+  return `mico360-${label}-recording-${stamp}.webm`;
+}
+
+function getTrackSummary(track) {
+  if (!track) return "Inactive";
+  const settings = track.getSettings?.() || {};
+  if (settings.width || settings.height) {
+    const size = [settings.width, settings.height].filter(Boolean).join("x");
+    return [size, settings.frameRate ? `${Math.round(settings.frameRate)} fps` : ""].filter(Boolean).join(" @ ");
+  }
+  return [settings.sampleRate ? `${settings.sampleRate} Hz` : "", settings.channelCount ? `${settings.channelCount} channel${settings.channelCount === 1 ? "" : "s"}` : ""]
+    .filter(Boolean)
+    .join(", ") || "Active";
+}
+
 function normalizeFilePaths(input) {
   if (!input) return [];
   const values = Array.isArray(input) ? input : [input];
@@ -556,8 +610,8 @@ async function exportCurrent(format) {
 }
 
 async function startRecording(kind) {
-  if (state.mediaRecorder?.state === "recording") {
-    state.mediaRecorder.stop();
+  if (state.mediaRecorder && state.recording?.status !== "stopped") {
+    showError(new Error("A recording is already active. Stop or cancel it before starting another recording."));
     return;
   }
 
@@ -566,27 +620,197 @@ async function startRecording(kind) {
       ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
       : await navigator.mediaDevices.getUserMedia({ audio: true });
 
+    const audioTrack = stream.getAudioTracks()[0];
+    const videoTrack = stream.getVideoTracks()[0];
+    const preferredMimeType = kind === "screen" ? "video/webm;codecs=vp9,opus" : "audio/webm;codecs=opus";
+    const fallbackMimeType = kind === "screen" ? "video/webm" : "audio/webm";
+    const mimeType = MediaRecorder.isTypeSupported(preferredMimeType)
+      ? preferredMimeType
+      : fallbackMimeType;
+    const startedAt = new Date();
+
     state.recordedChunks = [];
-    state.mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm" });
+    state.recording = {
+      kind,
+      stream,
+      startedAt,
+      pausedMs: 0,
+      pausedAt: null,
+      status: "recording",
+      fileName: getRecordingFileName(kind),
+      filePath: "",
+      blob: null,
+      bytes: 0,
+      mimeType,
+      audioSummary: getTrackSummary(audioTrack),
+      videoSummary: kind === "screen" ? getTrackSummary(videoTrack) : "Not used",
+      wasCancelled: false
+    };
+
+    state.mediaRecorder = new MediaRecorder(stream, { mimeType });
     state.mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size) state.recordedChunks.push(event.data);
+      if (!event.data.size) return;
+      state.recordedChunks.push(event.data);
+      state.recording.bytes += event.data.size;
+      updateRecordingPanel();
     };
-    state.mediaRecorder.onstop = async () => {
-      stream.getTracks().forEach((track) => track.stop());
-      const blob = new Blob(state.recordedChunks, { type: "audio/webm" });
-      const buffer = await blob.arrayBuffer();
-      const filePath = await window.mico360.saveRecording({ buffer, extension: "webm" });
-      await handleFiles([filePath]);
-      elements.recordMic.textContent = "Record Mic";
-      elements.recordScreen.textContent = "Record Screen";
+    state.mediaRecorder.onstop = () => {
+      stopRecordingTimer();
+      state.recording.stream.getTracks().forEach((track) => track.stop());
+      state.recording.status = "stopped";
+      state.recording.blob = state.recording.wasCancelled
+        ? null
+        : new Blob(state.recordedChunks, { type: mimeType });
+      state.recording.bytes = state.recording.blob?.size || state.recording.bytes;
+      updateRecordingPanel();
+      if (state.recording.wasCancelled) {
+        resetRecordingState("Recording cancelled.");
+      } else {
+        showRecordingSummary("Stopped. Review the summary, then save or cancel.");
+        showStatus("Recording stopped. Save or cancel the recording.", 80);
+      }
     };
-    state.mediaRecorder.start();
-    if (kind === "screen") elements.recordScreen.textContent = "Stop Screen";
-    else elements.recordMic.textContent = "Stop Mic";
-    showStatus("Recording locally. Press stop when finished.", 20);
+    state.mediaRecorder.start(1000);
+    startRecordingTimer();
+    updateRecordingPanel();
+    showStatus(`${kind === "screen" ? "Video" : "Audio"} recording started.`, 20);
   } catch (error) {
     showError(error);
   }
+}
+
+function getActiveRecordingDuration() {
+  if (!state.recording?.startedAt) return 0;
+  const paused = state.recording.pausedMs + (state.recording.pausedAt ? Date.now() - state.recording.pausedAt : 0);
+  return Date.now() - state.recording.startedAt.getTime() - paused;
+}
+
+function updateRecordingPanel() {
+  const recording = state.recording;
+  if (!recording) {
+    elements.recordingPanel.classList.add("hidden");
+    return;
+  }
+
+  const isRecording = recording.status === "recording";
+  const isPaused = recording.status === "paused";
+  const isStopped = recording.status === "stopped";
+  elements.recordingPanel.classList.remove("hidden");
+  elements.recordingPanel.dataset.status = recording.status;
+  elements.recordingStatus.textContent = isRecording ? "Recording" : isPaused ? "Paused" : "Stopped";
+  elements.recordingType.textContent = `Recording type: ${recording.kind === "screen" ? "Video / screen with audio" : "Audio"}`;
+  elements.recordingTimer.textContent = formatDuration(isStopped ? recording.durationMs : getActiveRecordingDuration());
+  elements.recordingStart.textContent = recording.startedAt.toLocaleString();
+  elements.recordingFileName.textContent = recording.fileName;
+  elements.recordingFormat.textContent = "WebM";
+  elements.recordingQuality.textContent = recording.kind === "screen" ? recording.videoSummary : recording.audioSummary;
+  elements.recordingMicStatus.textContent = recording.audioSummary === "Inactive" ? "Inactive" : isPaused ? "Paused" : "Active";
+  elements.recordingCameraStatus.textContent = recording.kind === "screen" ? recording.videoSummary : "Not used for audio recording";
+  elements.recordingFileSize.textContent = formatFileSize(recording.bytes);
+  elements.recordingSaveLocation.textContent = recording.filePath || "App recordings folder";
+
+  elements.pauseRecording.disabled = !isRecording;
+  elements.resumeRecording.disabled = !isPaused;
+  elements.stopRecording.disabled = isStopped;
+  elements.saveRecording.disabled = !isStopped || !recording.blob;
+  elements.cancelRecording.disabled = false;
+  elements.recordMic.disabled = !isStopped;
+  elements.recordScreen.disabled = !isStopped;
+}
+
+function startRecordingTimer() {
+  stopRecordingTimer();
+  state.recording.timerId = setInterval(updateRecordingPanel, 500);
+}
+
+function stopRecordingTimer() {
+  if (state.recording?.timerId) clearInterval(state.recording.timerId);
+}
+
+function pauseRecording() {
+  if (state.mediaRecorder?.state !== "recording") return;
+  state.mediaRecorder.pause();
+  state.recording.status = "paused";
+  state.recording.pausedAt = Date.now();
+  updateRecordingPanel();
+  showStatus("Recording paused", 40);
+}
+
+function resumeRecording() {
+  if (state.mediaRecorder?.state !== "paused") return;
+  state.mediaRecorder.resume();
+  state.recording.pausedMs += Date.now() - state.recording.pausedAt;
+  state.recording.pausedAt = null;
+  state.recording.status = "recording";
+  updateRecordingPanel();
+  showStatus("Recording resumed", 40);
+}
+
+function stopRecording() {
+  if (!state.mediaRecorder || state.recording?.status === "stopped") return;
+  state.recording.durationMs = getActiveRecordingDuration();
+  state.mediaRecorder.stop();
+}
+
+async function saveStoppedRecording() {
+  if (!state.recording?.blob) {
+    showError(new Error("No stopped recording is ready to save."));
+    return;
+  }
+
+  try {
+    elements.saveRecording.disabled = true;
+    showStatus("Saving recording...", 85);
+    const buffer = await state.recording.blob.arrayBuffer();
+    const filePath = await window.mico360.saveRecording({ buffer, extension: "webm" });
+    state.recording.filePath = filePath;
+    state.recording.fileName = filePath.split(/[\\/]/).pop() || state.recording.fileName;
+    updateRecordingPanel();
+    showRecordingSummary("Saved and ready for transcription.");
+    showStatus("Recording saved. Transcribing now...", 90);
+    await handleFiles([filePath], { replaceTranscript: false });
+    resetRecordingState("Recording saved and transcribed.");
+  } catch (error) {
+    showError(error);
+    updateRecordingPanel();
+  }
+}
+
+function cancelRecording() {
+  if (!state.recording) return;
+  if (state.mediaRecorder && state.recording.status !== "stopped") {
+    state.recording.wasCancelled = true;
+    state.mediaRecorder.stop();
+    return;
+  }
+  resetRecordingState("Recording discarded.");
+}
+
+function showRecordingSummary(message) {
+  const recording = state.recording;
+  if (!recording) return;
+  elements.recordingSummary.classList.remove("hidden");
+  elements.recordingSummaryText.textContent = [
+    message,
+    `Duration: ${formatDuration(recording.durationMs || getActiveRecordingDuration())}`,
+    `File: ${recording.fileName}`,
+    "Format: WebM",
+    `Size: ${formatFileSize(recording.bytes)}`,
+    `Location: ${recording.filePath || "Not saved yet"}`
+  ].join(" | ");
+}
+
+function resetRecordingState(message) {
+  stopRecordingTimer();
+  state.mediaRecorder = null;
+  state.recordedChunks = [];
+  state.recording?.stream?.getTracks().forEach((track) => track.stop());
+  state.recording = null;
+  elements.recordingPanel.classList.add("hidden");
+  elements.recordingSummary.classList.add("hidden");
+  elements.recordMic.disabled = false;
+  elements.recordScreen.disabled = false;
+  showStatus(message, 100);
 }
 
 function wireEvents() {
@@ -597,6 +821,7 @@ function wireEvents() {
     showStatus("Settings saved", 100);
   });
   elements.newProject.addEventListener("click", () => {
+    if (state.recording) resetRecordingState("Recording discarded.");
     state.currentProject = null;
     state.selectedFile = null;
     state.selectedFiles = [];
@@ -881,6 +1106,11 @@ function wireEvents() {
   });
   elements.recordMic.addEventListener("click", () => startRecording("mic"));
   elements.recordScreen.addEventListener("click", () => startRecording("screen"));
+  elements.pauseRecording.addEventListener("click", pauseRecording);
+  elements.resumeRecording.addEventListener("click", resumeRecording);
+  elements.stopRecording.addEventListener("click", stopRecording);
+  elements.saveRecording.addEventListener("click", saveStoppedRecording);
+  elements.cancelRecording.addEventListener("click", cancelRecording);
   elements.historySearch.addEventListener("input", () => renderHistory(elements.historySearch.value));
   elements.historyList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-id]");

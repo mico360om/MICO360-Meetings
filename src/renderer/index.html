@@ -326,6 +326,39 @@
               <small id="selectedFile">No file selected</small>
             </div>
             <div id="fileQueue" class="file-queue" aria-live="polite"></div>
+            <section id="recordingPanel" class="recording-panel hidden" aria-live="polite">
+              <div class="recording-head">
+                <div>
+                  <strong><span class="recording-dot"></span><span id="recordingStatus">Stopped</span></strong>
+                  <span id="recordingType">Recording type: Not active</span>
+                </div>
+                <strong id="recordingTimer" class="recording-timer">00:00</strong>
+              </div>
+
+              <div class="recording-details">
+                <div><span>Start</span><strong id="recordingStart">Not started</strong></div>
+                <div><span>File name</span><strong id="recordingFileName">Not generated</strong></div>
+                <div><span>Format</span><strong id="recordingFormat">WebM</strong></div>
+                <div><span>Quality</span><strong id="recordingQuality">Not available</strong></div>
+                <div><span>Microphone</span><strong id="recordingMicStatus">Inactive</strong></div>
+                <div><span>Camera / Video</span><strong id="recordingCameraStatus">Inactive</strong></div>
+                <div><span>File size</span><strong id="recordingFileSize">0 KB</strong></div>
+                <div><span>Save location</span><strong id="recordingSaveLocation">App recordings folder</strong></div>
+              </div>
+
+              <div class="recording-controls">
+                <button id="pauseRecording" class="secondary" disabled>Pause</button>
+                <button id="resumeRecording" class="secondary" disabled>Resume</button>
+                <button id="stopRecording" class="secondary danger" disabled>Stop</button>
+                <button id="saveRecording" class="primary" disabled>Save</button>
+                <button id="cancelRecording" class="secondary danger" disabled>Cancel</button>
+              </div>
+
+              <div id="recordingSummary" class="recording-summary hidden">
+                <strong>Recording Summary</strong>
+                <span id="recordingSummaryText">No recording saved yet.</span>
+              </div>
+            </section>
 
             <label class="text-label" for="transcriptInput">Transcript</label>
             <textarea id="transcriptInput" placeholder="Paste or transcribe a meeting transcript here."></textarea>

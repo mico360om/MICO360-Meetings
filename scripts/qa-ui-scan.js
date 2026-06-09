@@ -141,6 +141,30 @@ async function main() {
   }
 
   await page.setViewportSize({ width: 1366, height: 900 });
+  await page.evaluate(() => {
+    document.querySelector("#recordingPanel").classList.remove("hidden");
+    document.querySelector("#recordingPanel").dataset.status = "recording";
+    document.querySelector("#recordingStatus").textContent = "Recording";
+    document.querySelector("#recordingType").textContent = "Recording type: Video / screen with audio";
+    document.querySelector("#recordingTimer").textContent = "03:14";
+    document.querySelector("#recordingStart").textContent = "09/06/2026, 21:30:00";
+    document.querySelector("#recordingFileName").textContent = "mico360-video-recording-2026-06-09-21-30-00.webm";
+    document.querySelector("#recordingFormat").textContent = "WebM";
+    document.querySelector("#recordingQuality").textContent = "1920x1080 @ 30 fps";
+    document.querySelector("#recordingMicStatus").textContent = "Active";
+    document.querySelector("#recordingCameraStatus").textContent = "1920x1080 @ 30 fps";
+    document.querySelector("#recordingFileSize").textContent = "8.42 MB";
+    document.querySelector("#recordingSaveLocation").textContent = "App recordings folder";
+  });
+  await page.waitForTimeout(250);
+  results.push({
+    viewport: "standard-desktop",
+    screen: "recording-active",
+    screenshot: await screenshot(page, "standard-desktop", "recording-active"),
+    issues: await collectLayoutIssues(page)
+  });
+
+  await page.setViewportSize({ width: 1366, height: 900 });
   await page.waitForTimeout(250);
   await page.click("#generateBtn");
   await page.waitForSelector(".toast.error", { timeout: 5000 });

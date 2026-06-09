@@ -1,6 +1,6 @@
 {
   "name": "mico360-meetings",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Local-first desktop meeting minutes assistant powered by Ollama and Whisper.",
   "main": "src/main/main.js",
   "author": "MICO360",
