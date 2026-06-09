@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.9
+Installer version: 1.0.10
 
 ## Installer Scope
 
@@ -61,6 +61,9 @@ Configuration is written to:
 | Multi-file upload ingestion | Verified local TXT, DOCX, PDF, and image detection/extraction helpers; lint and production audit passed | Fixed in 1.0.9 |
 | Prompt Library CRUD | Added New Prompt, Save Prompt, View/Edit, Delete, and responsive saved-prompt list UI | Fixed in 1.0.9 |
 | Upload disabled-state regression | Fixed remaining old single-file handler call used after recordings and kept model/style dropdowns enabled outside active processing | Fixed in 1.0.9 |
+| Full UI/UX regression pass | Added automated Electron UI scan covering dashboard, settings panes, validation toast, five viewport sizes, and screenshot capture with zero overflow findings | Fixed in 1.0.10 |
+| In-app error and success messages | Replaced blocking error alerts with responsive in-app toast messages and wrapped profile import/export errors | Fixed in 1.0.10 |
+| Desktop viewport fit | Updated wide desktop shell so panels and status bar fit inside the viewport while smaller screens remain scrollable | Fixed in 1.0.10 |
 
 ## Bugs Found And Fixed
 
@@ -123,6 +126,18 @@ Configuration is written to:
 15. Some controls could stop working after upload/recording flows.
    - Cause: Recording completion still called the removed single-file upload handler after the multi-file refactor.
    - Fix: Updated recording completion to use the multi-file ingestion path and verified renderer syntax checks pass.
+
+16. Error messages needed a more polished UX.
+   - Cause: Validation errors used blocking browser alerts, and profile import/export flows did not catch every failure.
+   - Fix: Added a responsive toast stack, kept status-bar messages visible, and wrapped logo/profile import/export actions with clear success and error handling.
+
+17. Standard desktop layout could require unnecessary vertical scrolling.
+   - Cause: Meeting panels used viewport-based minimum heights even when the status bar needed to remain visible.
+   - Fix: Added a wide-desktop contained shell with flexible panels and preserved normal scrolling for smaller screens.
+
+18. Complete app UI needed repeatable regression coverage.
+   - Cause: Responsive checks were manual and could miss future regressions.
+   - Fix: Added `npm run qa:ui`, which launches Electron, captures 26 screenshots, and checks dashboard/settings/validation surfaces across five viewport sizes for horizontal overflow and clipped controls.
 
 ## Clean-System Test Note
 

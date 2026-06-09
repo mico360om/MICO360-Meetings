@@ -80,6 +80,7 @@ const elements = {
   progressDetail: $("#progressDetail"),
   progressBar: $("#progressBar"),
   progressPercent: $("#progressPercent"),
+  toastStack: $("#toastStack"),
   historyList: $("#historyList"),
   historySearch: $("#historySearch"),
   engineSelect: $("#engineSelect"),
@@ -145,6 +146,21 @@ function showStatus(message, progress = null) {
   if (progress !== null) setProgress(progress, message);
 }
 
+function showToast(message, type = "info") {
+  if (!elements.toastStack) return;
+  const toast = document.createElement("div");
+  toast.className = `toast ${type}`;
+  toast.innerHTML = `
+    <strong>${type === "error" ? "Error" : type === "warning" ? "Warning" : "Notice"}</strong>
+    <span>${escapeHtml(message)}</span>
+    <button type="button" aria-label="Dismiss message">Dismiss</button>
+  `;
+  const dismiss = () => toast.remove();
+  toast.querySelector("button").addEventListener("click", dismiss);
+  elements.toastStack.appendChild(toast);
+  setTimeout(dismiss, type === "error" ? 9000 : 5200);
+}
+
 function setDirty(isDirty) {
   state.isDirty = isDirty;
   const title = state.currentProject?.title || elements.projectTitle.value.trim() || "Untitled Meeting";
@@ -156,7 +172,7 @@ function setDirty(isDirty) {
 function showError(error) {
   const message = error?.message || String(error);
   showStatus(message, 0);
-  alert(message);
+  showToast(message, "error");
 }
 
 function cleanMinutesText(text) {
@@ -637,6 +653,7 @@ function wireEvents() {
       showError(new Error("Keep at least one company profile."));
       return;
     }
+    if (!confirm("Delete this company profile?")) return;
     const activeId = elements.companyProfileSelect.value;
     const nextProfiles = profiles.filter((profile) => profile.id !== activeId);
     state.settings = await window.mico360.saveSettings({
@@ -648,39 +665,62 @@ function wireEvents() {
     showStatus("Company profile deleted", 100);
   });
   elements.chooseLogo.addEventListener("click", async () => {
-    const logoPath = await window.mico360.chooseLogo();
-    if (!logoPath) return;
-    elements.logoPath.value = logoPath;
-    await saveActiveProfile("Logo attached to profile");
+    try {
+      const logoPath = await window.mico360.chooseLogo();
+      if (!logoPath) return;
+      elements.logoPath.value = logoPath;
+      await saveActiveProfile("Logo attached to profile");
+    } catch (error) {
+      showError(error);
+    }
   });
   elements.importProfiles.addEventListener("click", async () => {
-    const imported = await window.mico360.importProfiles();
-    if (!imported?.length) return;
-    const profiles = [...imported, ...getProfiles()];
-    state.settings = await window.mico360.saveSettings({
-      ...getSettingsFromUi(),
-      companyProfiles: profiles,
-      activeCompanyProfileId: imported[0].id
-    });
-    renderCompanyProfiles();
-    showStatus(`Imported ${imported.length} company profile(s)`, 100);
+    try {
+      const imported = await window.mico360.importProfiles();
+      if (!imported?.length) return;
+      const profiles = [...imported, ...getProfiles()];
+      state.settings = await window.mico360.saveSettings({
+        ...getSettingsFromUi(),
+        companyProfiles: profiles,
+        activeCompanyProfileId: imported[0].id
+      });
+      renderCompanyProfiles();
+      showStatus(`Imported ${imported.length} company profile(s)`, 100);
+      showToast(`Imported ${imported.length} company profile(s).`);
+    } catch (error) {
+      showError(error);
+    }
   });
   elements.exportProfile.addEventListener("click", async () => {
-    await saveActiveProfile("Company profile saved for export");
-    const filePath = await window.mico360.exportProfiles({
-      format: elements.profileExportFormat.value,
-      profiles: [getProfileFromUi()]
-    });
-    if (filePath) showStatus(`Exported profile: ${filePath}`, 100);
+    try {
+      await saveActiveProfile("Company profile saved for export");
+      const filePath = await window.mico360.exportProfiles({
+        format: elements.profileExportFormat.value,
+        profiles: [getProfileFromUi()]
+      });
+      if (filePath) {
+        showStatus(`Exported profile: ${filePath}`, 100);
+        showToast(`Exported profile: ${filePath}`);
+      }
+    } catch (error) {
+      showError(error);
+    }
   });
   elements.exportAllProfiles.addEventListener("click", async () => {
-    const profiles = currentProfilesWithActive();
-    state.settings = await window.mico360.saveSettings({ ...getSettingsFromUi(), companyProfiles: profiles });
-    const filePath = await window.mico360.exportProfiles({
-      format: elements.profileExportFormat.value,
-      profiles
-    });
-    if (filePath) showStatus(`Exported profiles: ${filePath}`, 100);
+    try {
+      const profiles = currentProfilesWithActive();
+      state.settings = await window.mico360.saveSettings({ ...getSettingsFromUi(), companyProfiles: profiles });
+      const filePath = await window.mico360.exportProfiles({
+        format: elements.profileExportFormat.value,
+        profiles
+      });
+      if (filePath) {
+        showStatus(`Exported profiles: ${filePath}`, 100);
+        showToast(`Exported profiles: ${filePath}`);
+      }
+    } catch (error) {
+      showError(error);
+    }
   });
   [
     elements.companyProfileName,
@@ -763,6 +803,15 @@ function wireEvents() {
   });
   elements.deletePrompt.addEventListener("click", async () => {
     const name = elements.promptName.value.trim();
+    if (!name) {
+      showError(new Error("Choose a saved prompt before deleting."));
+      return;
+    }
+    if (!(state.settings.customPrompts || []).some((prompt) => prompt.name === name)) {
+      showError(new Error("This prompt is a built-in preset or has not been saved yet."));
+      return;
+    }
+    if (!confirm(`Delete prompt "${name}"?`)) return;
     const prompts = (state.settings.customPrompts || []).filter((prompt) => prompt.name !== name);
     state.settings = await window.mico360.saveSettings({
       ...getSettingsFromUi(),
@@ -797,6 +846,7 @@ function wireEvents() {
       return;
     }
     if (button.dataset.promptAction === "delete") {
+      if (!confirm(`Delete prompt "${name}"?`)) return;
       state.settings = await window.mico360.saveSettings({
         ...getSettingsFromUi(),
         customPrompts: prompts.filter((item) => item.name !== name)

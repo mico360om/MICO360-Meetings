@@ -10,5 +10,6 @@ yarn-error.log*
 !.env.example
 *.local
 coverage/
+qa-artifacts/
 .DS_Store
 Thumbs.db

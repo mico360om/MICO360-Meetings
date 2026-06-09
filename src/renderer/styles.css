@@ -75,6 +75,15 @@ button:hover {
   border-color: var(--focus);
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--focus) 36%, transparent);
+  outline-offset: 2px;
+  border-color: var(--focus);
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -196,6 +205,10 @@ button:disabled {
   transform: translateY(-1px);
 }
 
+.history-item:focus-visible {
+  transform: none;
+}
+
 .history-item span {
   margin-top: 4px;
   font-size: 12px;
@@ -208,6 +221,67 @@ button:disabled {
   flex-direction: column;
   gap: 12px;
   padding: var(--space);
+}
+
+.app-shell:has(.settings-panel:not(.hidden))::after {
+  content: "";
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  background: rgba(10, 12, 15, 0.18);
+}
+
+.toast-stack {
+  position: fixed;
+  z-index: 60;
+  right: clamp(10px, 2vw, 24px);
+  bottom: clamp(10px, 2vw, 24px);
+  display: grid;
+  width: min(420px, calc(100vw - 20px));
+  gap: 10px;
+  pointer-events: none;
+}
+
+.toast {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--brand);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+
+.toast.error {
+  border-left-color: var(--brand);
+}
+
+.toast.warning {
+  border-left-color: #b36b00;
+}
+
+.toast strong,
+.toast span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.toast button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 12px;
 }
 
 .topbar,
@@ -808,6 +882,35 @@ progress {
   }
 }
 
+@media (min-width: 1181px) {
+  .app-shell {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .sidebar,
+  .workspace,
+  .grid,
+  .panel {
+    min-height: 0;
+  }
+
+  .workspace,
+  .grid,
+  .panel {
+    overflow: hidden;
+  }
+
+  .panel {
+    min-height: 0;
+  }
+
+  #transcriptInput,
+  #minutesOutput {
+    min-height: 220px;
+  }
+}
+
 @media (max-width: 1180px) {
   .app-shell {
     grid-template-columns: minmax(200px, 250px) minmax(0, 1fr);
@@ -858,7 +961,6 @@ progress {
 
   .top-actions,
   .top-actions button,
-  .button-group button,
   .profile-actions button,
   .profile-actions select {
     width: 100%;

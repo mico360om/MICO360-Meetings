@@ -58,7 +58,7 @@ Build the installer:
 npm run dist
 ```
 
-Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.9`; use the `MICO360 Meetings Setup 1.0.9.exe` file to avoid older installer behavior. For local AI prerequisites, use:
+Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.10`; use the `MICO360-Meetings-Setup-1.0.10.exe` file to avoid older installer behavior. For local AI prerequisites, use:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\installer\MICO360-Meetings-Prerequisites.ps1"
@@ -154,6 +154,16 @@ winget install Gyan.FFmpeg
 ## Logs and Local Data
 
 Electron stores user data in the operating system app data folder for `MICO360 Meetings`. Error logs are written under a `logs` folder there.
+
+## UI QA
+
+Run the automated desktop UI/responsiveness scan with:
+
+```powershell
+npm run qa:ui
+```
+
+The scan launches Electron, checks the dashboard and all settings panes across small laptop, standard desktop, large monitor, tablet-width, and mobile-width viewports, captures screenshots under `qa-artifacts/ui-qa`, and reports horizontal overflow or clipped controls.
 
 ## Example Files
 
