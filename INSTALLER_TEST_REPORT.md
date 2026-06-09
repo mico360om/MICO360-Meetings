@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.6
+Installer version: 1.0.7
 
 ## Installer Scope
 
@@ -56,6 +56,7 @@ Configuration is written to:
 | Old Python auto-upgrade behavior | Installer now logs unsupported Python versions and automatically installs Python 3.12 when Python is missing or older than Python 3.10 | Fixed in 1.0.4 |
 | App icon, transcription progress, settings, PDF profile, and saved prompt UX | Added square app icon assets, improved progress percentages, full-screen settings/profile workspace, redesigned PDF renderer, and named saved prompts | Fixed in 1.0.5 |
 | GitHub auto-update module | Added `electron-updater`, GitHub release provider config, Settings update controls, release publishing script, and source repo `.gitignore` | Fixed in 1.0.6 |
+| Auto-update notification flow | Added automatic update check after app launch and desktop notifications for update found, download midpoint, ready to install, and failure | Fixed in 1.0.7 |
 
 ## Bugs Found And Fixed
 
@@ -98,6 +99,10 @@ Configuration is written to:
 10. App needed GitHub release based auto-updates.
    - Cause: No auto-update module or publish configuration existed.
    - Fix: Added `electron-updater`, GitHub release configuration for `mico360om/MICO360-Meetings`, in-app update check/install controls, and a `publish:github` script for release publishing.
+
+11. Auto updates needed visible user notification.
+   - Cause: Updates could be checked manually, but installed users did not get an automatic launch check or desktop notification.
+   - Fix: Added automatic update check shortly after app launch and native desktop notifications for update available, download progress, update ready, and update failure.
 
 ## Clean-System Test Note
 

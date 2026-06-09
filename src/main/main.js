@@ -1,5 +1,5 @@
 const path = require("path");
-const { app, BrowserWindow, dialog, ipcMain, shell, nativeImage } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell, nativeImage, Notification } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const Store = require("electron-store");
 const {
@@ -55,6 +55,8 @@ const store = new Store({
 
 let mainWindow;
 let updateReady = false;
+let updateCheckTimer = null;
+let lastUpdateNotification = "";
 
 function sendProgress(stage, message, progress) {
   mainWindow?.webContents.send("progress:event", { stage, message, progress });
@@ -64,6 +66,38 @@ function sendUpdateStatus(status, message, extra = {}) {
   mainWindow?.webContents.send("update:event", { status, message, ...extra });
 }
 
+function showUpdateNotification(title, body, key = `${title}:${body}`) {
+  if (!Notification.isSupported() || lastUpdateNotification === key) return;
+  lastUpdateNotification = key;
+  const notification = new Notification({
+    title,
+    body,
+    icon: path.join(__dirname, "../../assets/app-icon.png")
+  });
+  notification.on("click", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+      sendUpdateStatus("focus", "Open Settings -> AI -> Application Updates to manage the update.");
+    }
+  });
+  notification.show();
+}
+
+async function checkForUpdatesQuietly() {
+  if (!app.isPackaged) {
+    sendUpdateStatus("dev", "Auto updates are available only in the installed app.");
+    return null;
+  }
+  try {
+    return await autoUpdater.checkForUpdates();
+  } catch (error) {
+    appendLog(app.getPath("userData"), "Automatic update check failed", error.stack || error.message);
+    sendUpdateStatus("error", error.message || "Automatic update check failed.");
+    return null;
+  }
+}
+
 function configureAutoUpdater() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -71,26 +105,35 @@ function configureAutoUpdater() {
   autoUpdater.on("checking-for-update", () => sendUpdateStatus("checking", "Checking GitHub for updates..."));
   autoUpdater.on("update-available", (info) => {
     updateReady = false;
-    sendUpdateStatus("available", `Downloading update ${info.version || ""}...`, { version: info.version });
+    const version = info.version || "latest";
+    sendUpdateStatus("available", `Update ${version} found. Downloading now...`, { version: info.version });
+    showUpdateNotification("MICO360 Meetings update found", `Version ${version} is downloading now.`, `available:${version}`);
   });
   autoUpdater.on("update-not-available", (info) => {
     updateReady = false;
     sendUpdateStatus("none", `MICO360 Meetings is up to date${info.version ? ` (${info.version})` : ""}.`, { version: info.version });
   });
   autoUpdater.on("download-progress", (progress) => {
-    sendUpdateStatus("downloading", `Downloading update ${Math.round(progress.percent || 0)}%`, {
+    const percent = Math.round(progress.percent || 0);
+    sendUpdateStatus("downloading", `Downloading update ${percent}%`, {
       percent: progress.percent || 0,
       transferred: progress.transferred,
       total: progress.total
     });
+    if (percent >= 50 && percent < 60) {
+      showUpdateNotification("MICO360 Meetings update", "Update download is more than halfway complete.", "download-half");
+    }
   });
   autoUpdater.on("update-downloaded", (info) => {
     updateReady = true;
-    sendUpdateStatus("ready", `Update ${info.version || ""} is ready to install.`, { version: info.version });
+    const version = info.version || "latest";
+    sendUpdateStatus("ready", `Update ${version} is ready to install.`, { version: info.version });
+    showUpdateNotification("MICO360 Meetings update ready", "Open the app and click Install Update, or restart to install.", `ready:${version}`);
   });
   autoUpdater.on("error", (error) => {
     appendLog(app.getPath("userData"), "Auto update failed", error.stack || error.message);
     sendUpdateStatus("error", error.message || "Update check failed.");
+    showUpdateNotification("MICO360 Meetings update failed", error.message || "Update check failed.", `error:${error.message}`);
   });
 }
 
@@ -113,6 +156,9 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
+  mainWindow.once("ready-to-show", () => {
+    updateCheckTimer = setTimeout(() => checkForUpdatesQuietly(), 5000);
+  });
 }
 
 app.whenReady().then(createWindow);
@@ -126,6 +172,7 @@ app.on("second-instance", () => {
 });
 
 app.on("window-all-closed", () => {
+  if (updateCheckTimer) clearTimeout(updateCheckTimer);
   if (process.platform !== "darwin") app.quit();
 });
 
@@ -311,7 +358,7 @@ ipcMain.handle("updates:check", async () => {
     return { ok: false, message };
   }
   try {
-    const result = await autoUpdater.checkForUpdates();
+    const result = await checkForUpdatesQuietly();
     return { ok: true, updateInfo: result?.updateInfo || null };
   } catch (error) {
     appendLog(app.getPath("userData"), "Manual update check failed", error.stack || error.message);
