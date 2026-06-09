@@ -142,8 +142,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 900,
-    minWidth: 1120,
-    minHeight: 740,
+    minWidth: 360,
+    minHeight: 560,
     title: "MICO360 Meetings",
     icon,
     backgroundColor: "#f7f8fa",
