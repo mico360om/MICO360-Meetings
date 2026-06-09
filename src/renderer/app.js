@@ -27,6 +27,23 @@ const elements = {
   checkUpdates: $("#checkUpdates"),
   installUpdate: $("#installUpdate"),
   updateStatus: $("#updateStatus"),
+  updateStatusBadge: $("#updateStatusBadge"),
+  updateAppName: $("#updateAppName"),
+  updateCurrentVersion: $("#updateCurrentVersion"),
+  updateNewVersion: $("#updateNewVersion"),
+  updateStatusValue: $("#updateStatusValue"),
+  updateSize: $("#updateSize"),
+  updateReleaseDate: $("#updateReleaseDate"),
+  updateRestart: $("#updateRestart"),
+  updateCompletedAt: $("#updateCompletedAt"),
+  updateProgressLabel: $("#updateProgressLabel"),
+  updateProgressBar: $("#updateProgressBar"),
+  updateDescription: $("#updateDescription"),
+  updateFeatures: $("#updateFeatures"),
+  updateBugFixes: $("#updateBugFixes"),
+  updateSecurity: $("#updateSecurity"),
+  updateErrorBox: $("#updateErrorBox"),
+  updateErrorMessage: $("#updateErrorMessage"),
   companyProfileSelect: $("#companyProfileSelect"),
   companyProfileName: $("#companyProfileName"),
   chooseLogo: $("#chooseLogo"),
@@ -422,6 +439,7 @@ async function loadSettings() {
   elements.promptTemplate.value = state.settings.promptTemplate || window.mico360.constants.defaultPrompt;
   elements.promptName.value = state.settings.activePromptName || "Default Meeting Minutes";
   populatePromptPresets();
+  renderUpdateDetails({ status: "idle", currentVersion: window.mico360.version });
   updateSummaryLabels();
 }
 
@@ -466,6 +484,51 @@ function formatFileSize(bytes = 0) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatUpdateSize(bytes = 0) {
+  const value = Number(bytes) || 0;
+  return value > 0 ? formatFileSize(value) : "Not available";
+}
+
+function formatUpdateDate(value) {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function getStatusLabel(status) {
+  const labels = {
+    checking: "Checking",
+    available: "Available",
+    downloading: "Downloading",
+    ready: "Downloaded",
+    installing: "Installing",
+    completed: "Completed",
+    error: "Failed",
+    none: "Up to date",
+    dev: "Unavailable",
+    focus: "Attention"
+  };
+  return labels[status] || "Idle";
+}
+
+function extractUpdateNotes(text = "") {
+  const clean = String(text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  const fallback = clean || "No release notes were provided for this update.";
+  const lower = fallback.toLowerCase();
+  return {
+    description: fallback,
+    features: lower.includes("feature") || lower.includes("added") || lower.includes("new")
+      ? fallback
+      : "No separate feature list provided.",
+    bugFixes: lower.includes("fix") || lower.includes("bug")
+      ? fallback
+      : "No separate bug-fix list provided.",
+    security: lower.includes("security") || lower.includes("vulnerab") || lower.includes("safe")
+      ? fallback
+      : "No separate security notes provided."
+  };
 }
 
 function getRecordingFileName(kind) {
@@ -813,6 +876,35 @@ function resetRecordingState(message) {
   showStatus(message, 100);
 }
 
+function renderUpdateDetails(payload = {}) {
+  const status = payload.status || "idle";
+  const label = getStatusLabel(status);
+  const progress = Math.max(0, Math.min(100, Number(payload.progress ?? payload.percent ?? 0) || 0));
+  const notes = extractUpdateNotes(payload.updateDescription || payload.releaseNotes || payload.description || "");
+
+  elements.updateStatus.textContent = payload.message || "Updates are delivered from the official GitHub release channel.";
+  elements.updateStatusBadge.textContent = label;
+  elements.updateStatusBadge.dataset.status = status;
+  elements.updateAppName.textContent = payload.appName || "MICO360 Meetings";
+  elements.updateCurrentVersion.textContent = payload.currentVersion || window.mico360?.version || "Not loaded";
+  elements.updateNewVersion.textContent = payload.newVersion || payload.version || (status === "none" ? "No newer version" : "Not checked");
+  elements.updateStatusValue.textContent = label;
+  elements.updateSize.textContent = formatUpdateSize(payload.updateSize || payload.total);
+  elements.updateReleaseDate.textContent = formatUpdateDate(payload.releaseDate);
+  elements.updateRestart.textContent = payload.restartRequired ? "Required to complete installation" : "Not required";
+  elements.updateCompletedAt.textContent = payload.completedAt ? formatUpdateDate(payload.completedAt) : "Not completed";
+  elements.updateProgressBar.value = progress;
+  elements.updateProgressLabel.textContent = `${Math.round(progress)}%`;
+  elements.updateDescription.textContent = notes.description;
+  elements.updateFeatures.textContent = notes.features;
+  elements.updateBugFixes.textContent = notes.bugFixes;
+  elements.updateSecurity.textContent = notes.security;
+  elements.updateErrorBox.classList.toggle("hidden", status !== "error");
+  elements.updateErrorMessage.textContent = payload.errorMessage || payload.message || "No errors reported.";
+  elements.installUpdate.disabled = status !== "ready";
+  elements.checkUpdates.textContent = status === "error" ? "Retry Update" : "Check Updates";
+}
+
 function wireEvents() {
   elements.settingsToggle.addEventListener("click", () => elements.settingsPanel.classList.remove("hidden"));
   elements.settingsClose.addEventListener("click", () => elements.settingsPanel.classList.add("hidden"));
@@ -848,11 +940,11 @@ function wireEvents() {
   elements.checkUpdates.addEventListener("click", async () => {
     try {
       elements.checkUpdates.disabled = true;
-      elements.updateStatus.textContent = "Checking for updates...";
+      renderUpdateDetails({ status: "checking", message: "Checking GitHub for updates...", currentVersion: window.mico360.version });
       const result = await window.mico360.checkForUpdates();
-      if (result?.message) elements.updateStatus.textContent = result.message;
+      if (result?.message) renderUpdateDetails({ status: "dev", message: result.message, currentVersion: window.mico360.version });
     } catch (error) {
-      elements.updateStatus.textContent = error.message || "Update check failed.";
+      renderUpdateDetails({ status: "error", message: error.message || "Update check failed.", errorMessage: error.message || "Update check failed.", currentVersion: window.mico360.version });
       showError(error);
     } finally {
       elements.checkUpdates.disabled = false;
@@ -860,8 +952,10 @@ function wireEvents() {
   });
   elements.installUpdate.addEventListener("click", async () => {
     try {
+      renderUpdateDetails({ status: "installing", message: "Installing update. The app will restart to finish.", progress: 100, restartRequired: true, currentVersion: window.mico360.version });
       await window.mico360.installUpdate();
     } catch (error) {
+      renderUpdateDetails({ status: "error", message: error.message || "Update installation failed.", errorMessage: error.message || "Update installation failed.", currentVersion: window.mico360.version });
       showError(error);
     }
   });
@@ -1155,11 +1249,13 @@ function wireEvents() {
       showStatus(`${stage}: ${compact.slice(-180)}`, progress ?? fallback);
     }
   });
-  window.mico360.onUpdate(({ status, message, percent }) => {
-    elements.updateStatus.textContent = message || "Update status changed.";
-    elements.installUpdate.disabled = status !== "ready";
-    if (status === "downloading") setProgress(percent || 0, message || "Downloading update");
+  window.mico360.onUpdate((payload) => {
+    const { status, message, percent, progress } = payload;
+    renderUpdateDetails(payload);
+    if (status === "downloading") setProgress(percent || progress || 0, message || "Downloading update");
     if (status === "ready") showStatus("Update ready to install", 100);
+    if (status === "installing") showStatus("Installing update. Restart required.", 100);
+    if (status === "error") showStatus(message || "Update failed.", 0);
   });
 }
 

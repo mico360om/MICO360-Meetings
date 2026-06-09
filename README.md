@@ -58,7 +58,7 @@ Build the installer:
 npm run dist
 ```
 
-Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.12`; use the `MICO360-Meetings-Setup-1.0.12.exe` file to avoid older installer behavior. For local AI prerequisites, use:
+Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.13`; use the `MICO360-Meetings-Setup-1.0.13.exe` file to avoid older installer behavior. For local AI prerequisites, use:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\installer\MICO360-Meetings-Prerequisites.ps1"
@@ -80,6 +80,7 @@ MICO360 Meetings uses GitHub Releases for app updates:
 - Provider: GitHub Releases through `electron-updater`
 - Update controls: Settings -> AI -> Application Updates
 - Installed builds automatically check for updates after launch and show desktop notifications when an update is found, downloading, ready, or failed.
+- The Application Updates panel shows current version, new version, status, update size, release date, release notes, progress percentage, restart requirement, errors, retry/install actions, and completion time after restart.
 
 Publish a release build with:
 

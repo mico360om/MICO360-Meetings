@@ -62,13 +62,47 @@ let mainWindow;
 let updateReady = false;
 let updateCheckTimer = null;
 let lastUpdateNotification = "";
+let lastUpdateInfo = null;
+
+function formatReleaseNotes(notes) {
+  if (Array.isArray(notes)) {
+    return notes
+      .map((item) => [item.version ? `Version ${item.version}` : "", item.note || item.notes || ""].filter(Boolean).join(": "))
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof notes === "string") return notes;
+  return "";
+}
+
+function getUpdatePayload(status, message, extra = {}) {
+  const info = extra.info || lastUpdateInfo || {};
+  return {
+    appName: "MICO360 Meetings",
+    currentVersion: app.getVersion(),
+    newVersion: extra.version || info.version || "",
+    status,
+    message,
+    updateSize: extra.total || extra.size || info.files?.[0]?.size || 0,
+    releaseDate: extra.releaseDate || info.releaseDate || "",
+    releaseName: extra.releaseName || info.releaseName || info.name || "",
+    updateDescription: extra.releaseNotes || formatReleaseNotes(info.releaseNotes) || extra.description || "",
+    progress: extra.percent ?? extra.progress ?? null,
+    transferred: extra.transferred || 0,
+    total: extra.total || 0,
+    restartRequired: Boolean(extra.restartRequired),
+    completedAt: extra.completedAt || "",
+    errorMessage: extra.errorMessage || "",
+    ...extra
+  };
+}
 
 function sendProgress(stage, message, progress) {
   mainWindow?.webContents.send("progress:event", { stage, message, progress });
 }
 
 function sendUpdateStatus(status, message, extra = {}) {
-  mainWindow?.webContents.send("update:event", { status, message, ...extra });
+  mainWindow?.webContents.send("update:event", getUpdatePayload(status, message, extra));
 }
 
 function showUpdateNotification(title, body, key = `${title}:${body}`) {
@@ -110,20 +144,23 @@ function configureAutoUpdater() {
   autoUpdater.on("checking-for-update", () => sendUpdateStatus("checking", "Checking GitHub for updates..."));
   autoUpdater.on("update-available", (info) => {
     updateReady = false;
+    lastUpdateInfo = info;
     const version = info.version || "latest";
-    sendUpdateStatus("available", `Update ${version} found. Downloading now...`, { version: info.version });
+    sendUpdateStatus("available", `Update ${version} found. Downloading now...`, { info, version: info.version, restartRequired: true });
     showUpdateNotification("MICO360 Meetings update found", `Version ${version} is downloading now.`, `available:${version}`);
   });
   autoUpdater.on("update-not-available", (info) => {
     updateReady = false;
-    sendUpdateStatus("none", `MICO360 Meetings is up to date${info.version ? ` (${info.version})` : ""}.`, { version: info.version });
+    lastUpdateInfo = info;
+    sendUpdateStatus("none", `MICO360 Meetings is up to date${info.version ? ` (${info.version})` : ""}.`, { info, version: info.version });
   });
   autoUpdater.on("download-progress", (progress) => {
     const percent = Math.round(progress.percent || 0);
     sendUpdateStatus("downloading", `Downloading update ${percent}%`, {
       percent: progress.percent || 0,
       transferred: progress.transferred,
-      total: progress.total
+      total: progress.total,
+      restartRequired: true
     });
     if (percent >= 50 && percent < 60) {
       showUpdateNotification("MICO360 Meetings update", "Update download is more than halfway complete.", "download-half");
@@ -131,13 +168,14 @@ function configureAutoUpdater() {
   });
   autoUpdater.on("update-downloaded", (info) => {
     updateReady = true;
+    lastUpdateInfo = info;
     const version = info.version || "latest";
-    sendUpdateStatus("ready", `Update ${version} is ready to install.`, { version: info.version });
+    sendUpdateStatus("ready", `Update ${version} is ready to install.`, { info, version: info.version, progress: 100, restartRequired: true });
     showUpdateNotification("MICO360 Meetings update ready", "Open the app and click Install Update, or restart to install.", `ready:${version}`);
   });
   autoUpdater.on("error", (error) => {
     appendLog(app.getPath("userData"), "Auto update failed", error.stack || error.message);
-    sendUpdateStatus("error", error.message || "Update check failed.");
+    sendUpdateStatus("error", error.message || "Update check failed.", { errorMessage: error.message || "Update check failed." });
     showUpdateNotification("MICO360 Meetings update failed", error.message || "Update check failed.", `error:${error.message}`);
   });
 }
@@ -162,6 +200,20 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, "../renderer/index.html"));
   mainWindow.once("ready-to-show", () => {
+    const completedUpdate = store.get("pendingUpdateCompletion");
+    if (completedUpdate?.version) {
+      const completedAt = new Date().toISOString();
+      store.delete("pendingUpdateCompletion");
+      setTimeout(() => {
+        sendUpdateStatus("completed", `MICO360 Meetings ${completedUpdate.version} installed successfully.`, {
+          version: completedUpdate.version,
+          progress: 100,
+          completedAt,
+          restartRequired: false
+        });
+        showUpdateNotification("MICO360 Meetings updated", `Version ${completedUpdate.version} installed successfully.`, `completed:${completedUpdate.version}`);
+      }, 1500);
+    }
     updateCheckTimer = setTimeout(() => checkForUpdatesQuietly(), 5000);
   });
 }
@@ -422,9 +474,29 @@ ipcMain.handle("updates:check", async () => {
 });
 
 ipcMain.handle("updates:install", async () => {
-  if (!updateReady) return { ok: false, message: "No downloaded update is ready to install." };
-  autoUpdater.quitAndInstall(false, true);
-  return { ok: true };
+  if (!updateReady) {
+    const message = "No downloaded update is ready to install.";
+    sendUpdateStatus("error", message, { errorMessage: message });
+    return { ok: false, message };
+  }
+  try {
+    sendUpdateStatus("installing", "Installing update. The app will restart to finish.", {
+      progress: 100,
+      restartRequired: true
+    });
+    store.set("pendingUpdateCompletion", {
+      version: lastUpdateInfo?.version || app.getVersion(),
+      startedAt: new Date().toISOString()
+    });
+    autoUpdater.quitAndInstall(false, true);
+    return { ok: true };
+  } catch (error) {
+    appendLog(app.getPath("userData"), "Update installation failed", error.stack || error.message);
+    sendUpdateStatus("error", error.message || "Update installation failed.", {
+      errorMessage: error.message || "Update installation failed."
+    });
+    throw error;
+  }
 });
 
 ipcMain.handle("shell:open-path", async (_event, filePath) => shell.openPath(filePath));

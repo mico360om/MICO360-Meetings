@@ -164,6 +164,38 @@ async function main() {
     issues: await collectLayoutIssues(page)
   });
 
+  await page.click("#settingsToggle");
+  await page.waitForSelector("#settingsPanel:not(.hidden)");
+  await page.click('.settings-tab[data-tab="ai"]');
+  await page.evaluate(() => {
+    document.querySelector("#updateStatus").textContent = "Downloading update 64%";
+    document.querySelector("#updateStatusBadge").textContent = "Downloading";
+    document.querySelector("#updateStatusBadge").dataset.status = "downloading";
+    document.querySelector("#updateAppName").textContent = "MICO360 Meetings";
+    document.querySelector("#updateCurrentVersion").textContent = "1.0.12";
+    document.querySelector("#updateNewVersion").textContent = "1.0.13";
+    document.querySelector("#updateStatusValue").textContent = "Downloading";
+    document.querySelector("#updateSize").textContent = "146.2 MB";
+    document.querySelector("#updateReleaseDate").textContent = "09/06/2026, 21:50:00";
+    document.querySelector("#updateRestart").textContent = "Required to complete installation";
+    document.querySelector("#updateCompletedAt").textContent = "Not completed";
+    document.querySelector("#updateProgressBar").value = 64;
+    document.querySelector("#updateProgressLabel").textContent = "64%";
+    document.querySelector("#updateDescription").textContent = "Adds complete update details, clearer progress, and retry handling.";
+    document.querySelector("#updateFeatures").textContent = "New update details panel and progress indicators.";
+    document.querySelector("#updateBugFixes").textContent = "Fixes vague update messages.";
+    document.querySelector("#updateSecurity").textContent = "No separate security notes provided.";
+  });
+  await page.waitForTimeout(250);
+  results.push({
+    viewport: "standard-desktop",
+    screen: "settings-update-downloading",
+    screenshot: await screenshot(page, "standard-desktop", "settings-update-downloading"),
+    issues: await collectLayoutIssues(page)
+  });
+  await page.click("#settingsClose");
+  await page.waitForSelector("#settingsPanel", { state: "hidden" });
+
   await page.setViewportSize({ width: 1366, height: 900 });
   await page.waitForTimeout(250);
   await page.click("#generateBtn");

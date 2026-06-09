@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.12
+Installer version: 1.0.13
 
 ## Installer Scope
 
@@ -66,6 +66,7 @@ Configuration is written to:
 | Desktop viewport fit | Updated wide desktop shell so panels and status bar fit inside the viewport while smaller screens remain scrollable | Fixed in 1.0.10 |
 | Re-transcript action | Added Re-Transcript button to reprocess the selected upload/recording and replace the transcript with a fresh result | Fixed in 1.0.11 |
 | Recording details panel | Added live audio/video recording status, timer, file metadata, device details, pause/resume/stop/save/cancel controls, and stopped summary | Fixed in 1.0.12 |
+| Complete update details panel | Replaced vague update text with current/new version, status, size, release date, release notes, progress, restart requirement, error/retry, install, and completed-after-restart details | Fixed in 1.0.13 |
 
 ## Bugs Found And Fixed
 
@@ -148,6 +149,10 @@ Configuration is written to:
 20. Audio/video recording needed clear live details and controls.
    - Cause: Recording only changed the button text and immediately saved/transcribed on stop, leaving users without a clear recording status, timer, device details, file metadata, or save/cancel choice.
    - Fix: Added a responsive recording panel with Recording/Paused/Stopped states, blinking red indicator, timer, start time, generated file name, WebM format, quality/resolution, microphone/video status, live file size, save location, Pause/Resume/Stop/Save/Cancel controls, and a stopped recording summary.
+
+21. Application updates needed complete progress and release details.
+   - Cause: The update area only showed short messages such as checking/downloading/ready, without version, size, date, release notes, progress, restart, error, retry, or completion details.
+   - Fix: Added a structured Application Updates panel with app name, current version, new version, status badge, update size, release date, release notes, new features, bug fixes, security notes, progress bar, restart requirement, error box, retry/install actions, installing state, and completed-after-restart confirmation.
 
 ## Clean-System Test Note
 

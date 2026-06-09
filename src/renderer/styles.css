@@ -817,10 +817,107 @@ progress {
 }
 
 .update-box {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.update-header,
+.update-progress > div {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 12px;
+}
+
+.update-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: color-mix(in srgb, var(--muted) 12%, var(--panel));
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.update-badge[data-status="available"],
+.update-badge[data-status="ready"],
+.update-badge[data-status="completed"] {
+  background: color-mix(in srgb, var(--success) 14%, var(--panel));
+  color: var(--success);
+}
+
+.update-badge[data-status="downloading"],
+.update-badge[data-status="installing"],
+.update-badge[data-status="checking"] {
+  background: color-mix(in srgb, var(--brand) 12%, var(--panel));
+  color: var(--brand);
+}
+
+.update-badge[data-status="error"] {
+  background: color-mix(in srgb, var(--brand) 14%, var(--panel));
+  color: var(--brand);
+}
+
+.update-details,
+.update-note-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
+  gap: 8px;
+}
+
+.update-details div,
+.update-note-grid div,
+.update-notes,
+.update-error {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: var(--panel);
+}
+
+.update-details span,
+.update-note-grid span,
+.update-progress span,
+.update-error span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.update-details strong,
+.update-note-grid strong,
+.update-notes strong,
+.update-notes span,
+.update-error strong,
+.update-error span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.update-notes {
+  display: grid;
+  gap: 8px;
+}
+
+.update-error {
+  border-color: color-mix(in srgb, var(--brand) 42%, var(--line));
+  background: color-mix(in srgb, var(--brand) 5%, var(--panel));
+}
+
+.update-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.update-progress progress {
+  height: 14px;
+}
+
+.update-actions {
+  justify-content: flex-end;
 }
 
 .profile-actions {

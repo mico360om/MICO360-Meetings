@@ -70,11 +70,49 @@
             </div>
             <button id="refreshModels" class="secondary" title="Refresh local Ollama models">Refresh Models</button>
             <div class="update-box wide">
-              <div>
-                <strong>Application Updates</strong>
-                <span id="updateStatus">Updates are delivered from the official GitHub release channel.</span>
+              <div class="update-header">
+                <div>
+                  <strong>Application Updates</strong>
+                  <span id="updateStatus">Updates are delivered from the official GitHub release channel.</span>
+                </div>
+                <span id="updateStatusBadge" class="update-badge">Idle</span>
               </div>
-              <div class="button-group">
+
+              <div class="update-details">
+                <div><span>Application</span><strong id="updateAppName">MICO360 Meetings</strong></div>
+                <div><span>Current version</span><strong id="updateCurrentVersion">Not loaded</strong></div>
+                <div><span>New version</span><strong id="updateNewVersion">Not checked</strong></div>
+                <div><span>Status</span><strong id="updateStatusValue">Idle</strong></div>
+                <div><span>Update size</span><strong id="updateSize">Not available</strong></div>
+                <div><span>Release date</span><strong id="updateReleaseDate">Not available</strong></div>
+                <div><span>Restart</span><strong id="updateRestart">Not required</strong></div>
+                <div><span>Completed</span><strong id="updateCompletedAt">Not completed</strong></div>
+              </div>
+
+              <div class="update-progress">
+                <div>
+                  <span>Progress</span>
+                  <strong id="updateProgressLabel">0%</strong>
+                </div>
+                <progress id="updateProgressBar" max="100" value="0"></progress>
+              </div>
+
+              <div class="update-notes">
+                <strong>Update Description</strong>
+                <span id="updateDescription">Check for updates to see release notes, new features, bug fixes, and security improvements.</span>
+                <div class="update-note-grid">
+                  <div><span>New features</span><strong id="updateFeatures">Not available</strong></div>
+                  <div><span>Bugs fixed</span><strong id="updateBugFixes">Not available</strong></div>
+                  <div><span>Security improvements</span><strong id="updateSecurity">Not available</strong></div>
+                </div>
+              </div>
+
+              <div id="updateErrorBox" class="update-error hidden">
+                <strong>Update Error</strong>
+                <span id="updateErrorMessage">No errors reported.</span>
+              </div>
+
+              <div class="button-group update-actions">
                 <button id="checkUpdates" class="secondary">Check Updates</button>
                 <button id="installUpdate" class="primary" disabled>Install Update</button>
               </div>
