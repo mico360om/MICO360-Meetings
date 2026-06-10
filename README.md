@@ -22,13 +22,14 @@ MICO360 Meetings is a local-first desktop assistant for turning meeting audio, v
 - DOCX, PDF, and TXT export
 - Branded PDF export with company name, prepared-by line, classification, footer, and logo
 - Local project history and meeting search
+- Help, About Us, Terms & Conditions, and Privacy Policy inside Settings
 - Dark and light mode
 - Single-instance desktop behavior
 - Local error logs
 
 ## Privacy
 
-The app calls Ollama only at `http://127.0.0.1:11434` and runs transcription through local command-line tools. Audio, transcripts, generated minutes, settings, logs, and project history stay on the computer.
+The app calls Ollama only at `http://127.0.0.1:11434` and runs transcription through local command-line tools. Audio, transcripts, generated minutes, settings, logs, and project history stay on the computer. For product, help, terms, or privacy questions, contact `info@mico360.com`.
 
 ## Requirements
 
@@ -58,7 +59,7 @@ Build the installer:
 npm run dist
 ```
 
-Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.15`; use the `MICO360-Meetings-Setup-1.0.15.exe` file to avoid older installer behavior. For local AI prerequisites, use:
+Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.16`; use the `MICO360-Meetings-Setup-1.0.16.exe` file to avoid older installer behavior. For local AI prerequisites, use:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\installer\MICO360-Meetings-Prerequisites.ps1"

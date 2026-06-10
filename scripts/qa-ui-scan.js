@@ -20,7 +20,8 @@ const settingsTabs = [
   { name: "settings-ai", tab: "ai" },
   { name: "settings-transcription", tab: "transcription" },
   { name: "settings-company", tab: "company" },
-  { name: "settings-prompts", tab: "prompts" }
+  { name: "settings-prompts", tab: "prompts" },
+  { name: "settings-help-legal", tab: "help" }
 ];
 
 function ensureDir(dirPath) {

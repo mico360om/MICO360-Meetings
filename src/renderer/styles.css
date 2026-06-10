@@ -867,8 +867,52 @@ progress {
 .settings-content[data-pane="company"] .settings-copy,
 .settings-content[data-pane="company"] .profile-actions,
 .settings-content[data-pane="company"] .profile-preview,
+.legal-settings .settings-copy,
 .prompt-settings textarea {
   grid-column: 1 / -1;
+}
+
+.legal-settings {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+
+.legal-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--panel-2);
+}
+
+.legal-card strong,
+.legal-card p,
+.legal-card a {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.legal-card strong {
+  margin-bottom: 8px;
+  color: var(--brand);
+  font-size: 15px;
+}
+
+.legal-card p {
+  margin: 0 0 10px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.legal-card p:last-child {
+  margin-bottom: 0;
+}
+
+.legal-card a {
+  color: var(--brand);
+  font-weight: 700;
+  text-decoration: none;
 }
 
 .summary-chip,

@@ -53,6 +53,7 @@
             <button class="settings-tab" data-tab="transcription">Transcription</button>
             <button class="settings-tab" data-tab="company">PDF Profile</button>
             <button class="settings-tab" data-tab="prompts">Prompts</button>
+            <button class="settings-tab" data-tab="help">Help & Legal</button>
           </div>
 
           <div class="settings-content active" data-pane="ai">
@@ -325,6 +326,39 @@
               <div id="promptLibraryList" class="prompt-library-list"></div>
             </div>
             <textarea id="promptTemplate"></textarea>
+          </div>
+
+          <div class="settings-content legal-settings" data-pane="help">
+            <div class="settings-copy">
+              <strong>Help, About & Legal</strong>
+              <span>Product information, usage guidance, terms, and privacy details for MICO360 Meetings.</span>
+            </div>
+
+            <section class="legal-card">
+              <strong>Help</strong>
+              <p>MICO360 Meetings helps you turn local audio, video, documents, images, and pasted transcripts into editable meeting minutes. Start by uploading files, recording audio or screen content, or pasting a transcript, then choose an Ollama model and output style before generating minutes.</p>
+              <p>For setup issues, confirm that Ollama is running, a local model is installed, and the transcription engine is available. Installer and transcription logs are stored locally under the MICO360 Meetings app data logs folder.</p>
+              <a href="mailto:info@mico360.com">info@mico360.com</a>
+            </section>
+
+            <section class="legal-card">
+              <strong>About Us</strong>
+              <p>MICO360 Meetings is a local-first desktop meeting assistant by MICO360. It is designed for business users who need professional minutes, action items, summaries, searchable meeting history, branded exports, and offline AI processing after required models are installed.</p>
+              <p>Contact MICO360 at <a href="mailto:info@mico360.com">info@mico360.com</a></p>
+            </section>
+
+            <section class="legal-card">
+              <strong>Terms & Conditions</strong>
+              <p>By using MICO360 Meetings, you are responsible for ensuring that you have the right to record, transcribe, process, store, and export meeting content. You should review generated transcripts and minutes before sharing or relying on them.</p>
+              <p>The application is provided as a productivity tool. AI-generated output may contain errors or omissions and should not be treated as legal, financial, medical, or professional advice. Users are responsible for local model selection, system configuration, data handling, and compliance with applicable laws and workplace policies.</p>
+            </section>
+
+            <section class="legal-card">
+              <strong>Privacy Policy</strong>
+              <p>MICO360 Meetings is designed to keep meeting content on your computer. Audio, video, transcripts, prompts, minutes, company profiles, exports, history, and logs are stored and processed locally unless you choose to move or share files outside the app.</p>
+              <p>The app uses local Ollama services at 127.0.0.1 and local transcription tools. Meeting data is not sent to external servers by MICO360 Meetings. Update checks and installer downloads may contact GitHub, Ollama, Python, or package distribution services only for application updates and prerequisite setup.</p>
+              <p>For privacy questions, contact <a href="mailto:info@mico360.com">info@mico360.com</a>.</p>
+            </section>
           </div>
         </section>
 
