@@ -5,6 +5,10 @@ const state = {
   mediaRecorder: null,
   recordedChunks: [],
   recording: null,
+  recordingDevices: [],
+  visualizerAnimation: null,
+  audioContext: null,
+  analyser: null,
   settings: {},
   projects: []
 };
@@ -96,6 +100,9 @@ const elements = {
   recordMic: $("#recordMic"),
   recordScreen: $("#recordScreen"),
   recordingPanel: $("#recordingPanel"),
+  recordingReadiness: $("#recordingReadiness"),
+  recordingMicReadiness: $("#recordingMicReadiness"),
+  recordingLevelReadiness: $("#recordingLevelReadiness"),
   recordingStatus: $("#recordingStatus"),
   recordingType: $("#recordingType"),
   recordingTimer: $("#recordingTimer"),
@@ -105,8 +112,11 @@ const elements = {
   recordingQuality: $("#recordingQuality"),
   recordingMicStatus: $("#recordingMicStatus"),
   recordingCameraStatus: $("#recordingCameraStatus"),
+  recordingDetectedMics: $("#recordingDetectedMics"),
   recordingFileSize: $("#recordingFileSize"),
   recordingSaveLocation: $("#recordingSaveLocation"),
+  recordingVisualizer: $("#recordingVisualizer"),
+  recordingVisualizerStatus: $("#recordingVisualizerStatus"),
   pauseRecording: $("#pauseRecording"),
   resumeRecording: $("#resumeRecording"),
   stopRecording: $("#stopRecording"),
@@ -531,10 +541,10 @@ function extractUpdateNotes(text = "") {
   };
 }
 
-function getRecordingFileName(kind) {
+function getRecordingFileName(kind, extension = kind === "screen" ? "webm" : "weba") {
   const label = kind === "screen" ? "video" : "audio";
   const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-  return `mico360-${label}-recording-${stamp}.webm`;
+  return `mico360-${label}-recording-${stamp}.${extension}`;
 }
 
 function getTrackSummary(track) {
@@ -547,6 +557,93 @@ function getTrackSummary(track) {
   return [settings.sampleRate ? `${settings.sampleRate} Hz` : "", settings.channelCount ? `${settings.channelCount} channel${settings.channelCount === 1 ? "" : "s"}` : ""]
     .filter(Boolean)
     .join(", ") || "Active";
+}
+
+async function refreshRecordingDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    state.recordingDevices = [];
+    elements.recordingMicReadiness.textContent = "Microphone detection is not supported";
+    return [];
+  }
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    state.recordingDevices = devices.filter((device) => device.kind === "audioinput");
+    const namedDevice = state.recordingDevices.find((device) => device.label)?.label;
+    elements.recordingMicReadiness.textContent = state.recordingDevices.length
+      ? `${state.recordingDevices.length} detected${namedDevice ? ` - ${namedDevice}` : ""}`
+      : "No microphone detected";
+    return state.recordingDevices;
+  } catch (error) {
+    state.recordingDevices = [];
+    elements.recordingMicReadiness.textContent = `Detection failed: ${error.message}`;
+    return [];
+  }
+}
+
+function getMicrophoneLabel(track) {
+  if (!track) return "No microphone track";
+  const devices = state.recordingDevices || [];
+  const settings = track.getSettings?.() || {};
+  const matched = devices.find((device) => device.deviceId && device.deviceId === settings.deviceId);
+  return matched?.label || track.label || "Microphone detected";
+}
+
+function stopAudioVisualizer() {
+  if (state.visualizerAnimation) cancelAnimationFrame(state.visualizerAnimation);
+  state.visualizerAnimation = null;
+  state.analyser = null;
+  if (state.audioContext) {
+    state.audioContext.close?.().catch(() => {});
+    state.audioContext = null;
+  }
+  elements.recordingLevelReadiness.textContent = "Start recording to view live input";
+}
+
+function startAudioVisualizer(stream) {
+  stopAudioVisualizer();
+  const canvas = elements.recordingVisualizer;
+  if (!canvas || !stream.getAudioTracks().length) return;
+  try {
+    const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContextCtor) {
+      elements.recordingVisualizerStatus.textContent = "Audio visualizer is not supported on this system.";
+      return;
+    }
+    state.audioContext = new AudioContextCtor();
+    const source = state.audioContext.createMediaStreamSource(new MediaStream(stream.getAudioTracks()));
+    state.analyser = state.audioContext.createAnalyser();
+    state.analyser.fftSize = 256;
+    source.connect(state.analyser);
+    drawAudioVisualizer();
+  } catch (error) {
+    elements.recordingVisualizerStatus.textContent = `Visualizer unavailable: ${error.message}`;
+  }
+}
+
+function drawAudioVisualizer() {
+  const canvas = elements.recordingVisualizer;
+  const analyser = state.analyser;
+  if (!canvas || !analyser) return;
+  const context = canvas.getContext("2d");
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(data);
+  const width = canvas.width;
+  const height = canvas.height;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--panel").trim() || "#ffffff";
+  context.fillRect(0, 0, width, height);
+  const peak = Math.max(...data);
+  const level = Math.round((peak / 255) * 100);
+  const levelMessage = level > 4 ? `Microphone input detected (${level}%)` : "Microphone is connected, waiting for sound";
+  elements.recordingVisualizerStatus.textContent = levelMessage;
+  elements.recordingLevelReadiness.textContent = levelMessage;
+  const barWidth = Math.max(3, width / data.length - 2);
+  data.forEach((value, index) => {
+    const barHeight = Math.max(2, (value / 255) * (height - 8));
+    context.fillStyle = value > 140 ? "#9b1518" : "#202222";
+    context.fillRect(index * (barWidth + 2), height - barHeight - 4, barWidth, barHeight);
+  });
+  state.visualizerAnimation = requestAnimationFrame(drawAudioVisualizer);
 }
 
 function normalizeFilePaths(input) {
@@ -679,10 +776,30 @@ async function startRecording(kind) {
   }
 
   try {
-    const stream = kind === "screen"
-      ? await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-      : await navigator.mediaDevices.getUserMedia({ audio: true });
-
+    await refreshRecordingDevices();
+    let stream;
+    let displayStream = null;
+    let micStream = null;
+    if (kind === "screen") {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: 30 } },
+        audio: true
+      });
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      stream = new MediaStream([
+        ...displayStream.getVideoTracks(),
+        ...displayStream.getAudioTracks(),
+        ...micStream.getAudioTracks()
+      ]);
+    } else {
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+      });
+      stream = micStream;
+    }
+    await refreshRecordingDevices();
     const audioTrack = stream.getAudioTracks()[0];
     const videoTrack = stream.getVideoTracks()[0];
     const preferredMimeType = kind === "screen" ? "video/webm;codecs=vp9,opus" : "audio/webm;codecs=opus";
@@ -691,20 +808,26 @@ async function startRecording(kind) {
       ? preferredMimeType
       : fallbackMimeType;
     const startedAt = new Date();
+    const extension = kind === "screen" ? "webm" : "weba";
 
     state.recordedChunks = [];
     state.recording = {
       kind,
       stream,
+      displayStream,
+      micStream,
       startedAt,
       pausedMs: 0,
       pausedAt: null,
       status: "recording",
-      fileName: getRecordingFileName(kind),
+      fileName: getRecordingFileName(kind, extension),
       filePath: "",
       blob: null,
       bytes: 0,
       mimeType,
+      extension,
+      microphoneLabel: getMicrophoneLabel(audioTrack),
+      detectedMicCount: state.recordingDevices.length,
       audioSummary: getTrackSummary(audioTrack),
       videoSummary: kind === "screen" ? getTrackSummary(videoTrack) : "Not used",
       wasCancelled: false
@@ -734,10 +857,12 @@ async function startRecording(kind) {
       }
     };
     state.mediaRecorder.start(1000);
+    startAudioVisualizer(stream);
     startRecordingTimer();
     updateRecordingPanel();
-    showStatus(`${kind === "screen" ? "Video" : "Audio"} recording started.`, 20);
+    showStatus(`${kind === "screen" ? "Video" : "Audio"} recording started with ${state.recording.microphoneLabel}.`, 20);
   } catch (error) {
+    stopAudioVisualizer();
     showError(error);
   }
 }
@@ -765,10 +890,13 @@ function updateRecordingPanel() {
   elements.recordingTimer.textContent = formatDuration(isStopped ? recording.durationMs : getActiveRecordingDuration());
   elements.recordingStart.textContent = recording.startedAt.toLocaleString();
   elements.recordingFileName.textContent = recording.fileName;
-  elements.recordingFormat.textContent = "WebM";
+  elements.recordingFormat.textContent = recording.kind === "screen" ? "WebM video" : "WebM audio (.weba)";
   elements.recordingQuality.textContent = recording.kind === "screen" ? recording.videoSummary : recording.audioSummary;
-  elements.recordingMicStatus.textContent = recording.audioSummary === "Inactive" ? "Inactive" : isPaused ? "Paused" : "Active";
+  elements.recordingMicStatus.textContent = recording.audioSummary === "Inactive" ? "Inactive" : isPaused ? `Paused - ${recording.microphoneLabel}` : `Active - ${recording.microphoneLabel}`;
   elements.recordingCameraStatus.textContent = recording.kind === "screen" ? recording.videoSummary : "Not used for audio recording";
+  elements.recordingDetectedMics.textContent = recording.detectedMicCount
+    ? `${recording.detectedMicCount} detected`
+    : "No microphones detected";
   elements.recordingFileSize.textContent = formatFileSize(recording.bytes);
   elements.recordingSaveLocation.textContent = recording.filePath || "App recordings folder";
 
@@ -825,7 +953,7 @@ async function saveStoppedRecording() {
     elements.saveRecording.disabled = true;
     showStatus("Saving recording...", 85);
     const buffer = await state.recording.blob.arrayBuffer();
-    const filePath = await window.mico360.saveRecording({ buffer, extension: "webm" });
+    const filePath = await window.mico360.saveRecording({ buffer, extension: state.recording.extension || "webm" });
     state.recording.filePath = filePath;
     state.recording.fileName = filePath.split(/[\\/]/).pop() || state.recording.fileName;
     updateRecordingPanel();
@@ -852,12 +980,13 @@ function cancelRecording() {
 function showRecordingSummary(message) {
   const recording = state.recording;
   if (!recording) return;
+  const format = recording.kind === "screen" ? "Video WebM (.webm)" : "Audio WebM (.weba)";
   elements.recordingSummary.classList.remove("hidden");
   elements.recordingSummaryText.textContent = [
     message,
     `Duration: ${formatDuration(recording.durationMs || getActiveRecordingDuration())}`,
     `File: ${recording.fileName}`,
-    "Format: WebM",
+    `Format: ${format}`,
     `Size: ${formatFileSize(recording.bytes)}`,
     `Location: ${recording.filePath || "Not saved yet"}`
   ].join(" | ");
@@ -865,9 +994,12 @@ function showRecordingSummary(message) {
 
 function resetRecordingState(message) {
   stopRecordingTimer();
+  stopAudioVisualizer();
   state.mediaRecorder = null;
   state.recordedChunks = [];
   state.recording?.stream?.getTracks().forEach((track) => track.stop());
+  state.recording?.displayStream?.getTracks().forEach((track) => track.stop());
+  state.recording?.micStream?.getTracks().forEach((track) => track.stop());
   state.recording = null;
   elements.recordingPanel.classList.add("hidden");
   elements.recordingSummary.classList.add("hidden");
@@ -1264,6 +1396,8 @@ async function boot() {
   await loadSettings();
   await loadModels();
   await loadHistory();
+  await refreshRecordingDevices();
+  navigator.mediaDevices?.addEventListener?.("devicechange", refreshRecordingDevices);
   wireEvents();
 }
 

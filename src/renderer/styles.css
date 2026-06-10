@@ -610,6 +610,79 @@ h2 {
   margin-bottom: 8px;
 }
 
+.recording-readiness {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.recording-readiness span {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--panel) 88%, var(--brand) 5%);
+}
+
+.recording-readiness strong,
+.recording-readiness em {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recording-readiness strong {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: normal;
+}
+
+.recording-readiness em {
+  margin-top: 3px;
+  color: var(--text);
+  font-size: 13px;
+  font-style: normal;
+}
+
+.recording-visualizer {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px;
+  background: var(--panel);
+}
+
+.recording-visualizer > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.recording-visualizer strong,
+.recording-visualizer span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.recording-visualizer span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.recording-visualizer canvas {
+  width: 100%;
+  height: 72px;
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--brand) 4%);
+}
+
 .input-panel:has(.recording-panel:not(.hidden)) .panel-header .button-group,
 .input-panel:has(.recording-panel:not(.hidden)) .drop-zone,
 .input-panel:has(.recording-panel:not(.hidden)) .file-queue {

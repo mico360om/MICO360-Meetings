@@ -242,8 +242,8 @@ ipcMain.handle("dialog:choose-file", async () => {
     title: "Select meeting files",
     properties: ["openFile", "multiSelections"],
     filters: [
-      { name: "Meeting Files", extensions: ["mp3", "wav", "m4a", "mp4", "mov", "mkv", "webm", "txt", "md", "csv", "json", "pdf", "docx", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] },
-      { name: "Audio", extensions: ["mp3", "wav", "m4a"] },
+      { name: "Meeting Files", extensions: ["mp3", "wav", "m4a", "weba", "mp4", "mov", "mkv", "webm", "txt", "md", "csv", "json", "pdf", "docx", "png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] },
+      { name: "Audio", extensions: ["mp3", "wav", "m4a", "weba"] },
       { name: "Video", extensions: ["mp4", "mov", "mkv", "webm"] },
       { name: "Documents", extensions: ["txt", "md", "csv", "json", "pdf", "docx"] },
       { name: "Images", extensions: ["png", "jpg", "jpeg", "webp", "bmp", "gif", "tif", "tiff"] }

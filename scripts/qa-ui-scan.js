@@ -149,12 +149,25 @@ async function main() {
     document.querySelector("#recordingTimer").textContent = "03:14";
     document.querySelector("#recordingStart").textContent = "09/06/2026, 21:30:00";
     document.querySelector("#recordingFileName").textContent = "mico360-video-recording-2026-06-09-21-30-00.webm";
-    document.querySelector("#recordingFormat").textContent = "WebM";
+    document.querySelector("#recordingFormat").textContent = "WebM video";
     document.querySelector("#recordingQuality").textContent = "1920x1080 @ 30 fps";
-    document.querySelector("#recordingMicStatus").textContent = "Active";
+    document.querySelector("#recordingMicStatus").textContent = "Active - Default microphone";
     document.querySelector("#recordingCameraStatus").textContent = "1920x1080 @ 30 fps";
+    document.querySelector("#recordingDetectedMics").textContent = "1 detected";
+    document.querySelector("#recordingMicReadiness").textContent = "1 detected - Default microphone";
+    document.querySelector("#recordingLevelReadiness").textContent = "Microphone input detected (48%)";
+    document.querySelector("#recordingVisualizerStatus").textContent = "Microphone input detected (48%)";
     document.querySelector("#recordingFileSize").textContent = "8.42 MB";
     document.querySelector("#recordingSaveLocation").textContent = "App recordings folder";
+    const canvas = document.querySelector("#recordingVisualizer");
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#9b1518";
+    Array.from({ length: 28 }).forEach((_, index) => {
+      const height = 10 + ((index * 13) % 54);
+      ctx.fillRect(index * 23, canvas.height - height - 4, 12, height);
+    });
   });
   await page.waitForTimeout(250);
   results.push({

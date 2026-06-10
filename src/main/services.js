@@ -9,7 +9,7 @@ const { PDFParse } = require("pdf-parse");
 const JSZip = require("jszip");
 const { DEFAULT_PROMPT, MINUTES_SECTIONS } = require("../shared/constants");
 
-const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a"]);
+const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".m4a", ".weba"]);
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".mkv", ".webm"]);
 const TEXT_EXTENSIONS = new Set([".txt", ".md", ".csv", ".json"]);
 const DOCUMENT_EXTENSIONS = new Set([".docx", ".pdf"]);

@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.14
+Installer version: 1.0.15
 
 ## Installer Scope
 
@@ -68,6 +68,7 @@ Configuration is written to:
 | Recording details panel | Added live audio/video recording status, timer, file metadata, device details, pause/resume/stop/save/cancel controls, and stopped summary | Fixed in 1.0.12 |
 | Complete update details panel | Replaced vague update text with current/new version, status, size, release date, release notes, progress, restart requirement, error/retry, install, and completed-after-restart details | Fixed in 1.0.13 |
 | App and installer icons | Regenerated square Windows app icon and configured explicit installer/uninstaller icons for setup, installed app, shortcuts, and notifications | Fixed in 1.0.14 |
+| Microphone recording readiness | Microphone recording now saves audio-only `.weba`, detects available microphones before recording, shows the active microphone name/count, and displays a live input visualizer | Fixed in 1.0.15 |
 
 ## Bugs Found And Fixed
 
@@ -151,11 +152,15 @@ Configuration is written to:
    - Cause: Recording only changed the button text and immediately saved/transcribed on stop, leaving users without a clear recording status, timer, device details, file metadata, or save/cancel choice.
    - Fix: Added a responsive recording panel with Recording/Paused/Stopped states, blinking red indicator, timer, start time, generated file name, WebM format, quality/resolution, microphone/video status, live file size, save location, Pause/Resume/Stop/Save/Cancel controls, and a stopped recording summary.
 
-21. Application updates needed complete progress and release details.
+21. Microphone recording could appear as a black video-like file and did not show whether the mic was detected.
+   - Cause: Microphone-only recordings were saved through the same generic WebM path as screen recordings, and the dashboard did not expose microphone detection or live input level before/during recording.
+   - Fix: Microphone recordings now use audio-only WebM with `.weba`, the ingestion pipeline accepts `.weba`, the dashboard shows detected microphones, the active microphone label/count, and a live Web Audio visualizer, and the stopped summary displays the correct audio/video format.
+
+22. Application updates needed complete progress and release details.
    - Cause: The update area only showed short messages such as checking/downloading/ready, without version, size, date, release notes, progress, restart, error, retry, or completion details.
    - Fix: Added a structured Application Updates panel with app name, current version, new version, status badge, update size, release date, release notes, new features, bug fixes, security notes, progress bar, restart requirement, error box, retry/install actions, installing state, and completed-after-restart confirmation.
 
-22. App and installer icons needed consistent branding after installation.
+23. App and installer icons needed consistent branding after installation.
    - Cause: The app relied on a single wide-logo-derived icon and did not explicitly configure installer and uninstaller icons.
    - Fix: Regenerated a square MICO360 icon optimized for Windows taskbar/Start/menu sizes, added dedicated installer and uninstaller ICO files, and configured Electron Builder to use them for the setup package and installed application.
 

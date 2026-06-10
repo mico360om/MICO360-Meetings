@@ -5,13 +5,13 @@ MICO360 Meetings is a local-first desktop assistant for turning meeting audio, v
 ## Features
 
 - Upload multiple files at once
-- Upload audio: MP3, WAV, M4A
+- Upload audio: MP3, WAV, M4A, WEBA
 - Upload video: MP4, MOV, MKV, WebM
 - Upload transcripts and notes: TXT, MD, CSV, JSON
 - Upload documents: PDF and DOCX
 - Attach image references: PNG, JPG, JPEG, WebP, BMP, GIF, TIFF
 - Paste transcript manually
-- Record microphone audio with live status, timer, file details, pause/resume/stop/save/cancel controls, and a post-recording summary
+- Record microphone audio as audio-only `.weba` files with mic detection, live level visualizer, status, timer, file details, pause/resume/stop/save/cancel controls, and a post-recording summary
 - Record screen/video with audio when supported by the operating system
 - Local transcription through `faster-whisper`, OpenAI Whisper CLI, or `whisper.cpp`
 - Local AI generation through Ollama models such as Llama 3.1, Qwen, Mistral, and Gemma
@@ -58,7 +58,7 @@ Build the installer:
 npm run dist
 ```
 
-Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.14`; use the `MICO360-Meetings-Setup-1.0.14.exe` file to avoid older installer behavior. For local AI prerequisites, use:
+Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.15`; use the `MICO360-Meetings-Setup-1.0.15.exe` file to avoid older installer behavior. For local AI prerequisites, use:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\installer\MICO360-Meetings-Prerequisites.ps1"

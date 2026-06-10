@@ -364,6 +364,10 @@
               <small id="selectedFile">No file selected</small>
             </div>
             <div id="fileQueue" class="file-queue" aria-live="polite"></div>
+            <div id="recordingReadiness" class="recording-readiness" aria-live="polite">
+              <span><strong>Microphone</strong><em id="recordingMicReadiness">Checking devices...</em></span>
+              <span><strong>Audio level</strong><em id="recordingLevelReadiness">Start recording to view live input</em></span>
+            </div>
             <section id="recordingPanel" class="recording-panel hidden" aria-live="polite">
               <div class="recording-head">
                 <div>
@@ -373,6 +377,14 @@
                 <strong id="recordingTimer" class="recording-timer">00:00</strong>
               </div>
 
+              <div class="recording-visualizer">
+                <div>
+                  <strong>Microphone Level</strong>
+                  <span id="recordingVisualizerStatus">Waiting for microphone input</span>
+                </div>
+                <canvas id="recordingVisualizer" width="640" height="72" aria-label="Live microphone level visualizer"></canvas>
+              </div>
+
               <div class="recording-details">
                 <div><span>Start</span><strong id="recordingStart">Not started</strong></div>
                 <div><span>File name</span><strong id="recordingFileName">Not generated</strong></div>
@@ -380,6 +392,7 @@
                 <div><span>Quality</span><strong id="recordingQuality">Not available</strong></div>
                 <div><span>Microphone</span><strong id="recordingMicStatus">Inactive</strong></div>
                 <div><span>Camera / Video</span><strong id="recordingCameraStatus">Inactive</strong></div>
+                <div><span>Detected microphones</span><strong id="recordingDetectedMics">Checking</strong></div>
                 <div><span>File size</span><strong id="recordingFileSize">0 KB</strong></div>
                 <div><span>Save location</span><strong id="recordingSaveLocation">App recordings folder</strong></div>
               </div>
