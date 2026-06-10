@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.13
+Installer version: 1.0.14
 
 ## Installer Scope
 
@@ -67,6 +67,7 @@ Configuration is written to:
 | Re-transcript action | Added Re-Transcript button to reprocess the selected upload/recording and replace the transcript with a fresh result | Fixed in 1.0.11 |
 | Recording details panel | Added live audio/video recording status, timer, file metadata, device details, pause/resume/stop/save/cancel controls, and stopped summary | Fixed in 1.0.12 |
 | Complete update details panel | Replaced vague update text with current/new version, status, size, release date, release notes, progress, restart requirement, error/retry, install, and completed-after-restart details | Fixed in 1.0.13 |
+| App and installer icons | Regenerated square Windows app icon and configured explicit installer/uninstaller icons for setup, installed app, shortcuts, and notifications | Fixed in 1.0.14 |
 
 ## Bugs Found And Fixed
 
@@ -153,6 +154,10 @@ Configuration is written to:
 21. Application updates needed complete progress and release details.
    - Cause: The update area only showed short messages such as checking/downloading/ready, without version, size, date, release notes, progress, restart, error, retry, or completion details.
    - Fix: Added a structured Application Updates panel with app name, current version, new version, status badge, update size, release date, release notes, new features, bug fixes, security notes, progress bar, restart requirement, error box, retry/install actions, installing state, and completed-after-restart confirmation.
+
+22. App and installer icons needed consistent branding after installation.
+   - Cause: The app relied on a single wide-logo-derived icon and did not explicitly configure installer and uninstaller icons.
+   - Fix: Regenerated a square MICO360 icon optimized for Windows taskbar/Start/menu sizes, added dedicated installer and uninstaller ICO files, and configured Electron Builder to use them for the setup package and installed application.
 
 ## Clean-System Test Note
 

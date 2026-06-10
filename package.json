@@ -1,6 +1,6 @@
 {
   "name": "mico360-meetings",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Local-first desktop meeting minutes assistant powered by Ollama and Whisper.",
   "main": "src/main/main.js",
   "author": "MICO360",
@@ -64,6 +64,8 @@
     },
     "nsis": {
       "include": "installer/installer.nsh",
+      "installerIcon": "assets/installer-icon.ico",
+      "uninstallerIcon": "assets/uninstaller-icon.ico",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "runAfterFinish": false
