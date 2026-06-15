@@ -28,7 +28,6 @@ const elements = {
   styleSelect: $("#styleSelect"),
   projectTitle: $("#projectTitle"),
   refreshModels: $("#refreshModels"),
-  installRequiredModel: $("#installRequiredModel"),
   installRequiredModelSettings: $("#installRequiredModelSettings"),
   checkUpdates: $("#checkUpdates"),
   installUpdate: $("#installUpdate"),
@@ -432,12 +431,11 @@ async function loadModels() {
   elements.modelSelect.value = usablePreferred ? preferred : firstTextModel || options[0];
   updateSummaryLabels();
   if (!models.length) {
-    showStatus(`Ollama models not detected. Click Install Required Model to install ${REQUIRED_OLLAMA_MODEL}.`, 0);
+    showStatus(`Ollama models not detected. Open Settings -> AI and click Install Required Model to install ${REQUIRED_OLLAMA_MODEL}.`, 0);
   }
 }
 
 function setModelInstallBusy(isBusy) {
-  elements.installRequiredModel.disabled = isBusy;
   elements.installRequiredModelSettings.disabled = isBusy;
   elements.refreshModels.disabled = isBusy;
 }
@@ -1113,7 +1111,6 @@ function wireEvents() {
     await persistSettings();
   });
   elements.refreshModels.addEventListener("click", loadModels);
-  elements.installRequiredModel.addEventListener("click", installRequiredModel);
   elements.installRequiredModelSettings.addEventListener("click", installRequiredModel);
   elements.openUpdateRepo.addEventListener("click", () => window.mico360.openExternal(GITHUB_REPO_URL));
   elements.openUpdateReleases.addEventListener("click", () => window.mico360.openExternal(GITHUB_RELEASES_URL));
