@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.22
+Installer version: 1.0.23
 
 ## Installer Scope
 
@@ -76,6 +76,7 @@ Configuration is written to:
 | New PC transcription and model fallback | App now discovers the MICO360 Python environment even if installer config is missing and falls back to installed Ollama models such as `qwen2.5:0.5b` instead of failing on uninstalled aliases | Fixed in 1.0.20 |
 | Update version and GitHub links | Application Updates now clearly labels installed current version, latest available version, and direct GitHub repository/releases links for manual installer download | Fixed in 1.0.21 |
 | In-app Ollama model install | Added Install Required Model controls that run `ollama pull qwen2.5:0.5b`, refresh installed models, and show progress when Ollama is installed but the required model is missing | Fixed in 1.0.22 |
+| Republished update channel | Published a fresh update version so installed apps can detect a newer release from GitHub Releases | Fixed in 1.0.23 |
 
 ## Bugs Found And Fixed
 
