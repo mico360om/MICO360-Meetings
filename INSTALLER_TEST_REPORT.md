@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.16
+Installer version: 1.0.17
 
 ## Installer Scope
 
@@ -70,6 +70,7 @@ Configuration is written to:
 | App and installer icons | Regenerated square Windows app icon and configured explicit installer/uninstaller icons for setup, installed app, shortcuts, and notifications | Fixed in 1.0.14 |
 | Microphone recording readiness | Microphone recording now saves audio-only `.weba`, detects available microphones before recording, shows the active microphone name/count, and displays a live input visualizer | Fixed in 1.0.15 |
 | Help and legal content | Added Help, About Us, Terms & Conditions, and Privacy Policy content in Settings with `info@mico360.com` contact details | Fixed in 1.0.16 |
+| Refreshed icon installer package | Rebuilt the installer with the configured MICO360 app, installer, and uninstaller icons and verified embedded Windows icons for the generated EXEs | Fixed in 1.0.17 |
 
 ## Bugs Found And Fixed
 
