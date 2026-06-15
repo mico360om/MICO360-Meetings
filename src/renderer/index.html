@@ -81,13 +81,23 @@
 
               <div class="update-details">
                 <div><span>Application</span><strong id="updateAppName">MICO360 Meetings</strong></div>
-                <div><span>Current version</span><strong id="updateCurrentVersion">Not loaded</strong></div>
-                <div><span>New version</span><strong id="updateNewVersion">Not checked</strong></div>
+                <div><span>Installed current version</span><strong id="updateCurrentVersion">Not loaded</strong></div>
+                <div><span>Latest available version</span><strong id="updateNewVersion">Not checked</strong></div>
                 <div><span>Status</span><strong id="updateStatusValue">Idle</strong></div>
                 <div><span>Update size</span><strong id="updateSize">Not available</strong></div>
                 <div><span>Release date</span><strong id="updateReleaseDate">Not available</strong></div>
                 <div><span>Restart</span><strong id="updateRestart">Not required</strong></div>
                 <div><span>Completed</span><strong id="updateCompletedAt">Not completed</strong></div>
+              </div>
+
+              <div class="update-manual">
+                <strong>Manual Download</strong>
+                <span>Use the GitHub repository if the in-app updater is unavailable or you want to download the installer directly.</span>
+                <div class="button-group">
+                  <button id="openUpdateRepo" class="secondary" type="button">GitHub Repository</button>
+                  <button id="openUpdateReleases" class="secondary" type="button">Latest Releases</button>
+                </div>
+                <small id="updateRepoLink">https://github.com/mico360om/MICO360-Meetings</small>
               </div>
 
               <div class="update-progress">

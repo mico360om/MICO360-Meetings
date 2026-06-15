@@ -1001,6 +1001,7 @@ progress {
 .update-details div,
 .update-note-grid div,
 .update-notes,
+.update-manual,
 .update-error {
   min-width: 0;
   border: 1px solid var(--line);
@@ -1012,6 +1013,8 @@ progress {
 .update-details span,
 .update-note-grid span,
 .update-progress span,
+.update-manual span,
+.update-manual small,
 .update-error span {
   color: var(--muted);
   font-size: 12px;
@@ -1021,6 +1024,9 @@ progress {
 .update-note-grid strong,
 .update-notes strong,
 .update-notes span,
+.update-manual strong,
+.update-manual span,
+.update-manual small,
 .update-error strong,
 .update-error span {
   display: block;
@@ -1028,9 +1034,18 @@ progress {
   overflow-wrap: anywhere;
 }
 
-.update-notes {
+.update-notes,
+.update-manual {
   display: grid;
   gap: 8px;
+}
+
+.update-manual .button-group {
+  justify-content: flex-start;
+}
+
+.update-manual small {
+  font-family: Consolas, "Courier New", monospace;
 }
 
 .update-error {

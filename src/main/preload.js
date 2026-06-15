@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("mico360", {
   saveSettings: (payload) => ipcRenderer.invoke("settings:save", payload),
   checkForUpdates: () => ipcRenderer.invoke("updates:check"),
   installUpdate: () => ipcRenderer.invoke("updates:install"),
+  openExternal: (url) => ipcRenderer.invoke("shell:open-external", url),
   openPath: (filePath) => ipcRenderer.invoke("shell:open-path", filePath),
   onProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);

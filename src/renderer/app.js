@@ -30,6 +30,9 @@ const elements = {
   refreshModels: $("#refreshModels"),
   checkUpdates: $("#checkUpdates"),
   installUpdate: $("#installUpdate"),
+  openUpdateRepo: $("#openUpdateRepo"),
+  openUpdateReleases: $("#openUpdateReleases"),
+  updateRepoLink: $("#updateRepoLink"),
   updateStatus: $("#updateStatus"),
   updateStatusBadge: $("#updateStatusBadge"),
   updateAppName: $("#updateAppName"),
@@ -1008,18 +1011,29 @@ function resetRecordingState(message) {
   showStatus(message, 100);
 }
 
+const GITHUB_REPO_URL = "https://github.com/mico360om/MICO360-Meetings";
+const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`;
+
+function getDisplayVersion(value, fallback = "Not checked") {
+  return value ? `v${String(value).replace(/^v/i, "")}` : fallback;
+}
+
 function renderUpdateDetails(payload = {}) {
   const status = payload.status || "idle";
   const label = getStatusLabel(status);
   const progress = Math.max(0, Math.min(100, Number(payload.progress ?? payload.percent ?? 0) || 0));
   const notes = extractUpdateNotes(payload.updateDescription || payload.releaseNotes || payload.description || "");
+  const currentVersion = payload.currentVersion || window.mico360?.version || "";
+  const latestVersion = payload.newVersion || payload.version || "";
 
   elements.updateStatus.textContent = payload.message || "Updates are delivered from the official GitHub release channel.";
   elements.updateStatusBadge.textContent = label;
   elements.updateStatusBadge.dataset.status = status;
   elements.updateAppName.textContent = payload.appName || "MICO360 Meetings";
-  elements.updateCurrentVersion.textContent = payload.currentVersion || window.mico360?.version || "Not loaded";
-  elements.updateNewVersion.textContent = payload.newVersion || payload.version || (status === "none" ? "No newer version" : "Not checked");
+  elements.updateCurrentVersion.textContent = getDisplayVersion(currentVersion, "Not loaded");
+  elements.updateNewVersion.textContent = status === "none"
+    ? `No newer version. Installed ${getDisplayVersion(currentVersion, "version is current")}`
+    : getDisplayVersion(latestVersion, "Not checked");
   elements.updateStatusValue.textContent = label;
   elements.updateSize.textContent = formatUpdateSize(payload.updateSize || payload.total);
   elements.updateReleaseDate.textContent = formatUpdateDate(payload.releaseDate);
@@ -1035,6 +1049,7 @@ function renderUpdateDetails(payload = {}) {
   elements.updateErrorMessage.textContent = payload.errorMessage || payload.message || "No errors reported.";
   elements.installUpdate.disabled = status !== "ready";
   elements.checkUpdates.textContent = status === "error" ? "Retry Update" : "Check Updates";
+  elements.updateRepoLink.textContent = GITHUB_REPO_URL;
 }
 
 function wireEvents() {
@@ -1069,6 +1084,8 @@ function wireEvents() {
     await persistSettings();
   });
   elements.refreshModels.addEventListener("click", loadModels);
+  elements.openUpdateRepo.addEventListener("click", () => window.mico360.openExternal(GITHUB_REPO_URL));
+  elements.openUpdateReleases.addEventListener("click", () => window.mico360.openExternal(GITHUB_RELEASES_URL));
   elements.checkUpdates.addEventListener("click", async () => {
     try {
       elements.checkUpdates.disabled = true;
@@ -1399,6 +1416,11 @@ async function boot() {
   await refreshRecordingDevices();
   navigator.mediaDevices?.addEventListener?.("devicechange", refreshRecordingDevices);
   wireEvents();
+  renderUpdateDetails({
+    status: "idle",
+    message: "Updates are delivered from the official GitHub release channel.",
+    currentVersion: window.mico360.version
+  });
 }
 
 boot().catch(showError);

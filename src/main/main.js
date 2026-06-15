@@ -523,3 +523,10 @@ ipcMain.handle("updates:install", async () => {
 });
 
 ipcMain.handle("shell:open-path", async (_event, filePath) => shell.openPath(filePath));
+ipcMain.handle("shell:open-external", async (_event, url) => {
+  const parsed = new URL(url);
+  if (!["https:", "http:"].includes(parsed.protocol)) {
+    throw new Error("Only web links can be opened from the app.");
+  }
+  return shell.openExternal(parsed.toString());
+});
