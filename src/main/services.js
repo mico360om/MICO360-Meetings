@@ -14,6 +14,7 @@ const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".mkv", ".webm"]);
 const TEXT_EXTENSIONS = new Set([".txt", ".md", ".csv", ".json"]);
 const DOCUMENT_EXTENSIONS = new Set([".docx", ".pdf"]);
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff"]);
+const DEFAULT_OLLAMA_MODEL = "qwen2.5:0.5b";
 const PROFILE_FIELDS = [
   "name",
   "companyName",
@@ -162,9 +163,18 @@ function readInstallerConfig() {
 function getPythonTranscriptionAttempts() {
   const attempts = [];
   const config = readInstallerConfig();
+  const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+  const fallbackPython = path.join(localAppData, "MICO360 Meetings", "python-env", "Scripts", "python.exe");
   if (config?.pythonExecutable && fs.existsSync(config.pythonExecutable)) {
     attempts.push({
       command: config.pythonExecutable,
+      args: [],
+      label: "MICO360 Python environment"
+    });
+  }
+  if (fs.existsSync(fallbackPython) && !attempts.some((attempt) => attempt.command === fallbackPython)) {
+    attempts.push({
+      command: fallbackPython,
       args: [],
       label: "MICO360 Python environment"
     });
@@ -592,6 +602,18 @@ async function fetchOllamaModels() {
   return (data.models || []).map((model) => model.name);
 }
 
+function isMissingOllamaModelError(error) {
+  const text = `${error?.message || ""}\n${error?.stack || ""}`;
+  return /model ['"]?.+['"]? not found|not found/i.test(text) && /HTTP 404|model/i.test(text);
+}
+
+async function pickInstalledOllamaModel(preferredModel) {
+  const models = await fetchOllamaModels();
+  if (preferredModel && models.includes(preferredModel)) return preferredModel;
+  if (models.includes(DEFAULT_OLLAMA_MODEL)) return DEFAULT_OLLAMA_MODEL;
+  return models.find((model) => !/vision/i.test(model)) || "";
+}
+
 async function callOllama({ model, prompt, onProgress }) {
   const response = await fetch("http://127.0.0.1:11434/api/generate", {
     method: "POST",
@@ -634,20 +656,34 @@ function buildPrompt({ transcript, style, template }) {
 async function generateMinutes({ transcript, model, style, promptTemplate, onProgress }) {
   const cleaned = cleanTranscript(transcript);
   const chunks = chunkTranscript(cleaned);
+  const installedModel = await pickInstalledOllamaModel(model);
+  if (!installedModel) {
+    throw new Error("No local Ollama text model is installed. Run the MICO360 Meetings prerequisites script or install one with: ollama pull qwen2.5:0.5b");
+  }
+  if (installedModel !== model) {
+    onProgress?.(`Selected model '${model || "Not specified"}' is not installed. Using '${installedModel}' instead.\n`);
+  }
 
   if (chunks.length === 1) {
-    return callOllama({ model, prompt: buildPrompt({ transcript: cleaned, style, template: promptTemplate }), onProgress });
+    try {
+      return await callOllama({ model: installedModel, prompt: buildPrompt({ transcript: cleaned, style, template: promptTemplate }), onProgress });
+    } catch (error) {
+      if (isMissingOllamaModelError(error)) {
+        throw new Error(`Ollama model '${installedModel}' is not installed. Run the MICO360 Meetings prerequisites script or install it with: ollama pull ${DEFAULT_OLLAMA_MODEL}`);
+      }
+      throw error;
+    }
   }
 
   const summaries = [];
   for (let index = 0; index < chunks.length; index += 1) {
     onProgress?.(`\n\n[Chunk ${index + 1}/${chunks.length}]\n`);
     const prompt = `Summarize this meeting transcript chunk faithfully. Do not invent details. Mark missing or unclear information as Not specified.\n\n${chunks[index]}`;
-    summaries.push(await callOllama({ model, prompt, onProgress }));
+    summaries.push(await callOllama({ model: installedModel, prompt, onProgress }));
   }
 
   const combined = summaries.map((summary, index) => `Chunk ${index + 1} summary:\n${summary}`).join("\n\n");
-  return callOllama({ model, prompt: buildPrompt({ transcript: combined, style, template: promptTemplate }), onProgress });
+  return callOllama({ model: installedModel, prompt: buildPrompt({ transcript: combined, style, template: promptTemplate }), onProgress });
 }
 
 function textToDocxParagraphs(text) {

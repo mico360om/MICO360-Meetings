@@ -420,14 +420,14 @@ function currentProfilesWithActive() {
 async function loadModels() {
   const models = await window.mico360.getModels();
   const preferred = state.settings.model || "qwen2.5:0.5b";
-  const options = models.length ? models : ["llama3.1", "qwen2.5", "mistral", "gemma2"];
+  const options = models.length ? models : ["qwen2.5:0.5b"];
   elements.modelSelect.innerHTML = options.map((model) => `<option value="${model}">${model}</option>`).join("");
   const firstTextModel = options.find((model) => !/vision/i.test(model));
   const usablePreferred = options.includes(preferred) && !/vision/i.test(preferred);
   elements.modelSelect.value = usablePreferred ? preferred : firstTextModel || options[0];
   updateSummaryLabels();
   if (!models.length) {
-    showStatus("Ollama models not detected. Start Ollama or install a model, then refresh.", 0);
+    showStatus("Ollama models not detected. The installer model qwen2.5:0.5b is selected as the fallback.", 0);
   }
 }
 
