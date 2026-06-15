@@ -422,26 +422,40 @@ h2 {
 }
 
 .input-panel .panel-header {
+  display: grid;
+  position: relative;
+  z-index: 2;
   align-items: stretch;
-  flex-direction: column;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  flex: 0 0 auto;
 }
 
 .input-panel .button-group {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  position: relative;
+  z-index: 2;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 124px), 1fr));
   gap: 6px;
   width: 100%;
+  align-items: stretch;
 }
 
 .input-panel .button-group button {
+  width: 100%;
+  min-height: 38px;
   padding: 0 8px;
   white-space: nowrap;
 }
 
 .drop-zone {
   display: grid;
+  position: relative;
+  z-index: 1;
   place-items: center;
+  flex: 0 0 auto;
   min-height: clamp(96px, 16vh, 132px);
+  margin-top: 0;
   margin-bottom: 12px;
   border: 2px dashed var(--line);
   border-radius: var(--radius);
@@ -1427,5 +1441,28 @@ progress {
 
   .file-queue-item span {
     white-space: normal;
+  }
+}
+
+.input-panel {
+  overflow: auto;
+}
+
+.input-panel .panel-header,
+.input-panel .drop-zone,
+.input-panel .file-queue,
+.input-panel .recording-readiness,
+.input-panel .recording-panel,
+.input-panel .text-label {
+  flex: 0 0 auto;
+}
+
+.input-panel .panel-header {
+  min-height: auto;
+}
+
+@media (max-width: 640px) {
+  .input-panel .button-group {
+    grid-template-columns: 1fr;
   }
 }

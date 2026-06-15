@@ -2,7 +2,7 @@
 
 Date: 2026-06-09
 
-Installer version: 1.0.18
+Installer version: 1.0.19
 
 ## Installer Scope
 
@@ -72,6 +72,7 @@ Configuration is written to:
 | Help and legal content | Added Help, About Us, Terms & Conditions, and Privacy Policy content in Settings with `info@mico360.com` contact details | Fixed in 1.0.16 |
 | Refreshed icon installer package | Rebuilt the installer with the configured MICO360 app, installer, and uninstaller icons and verified embedded Windows icons for the generated EXEs | Fixed in 1.0.17 |
 | Friendly update metadata errors | Replaced raw `latest.yml` / GitHub 404 updater stack traces with clear retry guidance in the Application Updates panel and notifications | Fixed in 1.0.18 |
+| Input panel overlap | Fixed the input section toolbar and drag/drop zone stacking so upload, re-transcript, record mic, and record screen buttons remain visible at compact sizes and zoomed layouts | Fixed in 1.0.19 |
 
 ## Bugs Found And Fixed
 

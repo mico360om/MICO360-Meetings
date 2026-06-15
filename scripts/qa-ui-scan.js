@@ -9,6 +9,7 @@ const electronExe = process.platform === "win32"
   : path.join(rootDir, "node_modules", ".bin", "electron");
 
 const viewports = [
+  { name: "compact-zoom", width: 760, height: 560 },
   { name: "small-laptop", width: 1024, height: 720 },
   { name: "standard-desktop", width: 1366, height: 900 },
   { name: "large-monitor", width: 1920, height: 1080 },
@@ -85,6 +86,37 @@ async function collectLayoutIssues(page) {
         });
       }
     });
+
+    const dropZone = document.querySelector("#dropZone");
+    const inputButtons = Array.from(document.querySelectorAll(".input-panel .panel-header button"));
+    if (dropZone && inputButtons.length) {
+      const dropRect = dropZone.getBoundingClientRect();
+      inputButtons.forEach((button) => {
+        const buttonRect = button.getBoundingClientRect();
+        const intersects = buttonRect.right > dropRect.left
+          && buttonRect.left < dropRect.right
+          && buttonRect.bottom > dropRect.top
+          && buttonRect.top < dropRect.bottom;
+        if (intersects) {
+          issues.push({
+            type: "input-toolbar-dropzone-overlap",
+            label: button.textContent.trim(),
+            button: {
+              left: Math.round(buttonRect.left),
+              top: Math.round(buttonRect.top),
+              right: Math.round(buttonRect.right),
+              bottom: Math.round(buttonRect.bottom)
+            },
+            dropZone: {
+              left: Math.round(dropRect.left),
+              top: Math.round(dropRect.top),
+              right: Math.round(dropRect.right),
+              bottom: Math.round(dropRect.bottom)
+            }
+          });
+        }
+      });
+    }
 
     return issues;
   });
