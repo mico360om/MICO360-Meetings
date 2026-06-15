@@ -75,6 +75,26 @@ function formatReleaseNotes(notes) {
   return "";
 }
 
+function getFriendlyUpdateError(error) {
+  const rawMessage = String(error?.message || error || "Update check failed.");
+  const rawStack = String(error?.stack || rawMessage);
+  const raw = `${rawMessage}\n${rawStack}`;
+  if (/latest\.ya?ml/i.test(raw) && /\b404\b/.test(raw)) {
+    return "Update information is temporarily unavailable from GitHub. The latest release metadata file could not be reached yet. Please click Retry Update in a few minutes.";
+  }
+  if (/\b404\b/.test(raw) && /github/i.test(raw)) {
+    return "GitHub did not return the expected update file. Please check your internet connection and click Retry Update.";
+  }
+  if (/ENOTFOUND|ECONNRESET|ETIMEDOUT|EAI_AGAIN|network|offline/i.test(raw)) {
+    return "The update check could not reach GitHub. Please check your internet connection and click Retry Update.";
+  }
+  return rawMessage
+    .replace(/\s+at\s+.*$/s, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 500) || "Update check failed. Please click Retry Update.";
+}
+
 function getUpdatePayload(status, message, extra = {}) {
   const info = extra.info || lastUpdateInfo || {};
   return {
@@ -132,7 +152,8 @@ async function checkForUpdatesQuietly() {
     return await autoUpdater.checkForUpdates();
   } catch (error) {
     appendLog(app.getPath("userData"), "Automatic update check failed", error.stack || error.message);
-    sendUpdateStatus("error", error.message || "Automatic update check failed.");
+    const friendlyMessage = getFriendlyUpdateError(error);
+    sendUpdateStatus("error", friendlyMessage, { errorMessage: friendlyMessage });
     return null;
   }
 }
@@ -175,8 +196,9 @@ function configureAutoUpdater() {
   });
   autoUpdater.on("error", (error) => {
     appendLog(app.getPath("userData"), "Auto update failed", error.stack || error.message);
-    sendUpdateStatus("error", error.message || "Update check failed.", { errorMessage: error.message || "Update check failed." });
-    showUpdateNotification("MICO360 Meetings update failed", error.message || "Update check failed.", `error:${error.message}`);
+    const friendlyMessage = getFriendlyUpdateError(error);
+    sendUpdateStatus("error", friendlyMessage, { errorMessage: friendlyMessage });
+    showUpdateNotification("MICO360 Meetings update failed", friendlyMessage, `error:${friendlyMessage}`);
   });
 }
 
@@ -469,7 +491,7 @@ ipcMain.handle("updates:check", async () => {
     return { ok: true, updateInfo: result?.updateInfo || null };
   } catch (error) {
     appendLog(app.getPath("userData"), "Manual update check failed", error.stack || error.message);
-    throw error;
+    throw new Error(getFriendlyUpdateError(error));
   }
 });
 
@@ -492,10 +514,11 @@ ipcMain.handle("updates:install", async () => {
     return { ok: true };
   } catch (error) {
     appendLog(app.getPath("userData"), "Update installation failed", error.stack || error.message);
-    sendUpdateStatus("error", error.message || "Update installation failed.", {
-      errorMessage: error.message || "Update installation failed."
+    const friendlyMessage = getFriendlyUpdateError(error);
+    sendUpdateStatus("error", friendlyMessage, {
+      errorMessage: friendlyMessage
     });
-    throw error;
+    throw new Error(friendlyMessage);
   }
 });
 
