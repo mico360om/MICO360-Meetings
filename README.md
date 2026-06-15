@@ -15,6 +15,7 @@ MICO360 Meetings is a local-first desktop assistant for turning meeting audio, v
 - Record screen/video with audio when supported by the operating system
 - Local transcription through `faster-whisper`, OpenAI Whisper CLI, or `whisper.cpp`
 - Local AI generation through Ollama models such as Llama 3.1, Qwen, Mistral, and Gemma
+- In-app install button for the required Ollama model `qwen2.5:0.5b`
 - Editable minutes output
 - Formal Minutes, Short Summary, Detailed Minutes, Action Item Report, and Executive Summary styles
 - Custom prompt template per upload
@@ -59,7 +60,7 @@ Build the installer:
 npm run dist
 ```
 
-Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.21`; use the `MICO360-Meetings-Setup-1.0.21.exe` file to avoid older installer behavior. For local AI prerequisites, use:
+Installer output is written to `dist`. The installer includes the desktop app, bundled FFmpeg, app dependencies, logo assets, examples, export support, and GitHub auto-update metadata. The current smart installer is version `1.0.22`; use the `MICO360-Meetings-Setup-1.0.22.exe` file to avoid older installer behavior. For local AI prerequisites, use:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\installer\MICO360-Meetings-Prerequisites.ps1"

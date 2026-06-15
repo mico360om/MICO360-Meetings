@@ -28,6 +28,8 @@ const elements = {
   styleSelect: $("#styleSelect"),
   projectTitle: $("#projectTitle"),
   refreshModels: $("#refreshModels"),
+  installRequiredModel: $("#installRequiredModel"),
+  installRequiredModelSettings: $("#installRequiredModelSettings"),
   checkUpdates: $("#checkUpdates"),
   installUpdate: $("#installUpdate"),
   openUpdateRepo: $("#openUpdateRepo"),
@@ -422,15 +424,41 @@ function currentProfilesWithActive() {
 
 async function loadModels() {
   const models = await window.mico360.getModels();
-  const preferred = state.settings.model || "qwen2.5:0.5b";
-  const options = models.length ? models : ["qwen2.5:0.5b"];
+  const preferred = state.settings.model || REQUIRED_OLLAMA_MODEL;
+  const options = models.length ? models : [REQUIRED_OLLAMA_MODEL];
   elements.modelSelect.innerHTML = options.map((model) => `<option value="${model}">${model}</option>`).join("");
   const firstTextModel = options.find((model) => !/vision/i.test(model));
   const usablePreferred = options.includes(preferred) && !/vision/i.test(preferred);
   elements.modelSelect.value = usablePreferred ? preferred : firstTextModel || options[0];
   updateSummaryLabels();
   if (!models.length) {
-    showStatus("Ollama models not detected. The installer model qwen2.5:0.5b is selected as the fallback.", 0);
+    showStatus(`Ollama models not detected. Click Install Required Model to install ${REQUIRED_OLLAMA_MODEL}.`, 0);
+  }
+}
+
+function setModelInstallBusy(isBusy) {
+  elements.installRequiredModel.disabled = isBusy;
+  elements.installRequiredModelSettings.disabled = isBusy;
+  elements.refreshModels.disabled = isBusy;
+}
+
+async function installRequiredModel() {
+  setBusy(true, `Installing Ollama model ${REQUIRED_OLLAMA_MODEL}...`);
+  setModelInstallBusy(true);
+  try {
+    setProgress(10, `Installing ${REQUIRED_OLLAMA_MODEL}. This can take several minutes on a new PC.`);
+    const result = await window.mico360.installRequiredModel({ model: REQUIRED_OLLAMA_MODEL });
+    await loadModels();
+    elements.modelSelect.value = result?.model || REQUIRED_OLLAMA_MODEL;
+    updateSummaryLabels();
+    await persistSettings();
+    showStatus(`Required Ollama model is ready: ${REQUIRED_OLLAMA_MODEL}`, 100);
+    showToast(`Required Ollama model is ready: ${REQUIRED_OLLAMA_MODEL}`);
+  } catch (error) {
+    showError(error);
+  } finally {
+    setModelInstallBusy(false);
+    setBusy(false);
   }
 }
 
@@ -1013,6 +1041,7 @@ function resetRecordingState(message) {
 
 const GITHUB_REPO_URL = "https://github.com/mico360om/MICO360-Meetings";
 const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`;
+const REQUIRED_OLLAMA_MODEL = "qwen2.5:0.5b";
 
 function getDisplayVersion(value, fallback = "Not checked") {
   return value ? `v${String(value).replace(/^v/i, "")}` : fallback;
@@ -1084,6 +1113,8 @@ function wireEvents() {
     await persistSettings();
   });
   elements.refreshModels.addEventListener("click", loadModels);
+  elements.installRequiredModel.addEventListener("click", installRequiredModel);
+  elements.installRequiredModelSettings.addEventListener("click", installRequiredModel);
   elements.openUpdateRepo.addEventListener("click", () => window.mico360.openExternal(GITHUB_REPO_URL));
   elements.openUpdateReleases.addEventListener("click", () => window.mico360.openExternal(GITHUB_RELEASES_URL));
   elements.checkUpdates.addEventListener("click", async () => {

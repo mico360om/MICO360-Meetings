@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("mico360", {
   importProfiles: () => ipcRenderer.invoke("profiles:import"),
   exportProfiles: (payload) => ipcRenderer.invoke("profiles:export", payload),
   getModels: () => ipcRenderer.invoke("ollama:get-models"),
+  installRequiredModel: (payload) => ipcRenderer.invoke("ollama:install-required-model", payload),
   transcribeFile: (payload) => ipcRenderer.invoke("meeting:transcribe-file", payload),
   ingestFiles: (payload) => ipcRenderer.invoke("meeting:ingest-files", payload),
   generateMinutes: (payload) => ipcRenderer.invoke("meeting:generate-minutes", payload),

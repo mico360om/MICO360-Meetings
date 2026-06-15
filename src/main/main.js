@@ -12,6 +12,7 @@ const {
   exportCompanyProfiles,
   exportMinutes,
   fetchOllamaModels,
+  installOllamaModel,
   generateMinutes,
   importCompanyProfiles,
   saveBufferToFile,
@@ -325,6 +326,28 @@ ipcMain.handle("ollama:get-models", async () => {
   } catch (error) {
     appendLog(app.getPath("userData"), "Ollama model listing failed", error.stack || error.message);
     return [];
+  }
+});
+
+ipcMain.handle("ollama:install-required-model", async (_event, payload = {}) => {
+  const model = payload.model || "qwen2.5:0.5b";
+  try {
+    let progress = 10;
+    sendProgress("ollama", `Installing required Ollama model: ${model}`, progress);
+    const result = await installOllamaModel({
+      model,
+      onProgress: (line) => {
+        const compact = String(line || "").replace(/\s+/g, " ").trim();
+        if (!compact) return;
+        progress = Math.min(95, progress + 3);
+        sendProgress("ollama", compact, progress);
+      }
+    });
+    sendProgress("ollama", `Ollama model ready: ${model}`, 100);
+    return result;
+  } catch (error) {
+    appendLog(app.getPath("userData"), "Ollama model installation failed", error.stack || error.message);
+    throw error;
   }
 });
 

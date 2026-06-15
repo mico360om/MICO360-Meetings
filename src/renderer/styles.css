@@ -345,6 +345,15 @@ h2 {
   width: 100%;
 }
 
+.model-field .inline-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.model-field .inline-control button {
+  width: 100%;
+}
+
 .inline-control input,
 .inline-control select {
   flex: 1 1 auto;

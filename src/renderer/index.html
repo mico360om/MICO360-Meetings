@@ -70,6 +70,7 @@
               <strong id="selectedStyleLabel">Formal Minutes</strong>
             </div>
             <button id="refreshModels" class="secondary" title="Refresh local Ollama models">Refresh Models</button>
+            <button id="installRequiredModelSettings" class="secondary" title="Install qwen2.5:0.5b with Ollama">Install Required Model</button>
             <div class="update-box wide">
               <div class="update-header">
                 <div>
@@ -377,10 +378,11 @@
             <label for="projectTitle">Meeting title</label>
             <input id="projectTitle" placeholder="Optional project title" />
           </div>
-          <div class="field">
+          <div class="field model-field">
             <label for="modelSelect">Ollama model</label>
             <div class="inline-control">
               <select id="modelSelect"></select>
+              <button id="installRequiredModel" class="secondary" type="button">Install Required Model</button>
             </div>
           </div>
           <div class="field">

@@ -602,6 +602,27 @@ async function fetchOllamaModels() {
   return (data.models || []).map((model) => model.name);
 }
 
+async function installOllamaModel({ model = DEFAULT_OLLAMA_MODEL, onProgress } = {}) {
+  const installed = await fetchOllamaModels().catch(() => []);
+  if (installed.includes(model)) {
+    onProgress?.(`Ollama model already installed: ${model}\n`);
+    return { model, installed: false, skipped: true };
+  }
+  onProgress?.(`Installing Ollama model: ${model}\n`);
+  await runCommandWithFriendlyMissing(
+    "ollama",
+    ["pull", model],
+    {},
+    onProgress,
+    "Ollama was not found. Install Ollama first, then install the required model."
+  );
+  const afterInstall = await fetchOllamaModels();
+  if (!afterInstall.includes(model)) {
+    throw new Error(`Ollama model '${model}' was pulled, but it was not found in the installed model list.`);
+  }
+  return { model, installed: true, skipped: false };
+}
+
 function isMissingOllamaModelError(error) {
   const text = `${error?.message || ""}\n${error?.stack || ""}`;
   return /model ['"]?.+['"]? not found|not found/i.test(text) && /HTTP 404|model/i.test(text);
@@ -895,6 +916,7 @@ module.exports = {
   exportMinutes,
   exportCompanyProfiles,
   fetchOllamaModels,
+  installOllamaModel,
   generateMinutes,
   importCompanyProfiles,
   normalizeCompanyProfile,
