@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Build artifacts
+build/work/
+build/dist/
+build/Output/
+build/*.log
+dist/
+*.spec.bak
+
+# App-generated
+samples/out/
+samples/shots/
+samples/spoken_test.wav
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

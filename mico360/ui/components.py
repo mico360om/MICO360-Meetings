@@ -1,0 +1,211 @@
+"""Reusable UI building blocks: drop area, cards, section headers, toasts."""
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Callable
+
+from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtWidgets import (
+    QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+    QToolButton, QVBoxLayout, QWidget,
+)
+
+from ..core.audio import MEDIA_EXTS
+
+
+class Card(QFrame):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("Card")
+
+
+class CollapsibleSection(QFrame):
+    """A card with a clickable header that folds its content away.
+
+    Add widgets/layouts via `.content` (a QVBoxLayout). The header shows the
+    title, a fold arrow, and an optional right-aligned status hint.
+    """
+    toggled = Signal(bool)
+
+    def __init__(self, title: str, expanded: bool = True, parent=None):
+        super().__init__(parent)
+        self.setObjectName("Card")
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self._btn = QToolButton()
+        self._btn.setObjectName("SectionHeader")
+        self._btn.setText("  " + title)
+        self._btn.setCheckable(True)
+        self._btn.setChecked(expanded)
+        self._btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self._btn.setArrowType(Qt.DownArrow if expanded else Qt.RightArrow)
+        self._btn.setCursor(Qt.PointingHandCursor)
+        self._btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._btn.clicked.connect(lambda: self.set_expanded(self._btn.isChecked()))
+
+        self._status = QLabel("")
+        self._status.setObjectName("Hint")
+
+        hrow = QHBoxLayout()
+        hrow.setContentsMargins(8, 4, 16, 4)
+        hrow.addWidget(self._btn, 1)
+        hrow.addWidget(self._status, 0, Qt.AlignRight)
+        header = QWidget()
+        header.setObjectName("SectionHeaderRow")
+        header.setLayout(hrow)
+        outer.addWidget(header)
+
+        self._body = QWidget()
+        self.content = QVBoxLayout(self._body)
+        self.content.setContentsMargins(16, 2, 16, 14)
+        self.content.setSpacing(10)
+        outer.addWidget(self._body)
+        self._body.setVisible(expanded)
+
+    def set_expanded(self, on: bool):
+        self._btn.setChecked(on)
+        self._btn.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
+        self._body.setVisible(on)
+        self.toggled.emit(on)
+
+    def is_expanded(self) -> bool:
+        return self._body.isVisible()
+
+    def set_status(self, text: str):
+        self._status.setText(text)
+
+    def add(self, widget: QWidget):
+        self.content.addWidget(widget)
+
+    def add_layout(self, layout):
+        self.content.addLayout(layout)
+
+
+def section_title(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setObjectName("SectionTitle")
+    return lbl
+
+
+def hint(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setObjectName("Hint")
+    lbl.setWordWrap(True)
+    return lbl
+
+
+def subtitle(text: str) -> QLabel:
+    """A page subtitle that wraps instead of forcing horizontal scroll."""
+    lbl = QLabel(text)
+    lbl.setObjectName("PageSub")
+    lbl.setWordWrap(True)
+    return lbl
+
+
+class DropArea(QFrame):
+    """Drag-and-drop + click-to-browse area for media/document files."""
+    fileChosen = Signal(str)
+
+    def __init__(self, accept_exts: set[str] | None = None,
+                 caption: str = "Drag & drop a file here",
+                 sub: str = "Audio, video or document — or click to browse"):
+        super().__init__()
+        self.setObjectName("Drop")
+        self.setAcceptDrops(True)
+        self.setProperty("hover", "false")
+        self._accept = accept_exts or set(MEDIA_EXTS)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(20, 26, 20, 26)
+        lay.setSpacing(6)
+        lay.setAlignment(Qt.AlignCenter)
+
+        icon = QLabel("⬆")
+        icon.setAlignment(Qt.AlignCenter)
+        icon.setStyleSheet("font-size: 26pt;")
+        title = QLabel(caption); title.setObjectName("DropTitle")
+        title.setAlignment(Qt.AlignCenter)
+        self._sub = QLabel(sub); self._sub.setObjectName("Hint")
+        self._sub.setAlignment(Qt.AlignCenter); self._sub.setWordWrap(True)
+
+        browse = QPushButton("Browse files…")
+        browse.setObjectName("Ghost")
+        browse.setCursor(Qt.PointingHandCursor)
+        browse.clicked.connect(self._browse)
+
+        lay.addWidget(icon)
+        lay.addWidget(title)
+        lay.addWidget(self._sub)
+        row = QHBoxLayout(); row.addStretch(); row.addWidget(browse); row.addStretch()
+        lay.addLayout(row)
+        self.setMinimumHeight(170)
+
+    def set_sub(self, text: str):
+        self._sub.setText(text)
+
+    def _filter(self) -> str:
+        exts = " ".join(f"*{e}" for e in sorted(self._accept))
+        return f"Supported files ({exts});;All files (*.*)"
+
+    def _browse(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Choose a file", "", self._filter())
+        if path:
+            self.fileChosen.emit(path)
+
+    def _ok(self, path: str) -> bool:
+        return Path(path).suffix.lower() in self._accept or not self._accept
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+            self.setProperty("hover", "true"); self._restyle()
+
+    def dragLeaveEvent(self, e):
+        self.setProperty("hover", "false"); self._restyle()
+
+    def dropEvent(self, e):
+        self.setProperty("hover", "false"); self._restyle()
+        for url in e.mimeData().urls():
+            p = url.toLocalFile()
+            if p:
+                self.fileChosen.emit(p)
+                break
+
+    def _restyle(self):
+        self.style().unpolish(self); self.style().polish(self)
+
+
+class Toast(QLabel):
+    """Lightweight transient status message anchored to a parent widget."""
+    def __init__(self, parent: QWidget):
+        super().__init__(parent)
+        self.setVisible(False)
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet(
+            "background: #1E2A47; color: #E6ECF5; border: 1px solid #2A3a5c;"
+            "border-radius: 8px; padding: 10px 16px; font-size: 10pt;"
+        )
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(lambda: self.setVisible(False))
+
+    def show_message(self, text: str, kind: str = "info", msec: int = 3500):
+        color = {"info": "#3B82F6", "success": "#22C55E",
+                 "error": "#EF4444", "warn": "#F59E0B"}.get(kind, "#3B82F6")
+        self.setStyleSheet(
+            f"background: #1E2A47; color: #E6ECF5; border: 1px solid {color};"
+            "border-radius: 8px; padding: 10px 16px; font-size: 10pt;"
+        )
+        self.setText(text)
+        self.adjustSize()
+        self._reposition()
+        self.setVisible(True)
+        self.raise_()
+        self._timer.start(msec)
+
+    def _reposition(self):
+        if self.parent():
+            pw = self.parent().width()
+            self.move(int((pw - self.width()) / 2), 18)

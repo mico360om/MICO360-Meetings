@@ -1,0 +1,29 @@
+# MICO360 Meetings — runtime dependencies
+# Tested on Python 3.11–3.14 (Windows). All packages ship binary wheels.
+
+# --- UI ---
+PySide6>=6.6,<6.12
+
+# --- Speech-to-text (offline) ---
+faster-whisper>=1.0
+av>=11.0            # PyAV: decodes mp3/wav/m4a/mp4/mov/mkv without a system ffmpeg
+
+# --- Local LLM ---
+ollama>=0.3.0       # thin client for a locally running Ollama server
+
+# --- Recording ---
+sounddevice>=0.4.6  # microphone capture (bundles PortAudio)
+soundfile>=0.12     # write WAV (bundles libsndfile)
+numpy>=1.24
+mss>=9.0            # screen capture (screen recording)
+opencv-python>=4.8  # webcam capture (camera recording)
+
+# --- Optional (text from PDFs / images) ---
+# pypdf>=4.0        # uncomment to enable PDF text import
+# pytesseract>=0.3  # + Tesseract OCR engine, to read text from images
+
+# --- Export & profiles ---
+python-docx>=1.1    # .docx export
+reportlab>=4.0      # .pdf export
+openpyxl>=3.1       # .xlsx import/export of company profiles
+Pillow>=10.0        # logo handling / resizing

@@ -1,0 +1,46 @@
+Acme Corporation
+123 Business Road, Karachi
++92 300 1234567
+info@acme.com
+www.acme.com
+============================================================
+
+Meeting Minutes
+Meeting Title: Q3 Product Planning Call
+Date and Time: July 14, 2025, 10:00 AM
+Attendees: Sarah Chen, David Okafor, Priya Raman
+
+Purpose of Meeting
+Plan the Q3 mobile app launch and align engineering and marketing timelines.
+
+Meeting Summary
+The team reviewed the mobile app launch, which is about two weeks behind due to a login bug. They agreed on a revised public beta date of August 4th and assigned ownership for the blocking issues.
+
+Key Discussion Points
+- The login flow bug is blocking the beta
+- Marketing campaign creatives are booked for August 1st
+- Tablet support at launch is still unresolved
+
+Decisions Made
+- Target August 4th for the public beta
+
+Action Items
+| Task | Responsible Person | Deadline | Status |
+| --- | --- | --- | --- |
+| Close the login bug | David Okafor | July 25 | Pending |
+| Confirm campaign shift with agency | Priya Raman | July 18 | Pending |
+
+Pending Issues
+- Tablet support at launch needs design input
+
+Risks or Concerns
+- If the bug fix slips, the August 4th launch date slips with it
+
+Next Meeting Notes
+Reconvene Monday, July 21st, same time, to review bug-fix progress.
+
+Closing Summary
+Beta targeted for August 4th; owners and deadlines assigned; tablet question open.
+
+------------------------------------------------------------
+Confidential - Acme Corporation

@@ -1,0 +1,25 @@
+Sarah: Okay, um, good morning everyone. Thanks for joining the Q3 product planning call. Today is, uh, July 14th. We have myself, Sarah Chen, David Okafor, and Priya Raman on the call.
+
+David: Morning. So, the main, the main thing I wanted to cover is the mobile app launch timeline.
+
+Sarah: Right, right. So where are we on that?
+
+David: We're, uh, basically about two weeks behind. The login flow has a bug that's blocking the beta. Engineering thinks they can fix it by, like, next Friday.
+
+Priya: From marketing's side, we kind of need a firm date because the campaign creatives are already booked for August 1st.
+
+Sarah: Okay, so let's make a decision. We'll target August 4th for the public beta, giving engineering a buffer. David, can you own getting the login bug closed by July 25th?
+
+David: Yeah, I can own that. July 25th for the login fix.
+
+Sarah: Priya, can you push the campaign start to August 4th to match?
+
+Priya: I'll talk to the agency. I should know by, um, end of this week. I'll confirm by July 18th.
+
+David: One risk, you know, is that if the bug fix slips, the whole August 4th date slips with it. We don't have a lot of margin.
+
+Sarah: Agreed, that's the main risk. Let's flag it. Also there's an open question about whether we support tablets at launch — that's still unresolved.
+
+Priya: Right, the tablet question is pending. We need design input on that.
+
+Sarah: Okay. Let's plan to meet again next Monday, July 21st, same time, to check on the bug fix progress. Anything else? No? Great, thanks everyone.

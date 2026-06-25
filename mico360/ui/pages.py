@@ -1,0 +1,1087 @@
+"""Application pages: New Meeting, History, Company Profiles, Prompt Library, Settings."""
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import (
+    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
+    QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
+    QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
+    QVBoxLayout, QWidget,
+)
+
+from ..core import documents
+from ..core.audio import MEDIA_EXTS
+from ..core.history import Meeting
+from ..core.prompts import OUTPUT_STYLES, SavedPrompt
+from ..core.transcription import WHISPER_MODELS
+from .components import Card, CollapsibleSection, DropArea, hint, section_title, subtitle
+from .context import AppContext
+from .dialogs import ProfileDialog, PromptDialog
+from .recording_panel import RecordingPanel
+from .workers import GenerateWorker, TranscribeWorker
+
+log = logging.getLogger("mico360.pages")
+
+UPLOAD_EXTS = set(MEDIA_EXTS) | documents.DOC_EXTS | documents.IMAGE_EXTS
+
+
+def _scroll(inner: QWidget) -> QScrollArea:
+    sa = QScrollArea()
+    sa.setWidgetResizable(True)
+    sa.setFrameShape(QScrollArea.NoFrame)
+    sa.setWidget(inner)
+    sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    return sa
+
+
+# ===========================================================================
+# New Meeting
+# ===========================================================================
+class NewMeetingPage(QWidget):
+    def __init__(self, ctx: AppContext, toast):
+        super().__init__()
+        self.ctx = ctx
+        self.toast = toast
+        self._media_queue: list[str] = []
+        self._worker = None
+        self._current_id: int | None = None
+        self._build()
+        self.refresh_models()
+        self.refresh_prompts()
+
+    # -- UI -----------------------------------------------------------------
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        content = QWidget()
+        v = QVBoxLayout(content)
+        v.setContentsMargins(24, 20, 24, 24)
+        v.setSpacing(16)
+
+        title = QLabel("New Meeting"); title.setObjectName("PageTitle")
+        sub = subtitle("Upload, record or paste a transcript, then generate minutes locally.")
+        v.addWidget(title); v.addWidget(sub)
+
+        # Each step is a collapsible section. Start with Source + Transcript open
+        # and Generate + Minutes folded so the screen is short; they auto-expand
+        # as you progress, and you can fold/unfold any of them.
+        self.sec_source = self._step1_source()
+        self.sec_transcript = self._step2_transcript()
+        self.sec_generate = self._step3_generate()
+        self.sec_minutes = self._step4_minutes()
+        self.sec_transcript.set_expanded(True)
+        self.sec_generate.set_expanded(False)
+        self.sec_minutes.set_expanded(False)
+        self.sec_generate.set_status("model · style")
+        self.sec_minutes.set_status("empty")
+        for s in (self.sec_source, self.sec_transcript, self.sec_generate, self.sec_minutes):
+            v.addWidget(s)
+
+        # collapse/expand all toggle
+        toggle_row = QHBoxLayout()
+        self.expand_all_btn = QPushButton("Collapse all"); self.expand_all_btn.setObjectName("Ghost")
+        self.expand_all_btn.clicked.connect(self._toggle_all)
+        toggle_row.addStretch(); toggle_row.addWidget(self.expand_all_btn)
+
+        # progress
+        self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0)
+        self.progress.setVisible(False)
+        self.status = QLabel(""); self.status.setObjectName("Hint")
+        v.insertLayout(2, toggle_row)
+        v.addWidget(self.status)
+        v.addWidget(self.progress)
+        v.addStretch()
+
+        outer.addWidget(_scroll(content))
+
+    def _toggle_all(self):
+        secs = (self.sec_source, self.sec_transcript, self.sec_generate, self.sec_minutes)
+        expand = not all(s.is_expanded() for s in secs)
+        for s in secs:
+            s.set_expanded(expand)
+        self.expand_all_btn.setText("Collapse all" if expand else "Expand all")
+
+    def _card(self, title_text: str, expanded: bool = True):
+        section = CollapsibleSection(title_text, expanded=expanded)
+        return section, section.content
+
+    def _step1_source(self) -> QWidget:
+        card, lay = self._card("Step 1 · Add your meeting")
+        self.source_tabs = QTabWidget()
+
+        # Upload tab
+        up = QWidget(); upl = QVBoxLayout(up)
+        self.drop = DropArea(
+            accept_exts=UPLOAD_EXTS,
+            caption="Drag & drop audio, video or documents",
+            sub="MP3 · WAV · M4A · MP4 · MOV · MKV · PDF · DOCX · TXT · images — multiple files supported",
+        )
+        self.drop.fileChosen.connect(self._add_file)
+        self.files_list = QListWidget(); self.files_list.setMaximumHeight(120)
+        self.files_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.files_list.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.files_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.files_list.setDragDropMode(QAbstractItemView.InternalMove)  # drag to reorder
+        self.files_list.setToolTip("Drag to reorder · select + Remove to delete")
+
+        # add / remove controls
+        list_bar = QHBoxLayout()
+        add_btn = QPushButton("➕ Add files…"); add_btn.clicked.connect(self.drop._browse)
+        self.remove_btn = QPushButton("Remove selected"); self.remove_btn.clicked.connect(self._remove_selected)
+        self.clear_btn = QPushButton("Clear all"); self.clear_btn.clicked.connect(self._clear_files)
+        list_bar.addWidget(add_btn)
+        list_bar.addStretch()
+        list_bar.addWidget(self.remove_btn)
+        list_bar.addWidget(self.clear_btn)
+
+        self.transcribe_btn = QPushButton("Transcribe queued media")
+        self.transcribe_btn.setObjectName("Primary")
+        self.transcribe_btn.clicked.connect(self._start_transcription)
+        self.transcribe_btn.setEnabled(False)
+        upl.addWidget(self.drop)
+        upl.addWidget(hint("Documents are read instantly into the transcript; audio/video are transcribed with Whisper. "
+                           "Recordings also appear here."))
+        upl.addWidget(self.files_list)
+        upl.addLayout(list_bar)
+        upl.addWidget(self.transcribe_btn, 0, Qt.AlignRight)
+        self.source_tabs.addTab(up, "Upload files")
+
+        # Record tab — full audio/screen/camera recorder with live details
+        rec = QWidget(); rl = QVBoxLayout(rec)
+        rl.setContentsMargins(0, 0, 0, 0)
+        self.recorder_panel = RecordingPanel(self.toast)
+        self.recorder_panel.recordingReady.connect(self._on_recording_ready)
+        rl.addWidget(self.recorder_panel)
+        self.source_tabs.addTab(rec, "Record")
+
+        lay.addWidget(self.source_tabs)
+        return card
+
+    # -- queue management ---------------------------------------------------
+    def _add_queue_item(self, path: str, label: str, is_media: bool):
+        it = QListWidgetItem(label)
+        it.setData(Qt.UserRole, path)
+        it.setData(Qt.UserRole + 1, is_media)
+        self.files_list.addItem(it)
+        if is_media:
+            self.transcribe_btn.setEnabled(True)
+        if self.files_list.count():
+            self.sec_source.set_status(f"{self.files_list.count()} file(s)")
+
+    def _remove_selected(self):
+        for it in self.files_list.selectedItems():
+            path = it.data(Qt.UserRole)
+            if it.data(Qt.UserRole + 1) and path in self._media_queue:
+                self._media_queue.remove(path)
+            self.files_list.takeItem(self.files_list.row(it))
+        self.transcribe_btn.setEnabled(bool(self._media_queue))
+        n = self.files_list.count()
+        self.sec_source.set_status(f"{n} file(s)" if n else "")
+
+    def _clear_files(self):
+        self.files_list.clear()
+        self._media_queue.clear()
+        self.transcribe_btn.setEnabled(False)
+        self.sec_source.set_status("")
+
+    def _on_recording_ready(self, path: str):
+        """A finished recording -> queue it for transcription (shown in Upload tab)."""
+        self._media_queue.append(path)
+        self._add_queue_item(path, f"⏺  {Path(path).name}  (recorded)", True)
+        self.source_tabs.setCurrentIndex(0)   # show the queue + Transcribe button
+        self.toast.show_message("Recording added to the queue — click 'Transcribe queued media'.",
+                                "success", 5000)
+
+    def _step2_transcript(self) -> QWidget:
+        card, lay = self._card("Step 2 · Transcript")
+        lay.addWidget(hint("Editable — paste a transcript here, or review the transcription result."))
+        self.transcript = QPlainTextEdit()
+        self.transcript.setPlaceholderText("Paste or edit the meeting transcript here…")
+        self.transcript.setMinimumHeight(150)
+        self.transcript.textChanged.connect(self._update_counts)
+        self.transcript_count = QLabel("0 words"); self.transcript_count.setObjectName("Hint")
+        row = QHBoxLayout()
+        clear = QPushButton("Clear"); clear.clicked.connect(lambda: self.transcript.clear())
+        row.addWidget(self.transcript_count); row.addStretch(); row.addWidget(clear)
+        lay.addWidget(self.transcript)
+        lay.addLayout(row)
+        return card
+
+    def _step3_generate(self) -> QWidget:
+        card, lay = self._card("Step 3 · Generate minutes")
+        controls = QHBoxLayout()
+
+        self.model_box = QComboBox(); self.model_box.setMinimumWidth(130)
+        self.style_box = QComboBox(); self.style_box.addItems(list(OUTPUT_STYLES.keys()))
+        self.style_box.setCurrentText(self.ctx.settings.get("output_style"))
+        self.prompt_box = QComboBox(); self.prompt_box.setMinimumWidth(130)
+        self.prompt_box.currentIndexChanged.connect(self._load_prompt_text)
+        for b in (self.model_box, self.style_box, self.prompt_box):
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        for col_i, (label, w) in enumerate(
+                (("Model", self.model_box), ("Style", self.style_box), ("Prompt", self.prompt_box))):
+            col = QVBoxLayout(); col.setSpacing(3)
+            l = QLabel(label); l.setObjectName("Hint")
+            col.addWidget(l); col.addWidget(w)
+            controls.addLayout(col, 1)
+        lay.addLayout(controls)
+
+        # editable per-upload prompt
+        self.toggle_prompt = QCheckBox("Edit prompt for this generation")
+        self.toggle_prompt.toggled.connect(self._toggle_prompt_editor)
+        lay.addWidget(self.toggle_prompt)
+        self.prompt_edit = QPlainTextEdit(); self.prompt_edit.setVisible(False)
+        self.prompt_edit.setMinimumHeight(120)
+        lay.addWidget(self.prompt_edit)
+
+        actions = QHBoxLayout()
+        self.generate_btn = QPushButton("✨  Generate minutes")
+        self.generate_btn.setObjectName("Primary")
+        self.generate_btn.clicked.connect(self._generate)
+        self.cancel_btn = QPushButton("Cancel"); self.cancel_btn.setObjectName("Ghost")
+        self.cancel_btn.clicked.connect(self._cancel); self.cancel_btn.setVisible(False)
+        actions.addStretch(); actions.addWidget(self.cancel_btn); actions.addWidget(self.generate_btn)
+        lay.addLayout(actions)
+        return card
+
+    def _step4_minutes(self) -> QWidget:
+        card, lay = self._card("Step 4 · Meeting minutes")
+        self.minutes_tabs = QTabWidget()
+        self.minutes = QPlainTextEdit()
+        self.minutes.setPlaceholderText("Generated minutes will appear here. You can edit before exporting.")
+        self.minutes.setMinimumHeight(240)
+        self.minutes.textChanged.connect(self._update_minutes_status)
+        self.minutes_preview = QTextBrowser()
+        self.minutes_preview.setOpenExternalLinks(True)
+        self.minutes_tabs.addTab(self.minutes, "Edit")
+        self.minutes_tabs.addTab(self.minutes_preview, "Preview")
+        self.minutes_tabs.currentChanged.connect(self._on_minutes_tab)
+        lay.addWidget(self.minutes_tabs)
+
+        row = QHBoxLayout()
+        self.copy_btn = QPushButton("Copy"); self.copy_btn.clicked.connect(self._copy)
+        self.save_btn = QPushButton("Save to history"); self.save_btn.clicked.connect(self._save_history)
+        self.export_btn = QPushButton("Export…"); self.export_btn.setObjectName("Primary")
+        self.export_btn.clicked.connect(self._export)
+        row.addWidget(self.copy_btn); row.addWidget(self.save_btn)
+        row.addStretch(); row.addWidget(self.export_btn)
+        lay.addLayout(row)
+        return card
+
+    # -- data refresh -------------------------------------------------------
+    def refresh_models(self):
+        status = self.ctx.ollama_status()
+        self.model_box.clear()
+        if status.running and status.models:
+            self.model_box.setEnabled(True)
+            self.model_box.addItems(status.models)
+            saved = self.ctx.settings.get("ollama_model")
+            if saved in status.models:
+                self.model_box.setCurrentText(saved)
+            else:
+                self.ctx.settings.set("ollama_model", self.model_box.currentText())
+        elif status.running:
+            # Ollama up but no models — guide the user to Settings
+            self.model_box.addItem("⚠ No models — install in Settings")
+            self.model_box.setEnabled(False)
+        else:
+            self.model_box.addItem("⚠ Ollama not running")
+            self.model_box.setEnabled(False)
+
+    def refresh_prompts(self):
+        self.prompt_box.blockSignals(True)
+        self.prompt_box.clear()
+        self._prompts: list[SavedPrompt] = self.ctx.prompts.list()
+        for p in self._prompts:
+            self.prompt_box.addItem(p.name, p.id)
+        self.prompt_box.blockSignals(False)
+        self._load_prompt_text()
+
+    def _load_prompt_text(self):
+        idx = self.prompt_box.currentIndex()
+        if 0 <= idx < len(self._prompts):
+            self.prompt_edit.setPlainText(self._prompts[idx].text)
+
+    def _toggle_prompt_editor(self, on: bool):
+        self.prompt_edit.setVisible(on)
+
+    def _update_counts(self):
+        words = len(self.transcript.toPlainText().split())
+        self.transcript_count.setText(f"{words:,} words")
+        self.sec_transcript.set_status(f"{words:,} words" if words else "empty")
+        # once there's a transcript, reveal the Generate step
+        if words and not self.sec_generate.is_expanded():
+            self.sec_generate.set_expanded(True)
+
+    def _update_minutes_status(self):
+        words = len(self.minutes.toPlainText().split())
+        self.sec_minutes.set_status(f"{words:,} words" if words else "empty")
+
+    # -- file handling ------------------------------------------------------
+    def _add_file(self, path: str):
+        p = Path(path)
+        ext = p.suffix.lower()
+        if ext in MEDIA_EXTS:
+            self._media_queue.append(path)
+            self._add_queue_item(path, f"🎵  {p.name}  (queued for transcription)", True)
+        elif documents.is_document(path) or documents.is_image(path):
+            try:
+                text = documents.extract_text(path)
+                if text.strip():
+                    cur = self.transcript.toPlainText()
+                    sep = "\n\n" if cur.strip() else ""
+                    self.transcript.setPlainText(cur + sep + text.strip())
+                    self._add_queue_item(path, f"📄  {p.name}  (text imported)", False)
+                    self.toast.show_message(f"Imported text from {p.name}", "success")
+                else:
+                    self._add_queue_item(path, f"📄  {p.name}  (no text found)", False)
+            except Exception as exc:
+                self._add_queue_item(path, f"⚠  {p.name}  ({exc})", False)
+                self.toast.show_message(str(exc), "warn", 5000)
+        else:
+            self.toast.show_message(f"Unsupported file: {p.name}", "warn")
+
+    # -- transcription ------------------------------------------------------
+    def _sync_queue_from_list(self):
+        """Rebuild the media queue to match the (possibly reordered) list."""
+        ordered = []
+        for i in range(self.files_list.count()):
+            it = self.files_list.item(i)
+            if it.data(Qt.UserRole + 1) and it.data(Qt.UserRole) in self._media_queue:
+                ordered.append(it.data(Qt.UserRole))
+        # keep any not represented in the list (safety)
+        for p in self._media_queue:
+            if p not in ordered:
+                ordered.append(p)
+        self._media_queue = ordered
+
+    def _start_transcription(self):
+        self._sync_queue_from_list()
+        if not self._media_queue:
+            self.toast.show_message("No media files queued.", "warn")
+            return
+        self._media_total = len(self._media_queue)
+        self._media_done = 0
+        self._busy(True, "Starting transcription…")
+        self._transcribe_next()
+
+    def _transcribe_next(self):
+        if not self._media_queue:
+            self._busy(False)
+            self.toast.show_message("Transcription complete.", "success")
+            self.transcribe_btn.setEnabled(False)
+            return
+        path = self._media_queue.pop(0)
+        engine = self.ctx.transcription_engine()
+        self._media_done = getattr(self, "_media_done", 0) + 1
+        total = getattr(self, "_media_total", 1)
+        prefix = f"File {self._media_done} of {total} · " if total > 1 else ""
+        self.status.setText(f"{prefix}Transcribing {Path(path).name} …")
+        self._worker = TranscribeWorker(
+            engine, path, self.ctx.settings.get("language", "auto"),
+            diarize=self.ctx.settings.get("diarize", False))
+        self._worker.progress.connect(self._on_progress)
+        self._worker.finished_ok.connect(self._on_transcribed)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _on_transcribed(self, result):
+        cur = self.transcript.toPlainText()
+        sep = "\n\n" if cur.strip() else ""
+        text = result.as_speaker_text() if getattr(result, "speakers", 0) else result.as_plain()
+        self.transcript.setPlainText(cur + sep + text)
+        self._transcribe_next()
+
+    # -- generation ---------------------------------------------------------
+    def _generate(self):
+        transcript = self.transcript.toPlainText().strip()
+        if not transcript:
+            self.toast.show_message("Add or paste a transcript first.", "warn")
+            return
+        status = self.ctx.ollama_status()
+        if not status.running:
+            QMessageBox.warning(self, "Ollama not running",
+                                "Could not reach the local Ollama server.\n\n"
+                                "Start it with:  ollama serve\n"
+                                "and pull a model, e.g.:  ollama pull llama3.1")
+            return
+        model = self.model_box.currentText()
+        if not model or model.startswith("⚠"):
+            if status.running and not status.models:
+                QMessageBox.warning(self, "No AI model installed",
+                                    "Ollama is running but has no models.\n\n"
+                                    "Go to Settings → “Install Required Model” to download one "
+                                    "(e.g. Llama 3.1), then try again.")
+            else:
+                self.toast.show_message("Select a valid Ollama model.", "warn")
+            return
+        self.ctx.settings.set("ollama_model", model)
+        style = self.style_box.currentText()
+        self.ctx.settings.set("output_style", style)
+        template = (self.prompt_edit.toPlainText() if self.toggle_prompt.isChecked()
+                    else (self._prompts[self.prompt_box.currentIndex()].text
+                          if self._prompts else self.prompt_edit.toPlainText()))
+
+        gen = self.ctx.generator(); gen.model = model
+        self._busy(True, "Generating minutes…")
+        self.cancel_btn.setVisible(True); self.generate_btn.setEnabled(False)
+        self._worker = GenerateWorker(
+            gen, transcript, template, style,
+            remove_fillers=self.ctx.settings.get("remove_fillers", True),
+            chunk_chars=int(self.ctx.settings.get("chunk_chars", 6000)),
+        )
+        self._worker.progress.connect(self._on_progress)
+        self._worker.finished_ok.connect(self._on_generated)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _on_generated(self, md: str):
+        self.minutes.setPlainText(md)
+        self._busy(False)
+        self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
+        # focus the output: open Minutes, fold the earlier steps
+        self.sec_minutes.set_status("generated")
+        self.sec_minutes.set_expanded(True)
+        self.sec_source.set_expanded(False)
+        self.sec_transcript.set_expanded(False)
+        self.sec_generate.set_expanded(False)
+        self.toast.show_message("Minutes generated.", "success")
+
+    def _cancel(self):
+        if self._worker:
+            self._worker.cancel()
+        self.status.setText("Cancelling…")
+
+    # -- output actions -----------------------------------------------------
+    def _on_minutes_tab(self, idx: int):
+        # render markdown -> HTML when the Preview tab is shown
+        if self.minutes_tabs.tabText(idx) == "Preview":
+            from ..export.html_export import render_fragment
+            md = self.minutes.toPlainText()
+            self.minutes_preview.setHtml(render_fragment(md) if md.strip()
+                                         else "<p style='color:#888'>Nothing to preview yet.</p>")
+
+    def _copy(self):
+        txt = self.minutes.toPlainText()
+        if not txt.strip():
+            return
+        # put both plain text AND rich HTML on the clipboard (paste keeps formatting)
+        from PySide6.QtCore import QMimeData
+        from ..export.html_export import render_fragment
+        mime = QMimeData()
+        mime.setText(txt)
+        mime.setHtml(render_fragment(txt))
+        QGuiApplication.clipboard().setMimeData(mime)
+        self.toast.show_message("Copied (with formatting) to clipboard.", "success")
+
+    def _save_history(self) -> int | None:
+        if not self.minutes.toPlainText().strip() and not self.transcript.toPlainText().strip():
+            self.toast.show_message("Nothing to save yet.", "warn")
+            return None
+        title = self._guess_title()
+        m = Meeting(
+            id=self._current_id or 0, title=title, created_at=0, updated_at=0,
+            source_type="mixed", style=self.style_box.currentText(),
+            model=self.model_box.currentText(),
+            profile_id=self.ctx.settings.get("active_profile", ""),
+            transcript=self.transcript.toPlainText(),
+            minutes=self.minutes.toPlainText(),
+        )
+        self._current_id = self.ctx.history.save(m)
+        self.toast.show_message("Saved to history.", "success")
+        return self._current_id
+
+    def _guess_title(self) -> str:
+        for line in self.minutes.toPlainText().splitlines():
+            if "Meeting Title:" in line:
+                t = line.split("Meeting Title:")[-1].replace("*", "").strip()
+                if t and t.lower() != "not specified":
+                    return t[:80]
+        return "Meeting " + (Path(self._media_queue[0]).stem if self._media_queue else "minutes")
+
+    def _export(self):
+        from ..export import service
+        md = self.minutes.toPlainText().strip()
+        if not md:
+            self.toast.show_message("Generate or write minutes first.", "warn")
+            return
+        path, selected = QFileDialog.getSaveFileName(
+            self, "Export minutes", "Meeting-Minutes", service.FILTERS)
+        if not path:
+            return
+        if "." not in Path(path).name:
+            ext = (".docx" if "Word" in selected else ".pdf" if "PDF" in selected
+                   else ".md" if "Markdown" in selected else ".html" if "HTML" in selected
+                   else ".txt")
+            path += ext
+        # Run export off the UI thread so the app never shows "not responding".
+        from .workers import ExportWorker
+        self.export_btn.setEnabled(False)
+        self.export_btn.setText("Exporting…")
+        self._busy(True, f"Exporting to {Path(path).name}…")
+        self._export_worker = ExportWorker(md, path, self.ctx.active_profile())
+        self._export_worker.finished_ok.connect(self._on_exported)
+        self._export_worker.failed.connect(self._on_export_failed)
+        self._export_worker.start()
+
+    def _on_exported(self, out: str):
+        self._busy(False)
+        self.export_btn.setEnabled(True); self.export_btn.setText("Export…")
+        self.toast.show_message(f"Exported to {Path(out).name}", "success", 5000)
+
+    def _on_export_failed(self, msg: str):
+        self._busy(False)
+        self.export_btn.setEnabled(True); self.export_btn.setText("Export…")
+        QMessageBox.critical(self, "Export failed", msg)
+
+    # -- shared -------------------------------------------------------------
+    def _on_progress(self, frac: float, msg: str):
+        self.progress.setValue(int(frac * 100))
+        self.status.setText(msg)
+
+    def _on_failed(self, msg: str):
+        self._busy(False)
+        self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
+        if msg and "cancel" not in msg.lower():
+            QMessageBox.critical(self, "Error", msg)
+        self.toast.show_message(msg or "Failed.", "error", 5000)
+
+    def _busy(self, on: bool, msg: str = ""):
+        self.progress.setVisible(on)
+        if on:
+            self.progress.setValue(0)
+            self.status.setText(msg)
+        else:
+            QTimer.singleShot(1200, lambda: (self.progress.setVisible(False), self.status.setText("")))
+
+    def load_meeting(self, m: Meeting):
+        self._current_id = m.id
+        self.transcript.setPlainText(m.transcript)
+        self.minutes.setPlainText(m.minutes)
+        if m.style:
+            self.style_box.setCurrentText(m.style)
+        self.sec_transcript.set_expanded(bool(m.transcript))
+        self.sec_minutes.set_expanded(bool(m.minutes))
+        self.sec_minutes.set_status("loaded" if m.minutes else "empty")
+        self.sec_source.set_expanded(False)
+        self.toast.show_message(f"Loaded: {m.title}", "info")
+
+
+# ===========================================================================
+# History
+# ===========================================================================
+class HistoryPage(QWidget):
+    def __init__(self, ctx: AppContext, toast, on_open):
+        super().__init__()
+        self.ctx = ctx; self.toast = toast; self.on_open = on_open
+        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        title = QLabel("Meeting History"); title.setObjectName("PageTitle")
+        v.addWidget(title)
+        v.addWidget(subtitle("Search and reopen past meetings — everything stays on this computer."))
+
+        row = QHBoxLayout()
+        self.search = QLineEdit(); self.search.setPlaceholderText("Search title, transcript or minutes…")
+        self.search.textChanged.connect(self.reload)
+        refresh = QPushButton("Refresh"); refresh.clicked.connect(self.reload)
+        row.addWidget(self.search); row.addWidget(refresh)
+        v.addLayout(row)
+
+        self.table = QTableWidget(0, 4)
+        self.table.setHorizontalHeaderLabels(["Title", "Style", "Model", "Updated"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.doubleClicked.connect(self._open_selected)
+        v.addWidget(self.table, 1)
+
+        actions = QHBoxLayout()
+        open_btn = QPushButton("Open"); open_btn.setObjectName("Primary"); open_btn.clicked.connect(self._open_selected)
+        del_btn = QPushButton("Delete"); del_btn.setObjectName("Danger"); del_btn.clicked.connect(self._delete_selected)
+        actions.addStretch(); actions.addWidget(del_btn); actions.addWidget(open_btn)
+        v.addLayout(actions)
+        self._rows: list[Meeting] = []
+
+    def reload(self):
+        import time
+        self._rows = self.ctx.history.list(self.search.text())
+        self.table.setRowCount(len(self._rows))
+        for i, m in enumerate(self._rows):
+            updated = time.strftime("%Y-%m-%d %H:%M", time.localtime(m.updated_at))
+            for j, val in enumerate((m.title, m.style, m.model, updated)):
+                self.table.setItem(i, j, QTableWidgetItem(val))
+
+    def _selected_meeting(self) -> Meeting | None:
+        r = self.table.currentRow()
+        return self._rows[r] if 0 <= r < len(self._rows) else None
+
+    def _open_selected(self):
+        m = self._selected_meeting()
+        if m:
+            self.on_open(m)
+
+    def _delete_selected(self):
+        m = self._selected_meeting()
+        if not m:
+            return
+        if QMessageBox.question(self, "Delete", f"Delete '{m.title}'?") == QMessageBox.Yes:
+            self.ctx.history.delete(m.id)
+            self.reload()
+            self.toast.show_message("Deleted.", "success")
+
+
+# ===========================================================================
+# Company Profiles
+# ===========================================================================
+class ProfilesPage(QWidget):
+    def __init__(self, ctx: AppContext, toast):
+        super().__init__()
+        self.ctx = ctx; self.toast = toast
+        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        title = QLabel("Company Profiles"); title.setObjectName("PageTitle")
+        v.addWidget(title)
+        v.addWidget(subtitle("Branding used on exported minutes: logo, footer, page numbers and layout."))
+
+        bar = QHBoxLayout()
+        new = QPushButton("New profile"); new.setObjectName("Primary"); new.clicked.connect(self._new)
+        edit = QPushButton("Edit"); edit.clicked.connect(self._edit)
+        dele = QPushButton("Delete"); dele.setObjectName("Danger"); dele.clicked.connect(self._delete)
+        imp = QPushButton("Import…"); imp.clicked.connect(self._import)
+        exp = QPushButton("Export…"); exp.clicked.connect(self._export)
+        use = QPushButton("Set as active"); use.clicked.connect(self._set_active)
+        for b in (new, edit, dele, imp, exp):
+            bar.addWidget(b)
+        bar.addStretch(); bar.addWidget(use)
+        v.addLayout(bar)
+
+        self.list = QListWidget(); self.list.itemDoubleClicked.connect(lambda *_: self._edit())
+        v.addWidget(self.list, 1)
+        self.active_lbl = QLabel(""); self.active_lbl.setObjectName("Hint")
+        v.addWidget(self.active_lbl)
+        self.reload()
+
+    def reload(self):
+        self.list.clear()
+        self._profiles = self.ctx.profiles.list()
+        active = self.ctx.settings.get("active_profile", "")
+        for p in self._profiles:
+            mark = "  ⭐ active" if p.id == active else ""
+            it = QListWidgetItem(f"{p.name}{mark}")
+            it.setData(Qt.UserRole, p.id)
+            self.list.addItem(it)
+        act = self.ctx.active_profile()
+        self.active_lbl.setText(f"Active profile: {act.name}" if act else "No active profile (plain export).")
+
+    def _current_id(self) -> str | None:
+        it = self.list.currentItem()
+        return it.data(Qt.UserRole) if it else None
+
+    def _new(self):
+        dlg = ProfileDialog(self.ctx.profiles, None, self)
+        if dlg.exec():
+            self.reload(); self.toast.show_message("Profile created.", "success")
+
+    def _edit(self):
+        pid = self._current_id()
+        if not pid:
+            return
+        prof = self.ctx.profiles.get(pid)
+        dlg = ProfileDialog(self.ctx.profiles, prof, self)
+        if dlg.exec():
+            self.reload(); self.toast.show_message("Profile saved.", "success")
+
+    def _delete(self):
+        pid = self._current_id()
+        if pid and QMessageBox.question(self, "Delete", "Delete this profile?") == QMessageBox.Yes:
+            self.ctx.profiles.delete(pid)
+            if self.ctx.settings.get("active_profile") == pid:
+                self.ctx.settings.set("active_profile", "")
+            self.reload()
+
+    def _set_active(self):
+        pid = self._current_id()
+        if pid:
+            self.ctx.settings.set("active_profile", pid)
+            self.reload(); self.toast.show_message("Active profile set.", "success")
+
+    def _import(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import profiles", "", "Profiles (*.json *.csv *.xlsx)")
+        if path:
+            try:
+                n = len(self.ctx.profiles.import_file(path))
+                self.reload(); self.toast.show_message(f"Imported {n} profile(s).", "success")
+            except Exception as exc:
+                QMessageBox.critical(self, "Import failed", str(exc))
+
+    def _export(self):
+        if not self._profiles:
+            self.toast.show_message("No profiles to export.", "warn"); return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export profiles", "company-profiles.json",
+            "JSON (*.json);;CSV (*.csv);;Excel (*.xlsx)")
+        if path:
+            try:
+                self.ctx.profiles.export_file(self._profiles, path)
+                self.toast.show_message("Profiles exported.", "success")
+            except Exception as exc:
+                QMessageBox.critical(self, "Export failed", str(exc))
+
+
+# ===========================================================================
+# Prompt Library
+# ===========================================================================
+class PromptsPage(QWidget):
+    def __init__(self, ctx: AppContext, toast, on_change=None):
+        super().__init__()
+        self.ctx = ctx; self.toast = toast; self.on_change = on_change
+        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        title = QLabel("Prompt Library"); title.setObjectName("PageTitle")
+        v.addWidget(title)
+        v.addWidget(subtitle("Create and manage reusable prompts for minutes generation."))
+
+        split = QSplitter(Qt.Horizontal)
+        left = QWidget(); ll = QVBoxLayout(left)
+        self.list = QListWidget(); self.list.currentRowChanged.connect(self._show)
+        ll.addWidget(self.list)
+        btns = QHBoxLayout()
+        add = QPushButton("Add"); add.setObjectName("Primary"); add.clicked.connect(self._add)
+        edit = QPushButton("Edit"); edit.clicked.connect(self._edit)
+        dele = QPushButton("Delete"); dele.setObjectName("Danger"); dele.clicked.connect(self._delete)
+        for b in (add, edit, dele):
+            btns.addWidget(b)
+        ll.addLayout(btns)
+
+        right = QWidget(); rl = QVBoxLayout(right)
+        rl.addWidget(section_title("Preview"))
+        self.preview = QPlainTextEdit(); self.preview.setReadOnly(True)
+        rl.addWidget(self.preview)
+        split.addWidget(left); split.addWidget(right)
+        split.setSizes([320, 520])
+        v.addWidget(split, 1)
+        self.reload()
+
+    def reload(self):
+        self.list.clear()
+        self._prompts = self.ctx.prompts.list()
+        # group by category with non-selectable header rows
+        last_cat = None
+        self._row_map: list[int] = []   # list-row -> prompt index (or -1 for header)
+        for i, p in enumerate(self._prompts):
+            if p.category != last_cat:
+                last_cat = p.category
+                hdr = QListWidgetItem(f"— {p.category} —")
+                hdr.setFlags(Qt.NoItemFlags)
+                self.list.addItem(hdr); self._row_map.append(-1)
+            tag = "  ·  built-in" if p.builtin else ""
+            self.list.addItem(f"   {p.name}{tag}")
+            self._row_map.append(i)
+        # select first real prompt
+        for row, idx in enumerate(self._row_map):
+            if idx >= 0:
+                self.list.setCurrentRow(row); break
+        if self.on_change:
+            self.on_change()
+
+    def _current(self) -> SavedPrompt | None:
+        r = self.list.currentRow()
+        if 0 <= r < len(self._row_map) and self._row_map[r] >= 0:
+            return self._prompts[self._row_map[r]]
+        return None
+
+    def _show(self, _row):
+        p = self._current()
+        self.preview.setPlainText(p.text if p else "")
+
+    def _add(self):
+        dlg = PromptDialog(parent=self)
+        if dlg.exec():
+            name, text, category = dlg.values()
+            self.ctx.prompts.add(name, text, category=category)
+            self.reload(); self.toast.show_message("Prompt added.", "success")
+
+    def _edit(self):
+        p = self._current()
+        if not p:
+            return
+        dlg = PromptDialog(p.name, p.text, p.category, self)
+        if dlg.exec():
+            name, text, category = dlg.values()
+            self.ctx.prompts.update(p.id, name, text, category=category)
+            self.reload(); self.toast.show_message("Prompt updated.", "success")
+
+    def _delete(self):
+        p = self._current()
+        if p and QMessageBox.question(self, "Delete", f"Delete '{p.name}'?") == QMessageBox.Yes:
+            self.ctx.prompts.delete(p.id)
+            self.reload(); self.toast.show_message("Prompt deleted.", "success")
+
+
+# ===========================================================================
+# Settings
+# ===========================================================================
+class SettingsPage(QWidget):
+    def __init__(self, ctx: AppContext, toast, on_theme_change, on_models_change):
+        super().__init__()
+        self.ctx = ctx; self.toast = toast
+        self.on_theme_change = on_theme_change; self.on_models_change = on_models_change
+        content = QWidget()
+        form = QFormLayout(content)
+        form.setContentsMargins(24, 20, 24, 24); form.setSpacing(12)
+        # Responsive form: fields grow to fill, and on narrow widths the field
+        # wraps below its label instead of forcing horizontal scroll.
+        from PySide6.QtWidgets import QFormLayout as _QFL
+        form.setRowWrapPolicy(_QFL.WrapLongRows)
+        form.setFieldGrowthPolicy(_QFL.AllNonFixedFieldsGrow)
+        form.setLabelAlignment(Qt.AlignLeft)
+
+        title = QLabel("Settings"); title.setObjectName("PageTitle")
+        form.addRow(title)
+
+        self.theme = QComboBox(); self.theme.addItems(["dark", "light"])
+        self.theme.setCurrentText(ctx.settings.get("theme"))
+        self.theme.currentTextChanged.connect(self._theme_changed)
+        form.addRow("Appearance", self.theme)
+
+        self.host = QLineEdit(ctx.settings.get("ollama_host"))
+        form.addRow("Ollama host", self.host)
+        self.model = QComboBox(); self._reload_models()
+        self.model.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.model.setMinimumContentsLength(16)
+        refresh = QPushButton("Refresh models"); refresh.clicked.connect(self._reload_models)
+        mrow = QHBoxLayout(); mrow.addWidget(self.model, 1); mrow.addWidget(refresh)
+        mwrap = QWidget(); mwrap.setLayout(mrow)
+        form.addRow("Default Ollama model", mwrap)
+
+        # --- Environment status + Install Required Model -------------------
+        self.env_lbl = QLabel(); self.env_lbl.setObjectName("Hint"); self.env_lbl.setWordWrap(True)
+        form.addRow("Environment", self.env_lbl)
+
+        from ..core.ollama_client import RECOMMENDED_MODELS
+        self.install_model_box = QComboBox(); self.install_model_box.setEditable(True)
+        self.install_model_box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.install_model_box.setMinimumContentsLength(18)
+        for lbl, name in RECOMMENDED_MODELS:
+            self.install_model_box.addItem(lbl, name)
+        self.install_btn = QPushButton("Install Required Model")
+        self.install_btn.setObjectName("Primary")
+        self.install_btn.clicked.connect(self._install_model)
+        irow = QHBoxLayout(); irow.addWidget(self.install_model_box, 1); irow.addWidget(self.install_btn)
+        iwrap = QWidget(); iwrap.setLayout(irow)
+        form.addRow("Install AI model", iwrap)
+        self.install_progress = QProgressBar(); self.install_progress.setVisible(False)
+        form.addRow("", self.install_progress)
+        self.install_status = QLabel(""); self.install_status.setObjectName("Hint"); self.install_status.setWordWrap(True)
+        form.addRow("", self.install_status)
+        self._pull_worker = None
+        self._refresh_env()
+
+        from ..config import QUALITY_PRESETS
+        self.preset = QComboBox()
+        self.preset.addItems(list(QUALITY_PRESETS.keys()) + ["Custom"])
+        self.preset.setCurrentText(ctx.settings.get("quality_preset", "Balanced"))
+        self.preset.activated.connect(self._apply_preset)
+        form.addRow("Speed ⇄ Quality", self.preset)
+        form.addRow(hint("Fast = tiny Whisper (quickest) · Balanced = base · Accurate = small (best). "
+                         "Pick a larger Ollama model below for richer minutes."))
+
+        self.whisper = QComboBox()
+        for label, size in WHISPER_MODELS:
+            self.whisper.addItem(label, size)
+        cur = ctx.settings.get("whisper_model")
+        for i in range(self.whisper.count()):
+            if self.whisper.itemData(i) == cur:
+                self.whisper.setCurrentIndex(i); break
+        form.addRow("Whisper model", self.whisper)
+
+        self.compute = QComboBox(); self.compute.addItems(["int8", "int8_float16", "float16", "float32"])
+        self.compute.setCurrentText(ctx.settings.get("whisper_compute"))
+        form.addRow("Whisper compute", self.compute)
+
+        self.device = QComboBox(); self.device.addItems(["auto", "cpu", "cuda"])
+        self.device.setCurrentText(ctx.settings.get("whisper_device"))
+        form.addRow("Whisper device", self.device)
+
+        self.lang = QLineEdit(ctx.settings.get("language"))
+        self.lang.setPlaceholderText("auto, or a code like en / ur / ar")
+        form.addRow("Language", self.lang)
+
+        self.fillers = QCheckBox("Remove filler words")
+        self.fillers.setChecked(ctx.settings.get("remove_fillers", True))
+        form.addRow("", self.fillers)
+
+        self.diarize = QCheckBox("Identify speakers (offline, beta)")
+        self.diarize.setChecked(ctx.settings.get("diarize", False))
+        self.diarize.setToolTip("Labels the transcript as Speaker 1/2/3 using offline "
+                                "voice clustering. Approximate — best with a few clear speakers.")
+        form.addRow("Speakers", self.diarize)
+
+        self.chunk = QSpinBox(); self.chunk.setRange(1500, 20000); self.chunk.setSingleStep(500)
+        self.chunk.setValue(int(ctx.settings.get("chunk_chars", 6000)))
+        form.addRow("Transcript chunk size (chars)", self.chunk)
+
+        self.repo = QLineEdit(ctx.settings.get("github_repo", ""))
+        self.repo.setPlaceholderText("owner/name  (e.g. mico360/mico360-meetings)")
+        form.addRow("GitHub repo (for updates)", self.repo)
+        self.auto_check = QCheckBox("Auto-check on startup")
+        self.auto_check.setChecked(ctx.settings.get("auto_check_updates", True))
+        form.addRow("", self.auto_check)
+
+        self.crash_reporter = QCheckBox("Show crash reporter on unexpected errors")
+        self.crash_reporter.setChecked(ctx.settings.get("crash_reporter", True))
+        form.addRow("Crash reporting", self.crash_reporter)
+        report_btn = QPushButton("Report a problem…")
+        report_btn.clicked.connect(self._report_problem)
+        form.addRow("", report_btn)
+
+        save = QPushButton("Save settings"); save.setObjectName("Primary"); save.clicked.connect(self._save)
+        form.addRow("", save)
+
+        from ..config import DATA_DIR, LOG_DIR
+        for label, path in (("Data folder", DATA_DIR), ("Logs", LOG_DIR)):
+            field = QLineEdit(str(path)); field.setReadOnly(True)
+            field.setCursorPosition(0)
+            form.addRow(label, field)          # read-only field scrolls internally; no overflow
+
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        outer.addWidget(_scroll(content))
+
+    def _reload_models(self):
+        status = self.ctx.ollama_status()
+        self.model.clear()
+        if status.running and status.models:
+            self.model.addItems(status.models)
+            saved = self.ctx.settings.get("ollama_model")
+            if saved in status.models:
+                self.model.setCurrentText(saved)
+        else:
+            self.model.addItem("(Ollama not running)")
+
+    # -- environment + model installation -----------------------------------
+    def _refresh_env(self):
+        import sys
+        py = f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        st = self.ctx.ollama_status()
+        if not st.running:
+            ollama_txt = "<span style='color:#EF4444'>Ollama not running</span>"
+            models_txt = "—"
+        else:
+            ollama_txt = "<span style='color:#22C55E'>Ollama online</span>"
+            if st.models:
+                models_txt = f"{len(st.models)} installed ({', '.join(st.models[:4])})"
+            else:
+                models_txt = ("<span style='color:#F59E0B'>No models installed — "
+                              "use “Install Required Model” below</span>")
+        self.env_lbl.setText(f"{py} &nbsp;•&nbsp; {ollama_txt} &nbsp;•&nbsp; Models: {models_txt}")
+
+    def _install_model(self):
+        st = self.ctx.ollama_status()
+        if not st.running:
+            QMessageBox.warning(self, "Ollama not running",
+                                "Ollama must be running to install a model.\n\n"
+                                "Start it (open the Ollama app or run 'ollama serve') and try again.")
+            return
+        # Resolve the model: if the box shows a recommended label, use its data;
+        # otherwise treat whatever the user typed as the literal model name.
+        text = self.install_model_box.currentText().strip()
+        model = text
+        for i in range(self.install_model_box.count()):
+            if self.install_model_box.itemText(i) == text:
+                model = self.install_model_box.itemData(i) or text
+                break
+        if not model:
+            return
+        if model in st.models:
+            self.install_status.setText(f"“{model}” is already installed — skipped.")
+            self.toast.show_message(f"{model} already installed.", "info")
+            return
+        from .workers import ModelPullWorker
+        self.install_btn.setEnabled(False)
+        self.install_progress.setVisible(True); self.install_progress.setRange(0, 100)
+        self.install_status.setText(f"Installing “{model}”…")
+        self._pull_worker = ModelPullWorker(self.ctx.settings.get("ollama_host"), model)
+        self._pull_worker.progress.connect(self._on_pull_progress)
+        self._pull_worker.finished_ok.connect(self._on_pull_done)
+        self._pull_worker.failed.connect(self._on_pull_failed)
+        self._pull_worker.start()
+
+    def _on_pull_progress(self, frac: float, status: str):
+        if frac < 0:
+            self.install_progress.setRange(0, 0)        # indeterminate (e.g. "pulling manifest")
+        else:
+            self.install_progress.setRange(0, 100)
+            self.install_progress.setValue(int(frac * 100))
+        self.install_status.setText(status)
+
+    def _on_pull_done(self, model: str):
+        self.install_btn.setEnabled(True)
+        self.install_progress.setRange(0, 100); self.install_progress.setValue(100)
+        self.install_status.setText(f"✓ Installed “{model}”.")
+        self.toast.show_message(f"Model “{model}” installed.", "success", 5000)
+        self._reload_models(); self._refresh_env()
+        self.on_models_change()
+
+    def _on_pull_failed(self, msg: str):
+        self.install_btn.setEnabled(True)
+        self.install_progress.setVisible(False)
+        self.install_status.setText(f"Install failed: {msg}")
+        if "cancel" not in msg.lower():
+            QMessageBox.critical(self, "Model install failed",
+                                 f"{msg}\n\nIf you are offline, connect to the internet and retry.")
+
+    def _theme_changed(self, name: str):
+        self.ctx.settings.set("theme", name)
+        self.on_theme_change(name)
+
+    def _apply_preset(self):
+        from ..config import apply_quality_preset, QUALITY_PRESETS
+        name = self.preset.currentText()
+        if name not in QUALITY_PRESETS:
+            return
+        apply_quality_preset(self.ctx.settings, name)
+        # reflect the preset's Whisper model/compute in the combos
+        target = QUALITY_PRESETS[name]["whisper_model"]
+        for i in range(self.whisper.count()):
+            if self.whisper.itemData(i) == target:
+                self.whisper.setCurrentIndex(i); break
+        self.compute.setCurrentText(QUALITY_PRESETS[name]["whisper_compute"])
+        self.toast.show_message(f"{name} preset applied.", "success")
+
+    def _save(self):
+        s = self.ctx.settings
+        s.set("ollama_host", self.host.text().strip() or "http://127.0.0.1:11434")
+        if not self.model.currentText().startswith("("):
+            s.set("ollama_model", self.model.currentText())
+        s.set("whisper_model", self.whisper.currentData())
+        s.set("whisper_compute", self.compute.currentText())
+        s.set("whisper_device", self.device.currentText())
+        s.set("language", self.lang.text().strip() or "auto")
+        s.set("remove_fillers", self.fillers.isChecked())
+        s.set("diarize", self.diarize.isChecked())
+        s.set("quality_preset", self.preset.currentText())
+        s.set("chunk_chars", self.chunk.value())
+        s.set("github_repo", self.repo.text().strip().strip("/"))
+        s.set("auto_check_updates", self.auto_check.isChecked())
+        s.set("crash_reporter", self.crash_reporter.isChecked())
+        self.toast.show_message("Settings saved.", "success")
+        self.on_models_change()
+
+    def _report_problem(self):
+        """Open the crash-reporter dialog with the current log (no crash needed)."""
+        from .. import crash_reporter
+        report = (f"{__import__('mico360').__app_name__} — problem report (manual)\n"
+                  f"Time: {__import__('time').strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+                  "=== Recent log ===\n" + crash_reporter._tail_log(crash_reporter.LOG_TAIL_LINES))
+        path = crash_reporter._write_report(report)
+        repo = self.ctx.settings.get("github_repo", "")
+        dlg = crash_reporter.CrashDialog(report, path, repo, "Manual problem report", self)
+        dlg.exec()
