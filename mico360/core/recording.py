@@ -132,6 +132,15 @@ def system_audio_device(sd):
 
 
 def system_audio_supported() -> bool:
+    # Preferred: true WASAPI loopback via soundcard (no "Stereo Mix" needed).
+    try:
+        import soundcard as sc
+        spk = sc.default_speaker()
+        if spk and sc.get_microphone(spk.name, include_loopback=True):
+            return True
+    except Exception:
+        pass
+    # Fallback: a Stereo-Mix-style input device.
     try:
         import sounddevice as sd
         return system_audio_device(sd) is not None
@@ -316,6 +325,7 @@ class AudioRecorder(BaseRecorder):
         self._rate = cfg.samplerate
         self._stop_flag = threading.Event()
         self._thread: threading.Thread | None = None
+        self._frames_captured = 0
 
     def start(self) -> None:
         # Capture runs in a background thread so opening the audio device can
@@ -332,88 +342,126 @@ class AudioRecorder(BaseRecorder):
         self._thread.start()
 
     # -- multi-source (system / both) ---------------------------------------
-    def _build_specs(self, sd) -> list[dict]:
-        specs: list[dict] = []
+    def _source_plan(self) -> list[str]:
+        """Which sources to capture: 'mic' (sounddevice) and/or 'sys' (loopback)."""
         src = self.cfg.source
+        plan = []
         if src in ("mic", "both"):
-            device = self.cfg.mic_index
-            if device is None:
-                d = default_microphone()
-                device = d.index if d else None
-            if device is not None:
-                specs.append({"name": "mic", "device": device, "channels": 1,
-                              "rate": self.cfg.samplerate, "settings": None})
+            plan.append("mic")
         if src in ("system", "both"):
-            lb = system_audio_device(sd)
-            if lb:
-                dev, ch, rate, settings = lb
-                specs.append({"name": "sys", "device": dev, "channels": ch,
-                              "rate": rate, "settings": settings})
-        return specs
+            plan.append("sys")
+        return plan
 
     def _loop_sources(self):
-        import numpy as np
-        import sounddevice as sd
-        import soundfile as sf
-        streams, writers, temps = [], [], []
+        # Each source captures to its own temp WAV in a thread; on stop they are
+        # mixed. Mic uses sounddevice; system uses true WASAPI loopback (soundcard)
+        # so it works WITHOUT the user enabling "Stereo Mix".
+        self._frames_captured = 0
+        ts = int(self._t0)
+        temps, threads = [], []
         try:
-            specs = self._build_specs(sd)
-            if not specs:
-                raise RuntimeError("No audio source available for the selected option "
-                                   "(microphone and/or system audio).")
-            ts = int(self._t0)
-            for spec in specs:
-                tmp = str(TMP_DIR / f"_src_{spec['name']}_{ts}.wav")
-                w = sf.SoundFile(tmp, mode="w", samplerate=spec["rate"], channels=1, subtype="PCM_16")
-
-                def make_cb(writer):
-                    def cb(indata, frames, time_info, status):  # noqa: ARG001
-                        if self.state != RECORDING:
-                            return
-                        try:
-                            data = indata if indata.ndim == 1 or indata.shape[1] == 1 \
-                                else indata.mean(axis=1, keepdims=True)
-                            self._frames_captured += frames
-                            self._level = float(min(1.0, float(np.abs(data).max()) * 1.4))
-                            writer.write(data.copy())
-                        except Exception:
-                            pass
-                    return cb
-
-                st = sd.InputStream(samplerate=spec["rate"], channels=spec["channels"],
-                                    device=spec["device"], dtype="float32", blocksize=1600,
-                                    callback=make_cb(w), extra_settings=spec.get("settings"))
-                st.start()
-                streams.append(st); writers.append(w); temps.append(tmp)
-                self._rate = spec["rate"]
+            plan = self._source_plan()
+            if not plan:
+                raise RuntimeError("No audio source selected.")
+            for kind in plan:
+                tmp = str(TMP_DIR / f"_src_{kind}_{ts}.wav")
+                temps.append(tmp)
+                target = self._capture_mic if kind == "mic" else self._capture_system
+                th = threading.Thread(target=target, args=(tmp,), daemon=True)
+                th.start()
+                threads.append(th)
 
             start = time.time()
             while not self._stop_flag.is_set():
                 time.sleep(0.1)
                 if (self.state == RECORDING and self._frames_captured == 0
-                        and time.time() - start > 5.0):
-                    raise RuntimeError("No audio is being received from the selected source(s). "
-                                       "If recording system audio, make sure something is playing.")
+                        and time.time() - start > 6.0):
+                    raise RuntimeError("No audio is being received. For system audio make "
+                                       "sure something is playing; for the mic check it isn't muted.")
         except Exception as exc:
             self.error = str(exc); self.state = ERROR
             log.exception("multi-source audio capture failed")
         finally:
             if self.state != ERROR:
                 self.state = STOPPED
-            for st in streams:
-                try:
-                    st.stop(); st.close()
-                except Exception:
-                    pass
-            for w in writers:
-                try:
-                    w.close()
-                except Exception:
-                    pass
+            for th in threads:
+                th.join(timeout=6)
             try:
                 self._finalize_sources(temps)
             except Exception:
                 log.exception("finalizing multi-source recording failed")
+
+    def _capture_mic(self, temp: str):
+        import numpy as np
+        import sounddevice as sd
+        import soundfile as sf
+        writer = stream = None
+        try:
+            device = self.cfg.mic_index
+            if device is None:
+                d = default_microphone()
+                device = d.index if d else None
+            rate = self.cfg.samplerate
+            writer = sf.SoundFile(temp, mode="w", samplerate=rate, channels=1, subtype="PCM_16")
+
+            def cb(indata, frames, time_info, status):  # noqa: ARG001
+                if self.state != RECORDING:
+                    return
+                try:
+                    data = indata if indata.ndim == 1 or indata.shape[1] == 1 \
+                        else indata.mean(axis=1, keepdims=True)
+                    self._frames_captured += frames
+                    self._level = float(min(1.0, float(np.abs(data).max()) * 1.4))
+                    writer.write(data.copy())
+                except Exception:
+                    pass
+
+            stream = sd.InputStream(samplerate=rate, channels=1, device=device,
+                                    dtype="float32", blocksize=1600, callback=cb)
+            stream.start()
+            while not self._stop_flag.is_set():
+                time.sleep(0.05)
+        except Exception:
+            log.warning("mic source capture failed", exc_info=True)
+        finally:
+            try:
+                if stream is not None:
+                    stream.stop(); stream.close()
+            except Exception:
+                pass
+            try:
+                if writer is not None:
+                    writer.close()
+            except Exception:
+                pass
+
+    def _capture_system(self, temp: str):
+        import numpy as np
+        import soundfile as sf
+        writer = None
+        try:
+            import soundcard as sc
+            spk = sc.default_speaker()
+            loop_mic = sc.get_microphone(spk.name, include_loopback=True)
+            rate = 48000
+            writer = sf.SoundFile(temp, mode="w", samplerate=rate, channels=1, subtype="PCM_16")
+            with loop_mic.recorder(samplerate=rate, channels=1, blocksize=2048) as r:
+                while not self._stop_flag.is_set():
+                    data = r.record(numframes=2048)
+                    if self.state == PAUSED:
+                        continue
+                    d = data.reshape(-1) if getattr(data, "ndim", 1) > 1 else data
+                    self._frames_captured += len(d)
+                    self._level = float(min(1.0, float(np.abs(d).max()) * 1.4))
+                    writer.write(d.astype("float32"))
+        except Exception:
+            log.warning("system-audio (loopback) capture failed", exc_info=True)
+        finally:
+            try:
+                if writer is not None:
+                    writer.close()
+            except Exception:
+                pass
 
     def _finalize_sources(self, temps: list[str]):
         import numpy as np

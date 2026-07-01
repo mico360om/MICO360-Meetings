@@ -20,7 +20,7 @@ hiddenimports = []
 # Bundle the heavyweight ML / media stacks completely.
 for pkg in ("faster_whisper", "ctranslate2", "av", "tokenizers",
             "onnxruntime", "huggingface_hub", "ollama", "soundfile", "sounddevice",
-            "mss", "cv2", "numpy"):
+            "mss", "cv2", "numpy", "soundcard"):
     try:
         d, b, h = collect_all(pkg)
         datas += d; binaries += b; hiddenimports += h

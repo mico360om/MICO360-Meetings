@@ -17,6 +17,7 @@ soundfile>=0.12     # write WAV (bundles libsndfile)
 numpy>=1.24
 mss>=9.0            # screen capture (screen recording)
 opencv-python>=4.8  # webcam capture (camera recording)
+soundcard>=0.4.3    # true WASAPI loopback (system-audio capture, no Stereo Mix needed)
 
 # --- Optional (text from PDFs / images) ---
 # pypdf>=4.0        # uncomment to enable PDF text import
