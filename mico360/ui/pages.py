@@ -297,10 +297,11 @@ class NewMeetingPage(QWidget):
         row = QHBoxLayout()
         self.copy_btn = QPushButton("Copy"); self.copy_btn.clicked.connect(self._copy)
         self.save_btn = QPushButton("Save to history"); self.save_btn.clicked.connect(self._save_history)
+        self.email_btn = QPushButton("📧 Email…"); self.email_btn.clicked.connect(self._email_minutes)
         self.export_btn = QPushButton("Export…"); self.export_btn.setObjectName("Primary")
         self.export_btn.clicked.connect(self._export)
         row.addWidget(self.copy_btn); row.addWidget(self.save_btn)
-        row.addStretch(); row.addWidget(self.export_btn)
+        row.addStretch(); row.addWidget(self.email_btn); row.addWidget(self.export_btn)
         lay.addLayout(row)
         return card
 
@@ -643,6 +644,60 @@ class NewMeetingPage(QWidget):
         self._busy(False)
         self.export_btn.setEnabled(True); self.export_btn.setText("Export…")
         QMessageBox.critical(self, "Export failed", msg)
+
+    # -- email --------------------------------------------------------------
+    def _email_minutes(self):
+        from ..core.emailer import SmtpConfig
+        md = self.minutes.toPlainText().strip()
+        if not md:
+            self.toast.show_message("Generate or write minutes first.", "warn")
+            return
+        cfg = SmtpConfig.from_settings(self.ctx.settings)
+        if not cfg.configured:
+            QMessageBox.information(self, "Email not set up",
+                                    "Add your email (SMTP) details in Settings → Email first.")
+            return
+        from .dialogs import EmailComposeDialog
+        title = self._guess_title()
+        prefill_to = ""  # attendee names aren't emails; leave blank
+        body = ("Hi,\n\nPlease find the minutes for our meeting below"
+                + (" (also attached)." if True else ".") + "\n\n"
+                + md.replace("**", "") + "\n\n— Sent from MICO360 Meetings")
+        dlg = EmailComposeDialog(f"Meeting Minutes — {title}", body, prefill_to, self)
+        if not dlg.exec():
+            return
+        v = dlg.values()
+        # export chosen attachment formats to temp
+        from ..config import TMP_DIR
+        from ..export import service
+        attachments = []
+        try:
+            for ext in v["formats"]:
+                p = TMP_DIR / f"Meeting-Minutes{ext}"
+                service.export(md, str(p), self.ctx.active_profile())
+                attachments.append(str(p))
+        except Exception as exc:
+            QMessageBox.critical(self, "Attachment failed", str(exc)); return
+
+        from .workers import EmailWorker
+        from ..export.html_export import render_document
+        self.email_btn.setEnabled(False); self.email_btn.setText("Sending…")
+        self._email_worker = EmailWorker(
+            cfg, v["to"], v["subject"], v["body"],
+            html=render_document(md, self.ctx.active_profile()),
+            attachments=attachments, cc=v["cc"])
+        self._email_worker.finished_ok.connect(lambda: self._on_email_done(True))
+        self._email_worker.failed.connect(lambda m: self._on_email_done(False, m))
+        self._email_worker.start()
+
+    def _on_email_done(self, ok: bool, msg: str = ""):
+        self.email_btn.setEnabled(True); self.email_btn.setText("📧 Email…")
+        if ok:
+            self.toast.show_message("Minutes emailed.", "success", 5000)
+        else:
+            QMessageBox.critical(self, "Email failed",
+                                 f"{msg}\n\nCheck your SMTP settings and that the sender "
+                                 "address is a validated Mailjet sender.")
 
     # -- shared -------------------------------------------------------------
     def _on_progress(self, frac: float, msg: str):
@@ -1047,6 +1102,28 @@ class SettingsPage(QWidget):
         report_btn.clicked.connect(self._report_problem)
         form.addRow("", report_btn)
 
+        # --- Email (SMTP / Mailjet) ---------------------------------------
+        form.addRow(hint("— Email (SMTP) — used to send minutes. For Mailjet: host "
+                         "in-v3.mailjet.com, port 587, user = API key, password = Secret key."))
+        self.smtp_host = QLineEdit(ctx.settings.get("smtp_host", "in-v3.mailjet.com"))
+        form.addRow("SMTP host", self.smtp_host)
+        self.smtp_port = QSpinBox(); self.smtp_port.setRange(1, 65535)
+        self.smtp_port.setValue(int(ctx.settings.get("smtp_port", 587)))
+        form.addRow("SMTP port", self.smtp_port)
+        self.email_from = QLineEdit(ctx.settings.get("email_from", ""))
+        self.email_from.setPlaceholderText("validated sender, e.g. admin@mico360.com")
+        form.addRow("From address", self.email_from)
+        self.smtp_user = QLineEdit(ctx.settings.get("smtp_user", ""))
+        self.smtp_user.setPlaceholderText("Mailjet API key")
+        form.addRow("SMTP user / API key", self.smtp_user)
+        self.smtp_password = QLineEdit(ctx.settings.get("smtp_password", ""))
+        self.smtp_password.setEchoMode(QLineEdit.Password)
+        self.smtp_password.setPlaceholderText("Mailjet Secret key")
+        form.addRow("SMTP password / Secret", self.smtp_password)
+        test_btn = QPushButton("Send test email")
+        test_btn.clicked.connect(self._send_test_email)
+        form.addRow("", test_btn)
+
         save = QPushButton("Save settings"); save.setObjectName("Primary"); save.clicked.connect(self._save)
         form.addRow("", save)
 
@@ -1176,8 +1253,37 @@ class SettingsPage(QWidget):
         s.set("github_repo", self.repo.text().strip().strip("/"))
         s.set("auto_check_updates", self.auto_check.isChecked())
         s.set("crash_reporter", self.crash_reporter.isChecked())
+        s.set("smtp_host", self.smtp_host.text().strip() or "in-v3.mailjet.com")
+        s.set("smtp_port", self.smtp_port.value())
+        s.set("email_from", self.email_from.text().strip())
+        s.set("smtp_user", self.smtp_user.text().strip())
+        s.set("smtp_password", self.smtp_password.text().strip())
         self.toast.show_message("Settings saved.", "success")
         self.on_models_change()
+
+    def _send_test_email(self):
+        from ..core.emailer import SmtpConfig, send_test
+        cfg = SmtpConfig(host=self.smtp_host.text().strip() or "in-v3.mailjet.com",
+                         port=self.smtp_port.value(),
+                         user=self.smtp_user.text().strip(),
+                         password=self.smtp_password.text().strip(),
+                         sender=self.email_from.text().strip())
+        if not cfg.configured:
+            QMessageBox.information(self, "Incomplete", "Fill in host, from, user and password first.")
+            return
+        self.toast.show_message("Sending test email…", "info")
+
+        from .workers import EmailWorker
+        self._test_worker = EmailWorker(cfg, cfg.sender, "MICO360 Meetings - test email",
+                                        "This is a test email from MICO360 Meetings. "
+                                        "Your SMTP settings work.")
+        self._test_worker.finished_ok.connect(
+            lambda: self.toast.show_message(f"Test email sent to {cfg.sender}.", "success", 6000))
+        self._test_worker.failed.connect(
+            lambda m: QMessageBox.critical(self, "Test failed",
+                                           f"{m}\n\nCheck host/port/user/password and that the "
+                                           "sender is a validated Mailjet sender."))
+        self._test_worker.start()
 
     def _report_problem(self):
         """Open the crash-reporter dialog with the current log (no crash needed)."""

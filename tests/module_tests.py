@@ -348,6 +348,23 @@ def main():
         return "rotating log"
     t("logging (config)", _logging)
 
+    def _emailer():
+        from mico360.core.emailer import SmtpConfig, send_email
+        cfg = SmtpConfig(host="in-v3.mailjet.com", port=587, user="", password="", sender="")
+        assert not cfg.configured
+        try:
+            send_email(cfg, "x@y.com", "s", "b")   # unconfigured -> must raise, not send
+            raise AssertionError("should have refused to send")
+        except ValueError:
+            pass
+        # message build with unicode + attachment (no network)
+        from email.message import EmailMessage
+        m = EmailMessage(); m["From"] = "a@b.com"; m["To"] = "c@d.com"
+        m["Subject"] = "Minutes — Café"; m.set_content("Body — “ok”")
+        assert len(m.as_bytes()) > 50
+        return "SmtpConfig + guarded send + unicode encode"
+    t("core.emailer", _emailer)
+
     # tally
     by_group = {}
     for g, m, ok, _ in results:

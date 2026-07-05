@@ -44,6 +44,8 @@ meeting minutes with a local Ollama model — **no data ever leaves your compute
   (.ics) import** to pre-fill title / date / attendees.
 - **Autosave** (never lose a transcript) + native undo/redo, and **in-place
   auto-update** (download → install → relaunch) from GitHub Releases.
+- **Email minutes** directly from the app via SMTP (Mailjet-ready) with PDF/Word
+  attachments — credentials stay in your local settings, never in the app.
 - **Opt-in crash reporter** — on an unexpected error, bundles the traceback +
   recent log locally and (only if you click) opens a pre-filled GitHub issue in
   your browser. Nothing is ever sent automatically; toggle in Settings.

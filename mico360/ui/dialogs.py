@@ -7,8 +7,8 @@ from PySide6.QtCore import Qt, QRectF
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-    QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QPlainTextEdit,
-    QPushButton, QVBoxLayout, QWidget,
+    QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
+    QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
 from ..core.profiles import (
@@ -273,3 +273,58 @@ class PromptDialog(QDialog):
     def values(self) -> tuple[str, str, str]:
         return (self.name.text().strip(), self.text.toPlainText(),
                 self.category.currentText().strip() or "General")
+
+
+class EmailComposeDialog(QDialog):
+    """Compose an email of the meeting minutes (optionally with attachments)."""
+    def __init__(self, subject: str, body: str, to: str = "", parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Email minutes")
+        self.resize(620, 540)
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+        self.to = QLineEdit(to); self.to.setPlaceholderText("recipient@example.com, another@example.com")
+        self.cc = QLineEdit()
+        self.subject = QLineEdit(subject)
+        form.addRow("To", self.to)
+        form.addRow("Cc", self.cc)
+        form.addRow("Subject", self.subject)
+        lay.addLayout(form)
+
+        att = QHBoxLayout()
+        att.addWidget(QLabel("Attach:"))
+        self.att_pdf = QCheckBox("PDF"); self.att_pdf.setChecked(True)
+        self.att_docx = QCheckBox("Word (.docx)")
+        att.addWidget(self.att_pdf); att.addWidget(self.att_docx); att.addStretch()
+        lay.addLayout(att)
+
+        lay.addWidget(QLabel("Message"))
+        self.body = QPlainTextEdit(body)
+        self.body.setMinimumHeight(240)
+        lay.addWidget(self.body, 1)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Cancel)
+        self.send_btn = bb.addButton("Send", QDialogButtonBox.AcceptRole)
+        self.send_btn.setObjectName("Primary")
+        bb.accepted.connect(self._validate); bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def _validate(self):
+        if not self.to.text().strip():
+            QMessageBox.warning(self, "Recipient required", "Enter at least one 'To' address.")
+            return
+        self.accept()
+
+    def values(self) -> dict:
+        fmts = []
+        if self.att_pdf.isChecked():
+            fmts.append(".pdf")
+        if self.att_docx.isChecked():
+            fmts.append(".docx")
+        return {
+            "to": [a.strip() for a in self.to.text().split(",") if a.strip()],
+            "cc": [a.strip() for a in self.cc.text().split(",") if a.strip()],
+            "subject": self.subject.text().strip() or "Meeting Minutes",
+            "body": self.body.toPlainText(),
+            "formats": fmts,
+        }

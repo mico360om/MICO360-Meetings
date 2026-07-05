@@ -113,6 +113,32 @@ class ExportWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class EmailWorker(QThread):
+    """Send an email off the UI thread (SMTP can block)."""
+    finished_ok = Signal()
+    failed = Signal(str)
+
+    def __init__(self, cfg, to, subject, body, html=None, attachments=None, cc=None):
+        super().__init__()
+        self.cfg = cfg
+        self.to = to
+        self.subject = subject
+        self.body = body
+        self.html = html
+        self.attachments = attachments or []
+        self.cc = cc
+
+    def run(self):
+        try:
+            from ..core.emailer import send_email
+            send_email(self.cfg, self.to, self.subject, self.body,
+                       html=self.html, attachments=self.attachments, cc=self.cc)
+            self.finished_ok.emit()
+        except Exception as exc:
+            log.exception("email send failed")
+            self.failed.emit(str(exc))
+
+
 class ModelPullWorker(QThread):
     """Download/install an Ollama model with progress (Settings page)."""
     progress = Signal(float, str)       # frac (0..1, -1 = indeterminate), status text

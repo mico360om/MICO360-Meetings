@@ -112,6 +112,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "auto_check_updates": True,
     "crash_reporter": True,             # show the opt-in crash dialog on errors
     "onboarded": False,                 # first-run guide shown
+    # Email (SMTP) — credentials are stored ONLY in the local settings file,
+    # never in source. Defaults are blank; the user fills them in Settings.
+    "smtp_host": "in-v3.mailjet.com",
+    "smtp_port": 587,
+    "smtp_user": "",                    # Mailjet API key
+    "smtp_password": "",                # Mailjet Secret key
+    "email_from": "",                   # validated sender, e.g. admin@mico360.com
 }
 
 

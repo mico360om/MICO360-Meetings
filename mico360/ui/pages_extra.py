@@ -449,9 +449,12 @@ class HelpPage(QWidget):
           <h3>Network access</h3>
           <p>The only optional network activity is: (1) the one-time download of a
              Whisper or Ollama model you choose, (2) checking GitHub for application
-             updates when you click “Check for updates”, and (3) the opt-in crash
+             updates when you click “Check for updates”, (3) the opt-in crash
              reporter — if (and only if) you choose to report a problem, it opens a
-             pre-filled GitHub issue or email that you review and send yourself.
-             Nothing is sent automatically and no meeting content is included.</p>
+             pre-filled GitHub issue or email that you review and send yourself, and
+             (4) the <b>Email minutes</b> feature — if you use it, the minutes you
+             choose are sent through the SMTP/email server you configure in Settings
+             (e.g. Mailjet). Transcription and minutes generation remain fully local;
+             nothing is transmitted automatically.</p>
           <h3>Contact</h3>
           <p>Privacy questions: <a href='mailto:{SUPPORT_EMAIL}'>{SUPPORT_EMAIL}</a></p>""")
