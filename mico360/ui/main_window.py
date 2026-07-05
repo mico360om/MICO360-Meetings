@@ -18,13 +18,14 @@ from .context import AppContext
 from .pages import (
     HistoryPage, NewMeetingPage, ProfilesPage, PromptsPage, SettingsPage,
 )
-from .pages_extra import HelpPage, UpdatesPage
+from .pages_extra import ActionItemsPage, HelpPage, UpdatesPage
 
 log = logging.getLogger("mico360.window")
 
 NAV = [
     ("New Meeting", "✚"),
     ("History", "🕑"),
+    ("Action Items", "✔"),
     ("Company Profiles", "🏢"),
     ("Prompt Library", "💬"),
     ("Updates", "⬇"),
@@ -58,6 +59,7 @@ class MainWindow(QMainWindow):
 
         self.new_page = NewMeetingPage(ctx, self.toast)
         self.history_page = HistoryPage(ctx, self.toast, self._open_meeting)
+        self.actions_page = ActionItemsPage(ctx, self.toast, on_open_meeting=self._open_meeting)
         self.profiles_page = ProfilesPage(ctx, self.toast)
         self.prompts_page = PromptsPage(ctx, self.toast, on_change=self.new_page.refresh_prompts)
         self.updates_page = UpdatesPage(ctx, self.toast)
@@ -67,7 +69,7 @@ class MainWindow(QMainWindow):
             on_models_change=self.new_page.refresh_models)
 
         # order MUST match NAV
-        for p in (self.new_page, self.history_page, self.profiles_page,
+        for p in (self.new_page, self.history_page, self.actions_page, self.profiles_page,
                   self.prompts_page, self.updates_page, self.help_page, self.settings_page):
             self.stack.addWidget(p)
         layout.addWidget(self.stack, 1)
@@ -150,6 +152,8 @@ class MainWindow(QMainWindow):
         page = self.stack.widget(idx)
         if page is self.history_page:
             self.history_page.reload()
+        elif page is self.actions_page:
+            self.actions_page.reload()
         elif page is self.profiles_page:
             self.profiles_page.reload()
         elif page is self.new_page:
@@ -180,7 +184,11 @@ class MainWindow(QMainWindow):
         self.toast._reposition()
 
     def closeEvent(self, e):
-        # flush any in-progress recording so no temp file is left dangling
+        # autosave the current meeting + flush any in-progress recording
+        try:
+            self.new_page._autosave()
+        except Exception:
+            pass
         try:
             self.new_page.recorder_panel.stop_if_active()
         except Exception:

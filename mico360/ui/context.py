@@ -7,6 +7,8 @@ from ..core.ollama_client import OllamaGenerator, check_status
 from ..core.profiles import ProfileStore
 from ..core.prompts import PromptLibrary
 from ..core.transcription import TranscriptionEngine
+from ..core.tasks import ActionItemStore
+from ..core.meeting_types import MeetingTypeStore
 
 
 class AppContext:
@@ -15,6 +17,8 @@ class AppContext:
         self.history = History()
         self.profiles = ProfileStore()
         self.prompts = PromptLibrary()
+        self.action_items = ActionItemStore(self.history)
+        self.meeting_types = MeetingTypeStore()
         self._engine: TranscriptionEngine | None = None
 
     # -- transcription engine (rebuilt when model settings change) ----------

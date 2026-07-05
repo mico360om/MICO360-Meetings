@@ -6,7 +6,7 @@
 ; ============================================================================
 
 #define AppName        "MICO360 Meetings"
-#define AppVersion     "1.1.1"
+#define AppVersion     "1.2.0"
 #define AppPublisher   "MICO360"
 #define AppExeName     "MICO360Meetings.exe"
 #define DefaultModel   "llama3.1"

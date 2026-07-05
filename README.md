@@ -38,6 +38,12 @@ meeting minutes with a local Ollama model — **no data ever leaves your compute
 - **Prompt Library** — add / edit / view / delete reusable prompts; edit the
   prompt per generation.
 - **Local history** with full-text search.
+- **Action Items tracker** — every task from every meeting in one filterable
+  list (owner · deadline · status), editable status, CSV export.
+- **Meeting-type presets** (prompt + style + profile in one click) and **calendar
+  (.ics) import** to pre-fill title / date / attendees.
+- **Autosave** (never lose a transcript) + native undo/redo, and **in-place
+  auto-update** (download → install → relaunch) from GitHub Releases.
 - **Opt-in crash reporter** — on an unexpected error, bundles the traceback +
   recent log locally and (only if you click) opens a pre-filled GitHub issue in
   your browser. Nothing is ever sent automatically; toggle in Settings.

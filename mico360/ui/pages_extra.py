@@ -10,8 +10,9 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea,
-    QTabWidget, QTextBrowser, QVBoxLayout, QWidget,
+    QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel,
+    QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea, QTabWidget,
+    QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from .. import __app_name__, __version__
@@ -223,12 +224,27 @@ class UpdatesPage(QWidget):
         path = getattr(self, "_downloaded", "")
         if not path or not Path(path).exists():
             return
+        from PySide6.QtWidgets import QApplication, QMessageBox
+        if QMessageBox.question(
+                self, "Install update",
+                f"{__app_name__} will close, install v"
+                f"{self._info.latest_version if self._info else ''}, then reopen.\n\nContinue?"
+        ) != QMessageBox.Yes:
+            return
         try:
+            import subprocess
             if sys.platform == "win32":
-                os.startfile(path)  # launches the installer  # noqa: S606
-            self._set_status(updater.COMPLETED,
-                             "Installer launched. Follow its steps; the app will update.")
-            self.toast.show_message("Installer launched.", "success", 5000)
+                # Inno Setup silent install that closes + relaunches the app.
+                subprocess.Popen(
+                    [path, "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART",
+                     "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS"],
+                    close_fds=True)
+            else:
+                os.startfile(path)  # noqa: S606
+            self._set_status(updater.INSTALLING, "Installing update — the app will reopen…")
+            # give the installer a moment to start, then quit so files can be replaced
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1500, QApplication.instance().quit)
         except Exception as exc:
             self._set_status(updater.FAILED, f"Could not launch installer: {exc}")
 
@@ -243,6 +259,92 @@ class UpdatesPage(QWidget):
     def _open_release(self):
         if self._info and self._info.release_url:
             QDesktopServices.openUrl(QUrl(self._info.release_url))
+
+
+# ===========================================================================
+# Action Items — tasks across all meetings
+# ===========================================================================
+_STATUS_COLOR = {"Pending": "#F59E0B", "In Progress": "#3B82F6",
+                 "Done": "#22C55E", "Cancelled": "#8FA0BD"}
+
+
+class ActionItemsPage(QWidget):
+    def __init__(self, ctx: AppContext, toast, on_open_meeting=None):
+        super().__init__()
+        self.ctx = ctx
+        self.toast = toast
+        self.on_open_meeting = on_open_meeting
+        self._items = []
+
+        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        title = QLabel("Action Items"); title.setObjectName("PageTitle")
+        v.addWidget(title)
+        v.addWidget(subtitle("Every action item from all your meetings in one place. "
+                             "Double-click the Status cell to update it."))
+
+        bar = QHBoxLayout()
+        self.search = QLineEdit(); self.search.setPlaceholderText("Search task, person, meeting or status…")
+        self.search.textChanged.connect(self.reload)
+        refresh = QPushButton("Refresh"); refresh.clicked.connect(self.reload)
+        self.export_btn = QPushButton("Export CSV…"); self.export_btn.setObjectName("Primary")
+        self.export_btn.clicked.connect(self._export)
+        bar.addWidget(self.search); bar.addWidget(refresh); bar.addWidget(self.export_btn)
+        v.addLayout(bar)
+
+        self.table = QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(
+            ["Task", "Responsible", "Deadline", "Status", "Meeting", "Date"])
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        for c in (1, 2, 3, 4, 5):
+            hh.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.cellDoubleClicked.connect(self._on_double_click)
+        v.addWidget(self.table, 1)
+
+        self.summary = QLabel(""); self.summary.setObjectName("Hint")
+        v.addWidget(self.summary)
+
+    def reload(self):
+        self._items = self.ctx.action_items.all_items(self.search.text())
+        self.table.setRowCount(len(self._items))
+        for r, it in enumerate(self._items):
+            for c, val in enumerate((it.task, it.owner or "—", it.deadline or "—",
+                                     it.status, it.meeting_title, it.meeting_date)):
+                cell = QTableWidgetItem(val)
+                if c == 3:
+                    cell.setForeground(Qt.GlobalColor.white)
+                    from PySide6.QtGui import QColor
+                    cell.setForeground(QColor(_STATUS_COLOR.get(it.status, "#E6ECF5")))
+                self.table.setItem(r, c, cell)
+        done = sum(1 for i in self._items if i.status == "Done")
+        self.summary.setText(f"{len(self._items)} action item(s) · {done} done · "
+                             f"{len(self._items) - done} open  ·  double-click Status to change")
+
+    def _on_double_click(self, row, col):
+        if not (0 <= row < len(self._items)):
+            return
+        it = self._items[row]
+        if col == 3:                                    # Status → cycle
+            self.ctx.action_items.cycle_status(it)
+            self.reload()
+        elif col == 4 and self.on_open_meeting:         # Meeting → open it
+            m = self.ctx.history.get(it.meeting_id)
+            if m:
+                self.on_open_meeting(m)
+
+    def _export(self):
+        if not self._items:
+            self.toast.show_message("No action items to export.", "warn"); return
+        path, _ = QFileDialog.getSaveFileName(self, "Export action items", "action-items.csv",
+                                              "CSV (*.csv)")
+        if path:
+            try:
+                self.ctx.action_items.export_csv(path, self._items)
+                self.toast.show_message(f"Exported {len(self._items)} items.", "success")
+            except Exception as exc:
+                QMessageBox.critical(self, "Export failed", str(exc))
 
 
 # ===========================================================================

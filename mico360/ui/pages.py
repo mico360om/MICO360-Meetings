@@ -53,6 +53,9 @@ class NewMeetingPage(QWidget):
         self._build()
         self.refresh_models()
         self.refresh_prompts()
+        self.refresh_meeting_types()
+        self._autosave_sig = ""
+        self._setup_autosave()
 
     # -- UI -----------------------------------------------------------------
     def _build(self):
@@ -215,6 +218,32 @@ class NewMeetingPage(QWidget):
 
     def _step3_generate(self) -> QWidget:
         card, lay = self._card("Step 3 · Generate minutes")
+
+        # Meeting type preset + calendar pre-fill
+        mrow = QHBoxLayout()
+        tcol = QVBoxLayout(); tcol.setSpacing(3)
+        tl = QLabel("Meeting type"); tl.setObjectName("Hint")
+        self.mtype_box = QComboBox(); self.mtype_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.mtype_box.activated.connect(self._apply_meeting_type)
+        tcol.addWidget(tl); tcol.addWidget(self.mtype_box)
+        mrow.addLayout(tcol, 1)
+        icscol = QVBoxLayout(); icscol.setSpacing(3)
+        icscol.addWidget(QLabel(""))
+        self.ics_btn = QPushButton("📅  Import .ics")
+        self.ics_btn.setToolTip("Pre-fill meeting title, date and attendees from a calendar invite")
+        self.ics_btn.clicked.connect(self._import_ics)
+        icscol.addWidget(self.ics_btn)
+        mrow.addLayout(icscol)
+        lay.addLayout(mrow)
+
+        # meeting details (pre-filled from .ics; used in the minutes header)
+        det = QHBoxLayout()
+        self.meet_title = QLineEdit(); self.meet_title.setPlaceholderText("Meeting title (optional)")
+        self.meet_date = QLineEdit(); self.meet_date.setPlaceholderText("Date/time (optional)")
+        self.meet_attendees = QLineEdit(); self.meet_attendees.setPlaceholderText("Attendees, comma-separated (optional)")
+        det.addWidget(self.meet_title, 2); det.addWidget(self.meet_date, 1); det.addWidget(self.meet_attendees, 2)
+        lay.addLayout(det)
+
         controls = QHBoxLayout()
 
         self.model_box = QComboBox(); self.model_box.setMinimumWidth(130)
@@ -308,6 +337,59 @@ class NewMeetingPage(QWidget):
         idx = self.prompt_box.currentIndex()
         if 0 <= idx < len(self._prompts):
             self.prompt_edit.setPlainText(self._prompts[idx].text)
+
+    def refresh_meeting_types(self):
+        self.mtype_box.blockSignals(True)
+        self.mtype_box.clear()
+        self.mtype_box.addItem("Custom (use selections below)", None)
+        for mt in self.ctx.meeting_types.list():
+            self.mtype_box.addItem(mt.name, mt.name)
+        self.mtype_box.blockSignals(False)
+
+    def _apply_meeting_type(self):
+        name = self.mtype_box.currentData()
+        if not name:
+            return
+        mt = self.ctx.meeting_types.get(name)
+        if not mt:
+            return
+        if mt.style:
+            self.style_box.setCurrentText(mt.style)
+        if mt.prompt_name:
+            for i in range(self.prompt_box.count()):
+                if self.prompt_box.itemText(i) == mt.prompt_name:
+                    self.prompt_box.setCurrentIndex(i); break
+        if mt.profile_name:
+            for p in self.ctx.profiles.list():
+                if p.name == mt.profile_name:
+                    self.ctx.settings.set("active_profile", p.id); break
+        self.toast.show_message(f"Applied “{mt.name}” meeting type.", "success")
+
+    def _import_ics(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Import calendar invite", "",
+                                              "Calendar (*.ics);;All files (*.*)")
+        if not path:
+            return
+        try:
+            from ..core.calendar_import import parse_ics
+            d = parse_ics(path)
+            if d.get("title"):
+                self.meet_title.setText(d["title"])
+            if d.get("date"):
+                self.meet_date.setText(d["date"])
+            if d.get("attendees"):
+                self.meet_attendees.setText(", ".join(d["attendees"]))
+            self.sec_generate.set_expanded(True)
+            self.toast.show_message("Meeting details imported from calendar.", "success")
+        except Exception as exc:
+            self.toast.show_message(f"Could not read .ics: {exc}", "warn", 5000)
+
+    def _meeting_preamble(self) -> str:
+        from ..core.calendar_import import format_preamble
+        attendees = [a.strip() for a in self.meet_attendees.text().split(",") if a.strip()]
+        return format_preamble({"title": self.meet_title.text().strip(),
+                                "date": self.meet_date.text().strip(),
+                                "attendees": attendees})
 
     def _toggle_prompt_editor(self, on: bool):
         self.prompt_edit.setVisible(on)
@@ -430,10 +512,13 @@ class NewMeetingPage(QWidget):
                           if self._prompts else self.prompt_edit.toPlainText()))
 
         gen = self.ctx.generator(); gen.model = model
+        # prepend known meeting details (from .ics or the fields) so the header
+        # isn't left as 'Not specified'
+        transcript_in = self._meeting_preamble() + transcript
         self._busy(True, "Generating minutes…")
         self.cancel_btn.setVisible(True); self.generate_btn.setEnabled(False)
         self._worker = GenerateWorker(
-            gen, transcript, template, style,
+            gen, transcript_in, template, style,
             remove_fillers=self.ctx.settings.get("remove_fillers", True),
             chunk_chars=int(self.ctx.settings.get("chunk_chars", 6000)),
         )
@@ -481,9 +566,10 @@ class NewMeetingPage(QWidget):
         QGuiApplication.clipboard().setMimeData(mime)
         self.toast.show_message("Copied (with formatting) to clipboard.", "success")
 
-    def _save_history(self) -> int | None:
+    def _save_history(self, silent: bool = False) -> int | None:
         if not self.minutes.toPlainText().strip() and not self.transcript.toPlainText().strip():
-            self.toast.show_message("Nothing to save yet.", "warn")
+            if not silent:
+                self.toast.show_message("Nothing to save yet.", "warn")
             return None
         title = self._guess_title()
         m = Meeting(
@@ -495,8 +581,25 @@ class NewMeetingPage(QWidget):
             minutes=self.minutes.toPlainText(),
         )
         self._current_id = self.ctx.history.save(m)
-        self.toast.show_message("Saved to history.", "success")
+        if not silent:
+            self.toast.show_message("Saved to history.", "success")
         return self._current_id
+
+    # -- autosave -----------------------------------------------------------
+    def _setup_autosave(self):
+        self._autosave_timer = QTimer(self)
+        self._autosave_timer.setInterval(20000)      # every 20s
+        self._autosave_timer.timeout.connect(self._autosave)
+        self._autosave_timer.start()
+
+    def _autosave(self):
+        sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
+        if not sig.strip("\x00"):
+            return
+        if sig == self._autosave_sig:                # nothing changed
+            return
+        if self._save_history(silent=True):
+            self._autosave_sig = sig
 
     def _guess_title(self) -> str:
         for line in self.minutes.toPlainText().splitlines():

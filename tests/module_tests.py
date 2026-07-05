@@ -237,7 +237,7 @@ def main():
         app.processEvents()
 
     def _mainwin():
-        assert win.stack.count() == 7
+        assert win.stack.count() == 8
         from PySide6.QtGui import QShortcut
         assert len(win.findChildren(QShortcut)) >= 5
         for i in range(7):
@@ -257,8 +257,10 @@ def main():
         assert np_.style_box.count() == 5 and np_.prompt_box.count() >= 24
         assert np_.minutes_tabs.count() == 2
         win.history_page.reload(); win.profiles_page.reload(); win.prompts_page.reload()
+        win.actions_page.reload()
         assert win.settings_page.preset.count() >= 3
-        return "New/History/Profiles/Prompts/Settings"
+        assert np_.mtype_box.count() >= 6            # meeting-type presets
+        return "New/History/ActionItems/Profiles/Prompts/Settings"
     t("ui.pages", _pages)
 
     def _pages_extra():
