@@ -846,6 +846,7 @@ class SettingsPage(QWidget):
 
         title = QLabel("Settings"); title.setObjectName("PageTitle")
         form.addRow(title)
+        form.addRow(subtitle("Configure AI models, appearance, updates and crash reporting."))
 
         self.theme = QComboBox(); self.theme.addItems(["dark", "light"])
         self.theme.setCurrentText(ctx.settings.get("theme"))
@@ -930,7 +931,7 @@ class SettingsPage(QWidget):
         form.addRow("Transcript chunk size (chars)", self.chunk)
 
         self.repo = QLineEdit(ctx.settings.get("github_repo", ""))
-        self.repo.setPlaceholderText("owner/name  (e.g. mico360/mico360-meetings)")
+        self.repo.setPlaceholderText("owner/name  (e.g. mico360om/MICO360-Meetings)")
         form.addRow("GitHub repo (for updates)", self.repo)
         self.auto_check = QCheckBox("Auto-check on startup")
         self.auto_check.setChecked(ctx.settings.get("auto_check_updates", True))

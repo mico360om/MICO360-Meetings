@@ -255,6 +255,7 @@ class HelpPage(QWidget):
         v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
         title = QLabel("Help & About"); title.setObjectName("PageTitle")
         v.addWidget(title)
+        v.addWidget(subtitle("Getting started, contact, and legal information."))
 
         tabs = QTabWidget()
         tabs.addTab(self._tab(self._about_html()), "About Us")
