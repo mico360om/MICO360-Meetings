@@ -22,8 +22,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run QA suite (headless)
+      - name: Release gate (all suites + security + version, headless)
         env:
           QT_QPA_PLATFORM: offscreen
           HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
-        run: python tests/qa_check.py
+        run: python tests/release_check.py --fast

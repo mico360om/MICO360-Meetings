@@ -1,5 +1,10 @@
 # Pre-release hardware smoke checklist
 
+> **Step 0 (automated):** run the one-command gate first —
+> `python tests/release_check.py` — it runs all three suites, the security
+> scan, version-coherence check, and a built-app launch, and prints
+> READY / NOT READY. Only proceed to the manual checks below once it's READY.
+
 The automated suites (`tests/qa_check.py`, `tests/module_tests.py`,
 `tests/consistency_audit.py`) run **headless** and can't touch a real
 microphone, speakers, GPU, or the installer. Run this **manual pass on real
