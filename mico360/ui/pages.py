@@ -19,7 +19,7 @@ from ..core.audio import MEDIA_EXTS
 from ..core.history import Meeting
 from ..core.prompts import OUTPUT_STYLES, SavedPrompt
 from ..core.transcription import WHISPER_MODELS
-from .components import Card, CollapsibleSection, DropArea, hint, section_title, subtitle
+from .components import Card, CollapsibleSection, DropArea, hint, section_title, subtitle, tip
 from .context import AppContext
 from .dialogs import ProfileDialog, PromptDialog
 from .recording_panel import RecordingPanel
@@ -90,6 +90,8 @@ class NewMeetingPage(QWidget):
         toggle_row = QHBoxLayout()
         self.expand_all_btn = QPushButton("Collapse all"); self.expand_all_btn.setObjectName("Ghost")
         self.expand_all_btn.clicked.connect(self._toggle_all)
+        tip(self.expand_all_btn, "Fold or unfold all four steps at once — you can also click "
+                                 "any step's header")
         toggle_row.addStretch(); toggle_row.addWidget(self.expand_all_btn)
 
         # progress
@@ -136,8 +138,11 @@ class NewMeetingPage(QWidget):
         # add / remove controls
         list_bar = QHBoxLayout()
         add_btn = QPushButton("➕ Add files…"); add_btn.clicked.connect(self.drop._browse)
+        tip(add_btn, "Browse for audio, video or document files to add to the queue")
         self.remove_btn = QPushButton("Remove selected"); self.remove_btn.clicked.connect(self._remove_selected)
+        tip(self.remove_btn, "Remove the highlighted file(s) from the queue — the files on disk are not deleted")
         self.clear_btn = QPushButton("Clear all"); self.clear_btn.clicked.connect(self._clear_files)
+        tip(self.clear_btn, "Empty the whole queue (files on disk are not deleted)")
         list_bar.addWidget(add_btn)
         list_bar.addStretch()
         list_bar.addWidget(self.remove_btn)
@@ -147,6 +152,9 @@ class NewMeetingPage(QWidget):
         self.transcribe_btn.setObjectName("Primary")
         self.transcribe_btn.clicked.connect(self._start_transcription)
         self.transcribe_btn.setEnabled(False)
+        tip(self.transcribe_btn, "Convert the queued audio/video to text with offline Whisper. "
+                                 "Runs in order — drag the list to reorder. The first run downloads "
+                                 "the Whisper model (internet needed once)")
         upl.addWidget(self.drop)
         upl.addWidget(hint("Documents are read instantly into the transcript; audio/video are transcribed with Whisper. "
                            "Recordings also appear here."))
@@ -208,9 +216,12 @@ class NewMeetingPage(QWidget):
         self.transcript.setPlaceholderText("Paste or edit the meeting transcript here…")
         self.transcript.setMinimumHeight(150)
         self.transcript.textChanged.connect(self._update_counts)
+        tip(self.transcript, "The meeting text the AI will summarise. Fully editable — "
+                             "Ctrl+Z to undo. Autosaved to History every 20 seconds")
         self.transcript_count = QLabel("0 words"); self.transcript_count.setObjectName("Hint")
         row = QHBoxLayout()
         clear = QPushButton("Clear"); clear.clicked.connect(lambda: self.transcript.clear())
+        tip(clear, "Clear the transcript text (Ctrl+Z restores it)")
         row.addWidget(self.transcript_count); row.addStretch(); row.addWidget(clear)
         lay.addWidget(self.transcript)
         lay.addLayout(row)
@@ -225,6 +236,8 @@ class NewMeetingPage(QWidget):
         tl = QLabel("Meeting type"); tl.setObjectName("Hint")
         self.mtype_box = QComboBox(); self.mtype_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.mtype_box.activated.connect(self._apply_meeting_type)
+        tip(self.mtype_box, "One-click preset: applies a matching prompt, output style and "
+                            "company profile for this kind of meeting")
         tcol.addWidget(tl); tcol.addWidget(self.mtype_box)
         mrow.addLayout(tcol, 1)
         icscol = QVBoxLayout(); icscol.setSpacing(3)
@@ -239,8 +252,13 @@ class NewMeetingPage(QWidget):
         # meeting details (pre-filled from .ics; used in the minutes header)
         det = QHBoxLayout()
         self.meet_title = QLineEdit(); self.meet_title.setPlaceholderText("Meeting title (optional)")
+        tip(self.meet_title, "Used as the Meeting Title in the minutes header — otherwise the AI "
+                             "infers it or writes 'Not specified'")
         self.meet_date = QLineEdit(); self.meet_date.setPlaceholderText("Date/time (optional)")
+        tip(self.meet_date, "Meeting date/time for the minutes header, e.g. 2026-07-14 10:00")
         self.meet_attendees = QLineEdit(); self.meet_attendees.setPlaceholderText("Attendees, comma-separated (optional)")
+        tip(self.meet_attendees, "Attendee names for the minutes header, separated by commas — "
+                                 "filled automatically when you import a .ics invite")
         det.addWidget(self.meet_title, 2); det.addWidget(self.meet_date, 1); det.addWidget(self.meet_attendees, 2)
         lay.addLayout(det)
 
@@ -254,6 +272,12 @@ class NewMeetingPage(QWidget):
         for b in (self.model_box, self.style_box, self.prompt_box):
             b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
+        tip(self.model_box, "Which local Ollama AI model writes the minutes. Larger models give "
+                            "richer minutes but are slower — install more in Settings")
+        tip(self.style_box, "Output format: Formal, Short Summary, Detailed, Action Item Report "
+                            "or Executive Summary")
+        tip(self.prompt_box, "The instruction template sent to the AI — manage templates in the "
+                             "Prompt Library page")
         for col_i, (label, w) in enumerate(
                 (("Model", self.model_box), ("Style", self.style_box), ("Prompt", self.prompt_box))):
             col = QVBoxLayout(); col.setSpacing(3)
@@ -265,17 +289,24 @@ class NewMeetingPage(QWidget):
         # editable per-upload prompt
         self.toggle_prompt = QCheckBox("Edit prompt for this generation")
         self.toggle_prompt.toggled.connect(self._toggle_prompt_editor)
+        tip(self.toggle_prompt, "Tweak the prompt for this run only — the saved template in the "
+                                "Prompt Library is not changed")
         lay.addWidget(self.toggle_prompt)
         self.prompt_edit = QPlainTextEdit(); self.prompt_edit.setVisible(False)
         self.prompt_edit.setMinimumHeight(120)
+        tip(self.prompt_edit, "One-off prompt for this generation. Keep [TRANSCRIPT_HERE] where "
+                              "the transcript should be inserted")
         lay.addWidget(self.prompt_edit)
 
         actions = QHBoxLayout()
         self.generate_btn = QPushButton("✨  Generate minutes")
         self.generate_btn.setObjectName("Primary")
         self.generate_btn.clicked.connect(self._generate)
+        tip(self.generate_btn, "Send the transcript to the local AI and write the minutes (Ctrl+G). "
+                               "Long meetings are processed in parts — nothing leaves your computer")
         self.cancel_btn = QPushButton("Cancel"); self.cancel_btn.setObjectName("Ghost")
         self.cancel_btn.clicked.connect(self._cancel); self.cancel_btn.setVisible(False)
+        tip(self.cancel_btn, "Stop the current generation — the transcript is kept")
         actions.addStretch(); actions.addWidget(self.cancel_btn); actions.addWidget(self.generate_btn)
         lay.addLayout(actions)
         return card
@@ -292,14 +323,26 @@ class NewMeetingPage(QWidget):
         self.minutes_tabs.addTab(self.minutes, "Edit")
         self.minutes_tabs.addTab(self.minutes_preview, "Preview")
         self.minutes_tabs.currentChanged.connect(self._on_minutes_tab)
+        tip(self.minutes, "The generated minutes — edit freely before exporting (Ctrl+Z to undo). "
+                          "Autosaved to History")
+        tip(self.minutes_preview, "Read-only formatted view of the minutes, exactly as headings and "
+                                  "tables will look when exported")
         lay.addWidget(self.minutes_tabs)
 
         row = QHBoxLayout()
         self.copy_btn = QPushButton("Copy"); self.copy_btn.clicked.connect(self._copy)
+        tip(self.copy_btn, "Copy the minutes with formatting — pastes styled into Word/Outlook, "
+                           "plain into text editors (Ctrl+Shift+C)")
         self.save_btn = QPushButton("Save to history"); self.save_btn.clicked.connect(self._save_history)
+        tip(self.save_btn, "Save this meeting to History now (Ctrl+S) — it also autosaves every "
+                           "20 seconds")
         self.email_btn = QPushButton("📧 Email…"); self.email_btn.clicked.connect(self._email_minutes)
+        tip(self.email_btn, "Send the minutes by email with optional PDF/Word attachments. "
+                            "Needs SMTP details in Settings → Email first")
         self.export_btn = QPushButton("Export…"); self.export_btn.setObjectName("Primary")
         self.export_btn.clicked.connect(self._export)
+        tip(self.export_btn, "Save as Word, PDF, text, Markdown or HTML (Ctrl+E). Uses the active "
+                             "Company Profile for logo, footer and page numbers")
         row.addWidget(self.copy_btn); row.addWidget(self.save_btn)
         row.addStretch(); row.addWidget(self.email_btn); row.addWidget(self.export_btn)
         lay.addLayout(row)
@@ -747,7 +790,9 @@ class HistoryPage(QWidget):
         row = QHBoxLayout()
         self.search = QLineEdit(); self.search.setPlaceholderText("Search title, transcript or minutes…")
         self.search.textChanged.connect(self.reload)
+        tip(self.search, "Filter as you type — matches meeting titles, transcripts and minutes text")
         refresh = QPushButton("Refresh"); refresh.clicked.connect(self.reload)
+        tip(refresh, "Reload the list, including meetings autosaved in the background")
         row.addWidget(self.search); row.addWidget(refresh)
         v.addLayout(row)
 
@@ -760,11 +805,14 @@ class HistoryPage(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.doubleClicked.connect(self._open_selected)
+        tip(self.table, "Your saved meetings — double-click a row to reopen it in New Meeting")
         v.addWidget(self.table, 1)
 
         actions = QHBoxLayout()
         open_btn = QPushButton("Open"); open_btn.setObjectName("Primary"); open_btn.clicked.connect(self._open_selected)
+        tip(open_btn, "Load the selected meeting's transcript and minutes for editing or re-export")
         del_btn = QPushButton("Delete"); del_btn.setObjectName("Danger"); del_btn.clicked.connect(self._delete_selected)
+        tip(del_btn, "Permanently delete the selected meeting from History — this cannot be undone")
         actions.addStretch(); actions.addWidget(del_btn); actions.addWidget(open_btn)
         v.addLayout(actions)
         self._rows: list[Meeting] = []
@@ -811,11 +859,17 @@ class ProfilesPage(QWidget):
 
         bar = QHBoxLayout()
         new = QPushButton("New profile"); new.setObjectName("Primary"); new.clicked.connect(self._new)
+        tip(new, "Create a company profile: name, contact details, logo, footer and page numbering")
         edit = QPushButton("Edit"); edit.clicked.connect(self._edit)
+        tip(edit, "Edit the selected profile with a live page-layout preview (or double-click it)")
         dele = QPushButton("Delete"); dele.setObjectName("Danger"); dele.clicked.connect(self._delete)
+        tip(dele, "Permanently delete the selected profile — exports made with it are unaffected")
         imp = QPushButton("Import…"); imp.clicked.connect(self._import)
+        tip(imp, "Import profiles from a JSON, CSV or Excel file")
         exp = QPushButton("Export…"); exp.clicked.connect(self._export)
+        tip(exp, "Export all profiles to JSON, CSV or Excel — useful for backup or another PC")
         use = QPushButton("Set as active"); use.clicked.connect(self._set_active)
+        tip(use, "Use the selected profile's branding on all exported and emailed minutes")
         for b in (new, edit, dele, imp, exp):
             bar.addWidget(b)
         bar.addStretch(); bar.addWidget(use)
@@ -910,11 +964,15 @@ class PromptsPage(QWidget):
         split = QSplitter(Qt.Horizontal)
         left = QWidget(); ll = QVBoxLayout(left)
         self.list = QListWidget(); self.list.currentRowChanged.connect(self._show)
+        tip(self.list, "Prompts grouped by meeting category — select one to preview its full text")
         ll.addWidget(self.list)
         btns = QHBoxLayout()
         add = QPushButton("Add"); add.setObjectName("Primary"); add.clicked.connect(self._add)
+        tip(add, "Create a custom prompt — include [TRANSCRIPT_HERE] where the meeting text goes")
         edit = QPushButton("Edit"); edit.clicked.connect(self._edit)
+        tip(edit, "Edit the selected prompt's name, category and text (built-ins can be edited too)")
         dele = QPushButton("Delete"); dele.setObjectName("Danger"); dele.clicked.connect(self._delete)
+        tip(dele, "Permanently delete the selected prompt from the library")
         for b in (add, edit, dele):
             btns.addWidget(b)
         ll.addLayout(btns)
@@ -1009,14 +1067,20 @@ class SettingsPage(QWidget):
         self.theme = QComboBox(); self.theme.addItems(["dark", "light"])
         self.theme.setCurrentText(ctx.settings.get("theme"))
         self.theme.currentTextChanged.connect(self._theme_changed)
+        tip(self.theme, "Switch between dark and light themes — applies immediately")
         form.addRow("Appearance", self.theme)
 
         self.host = QLineEdit(ctx.settings.get("ollama_host"))
+        tip(self.host, "Address of your local Ollama server. Leave the default "
+                       "http://127.0.0.1:11434 unless you run Ollama elsewhere")
         form.addRow("Ollama host", self.host)
         self.model = QComboBox(); self._reload_models()
         self.model.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.model.setMinimumContentsLength(16)
+        tip(self.model, "The Ollama model pre-selected for new meetings — you can still switch "
+                        "per-meeting in Step 3")
         refresh = QPushButton("Refresh models"); refresh.clicked.connect(self._reload_models)
+        tip(refresh, "Re-query Ollama for installed models — use after installing or removing one")
         mrow = QHBoxLayout(); mrow.addWidget(self.model, 1); mrow.addWidget(refresh)
         mwrap = QWidget(); mwrap.setLayout(mrow)
         form.addRow("Default Ollama model", mwrap)
@@ -1031,9 +1095,13 @@ class SettingsPage(QWidget):
         self.install_model_box.setMinimumContentsLength(18)
         for lbl, name in RECOMMENDED_MODELS:
             self.install_model_box.addItem(lbl, name)
+        tip(self.install_model_box, "Pick a recommended model or type any Ollama model name "
+                                    "(e.g. llama3.1). Sizes shown are download sizes")
         self.install_btn = QPushButton("Install Required Model")
         self.install_btn.setObjectName("Primary")
         self.install_btn.clicked.connect(self._install_model)
+        tip(self.install_btn, "Download and install the selected AI model through Ollama. "
+                              "Needs internet once; already-installed models are skipped")
         irow = QHBoxLayout(); irow.addWidget(self.install_model_box, 1); irow.addWidget(self.install_btn)
         iwrap = QWidget(); iwrap.setLayout(irow)
         form.addRow("Install AI model", iwrap)
@@ -1049,6 +1117,8 @@ class SettingsPage(QWidget):
         self.preset.addItems(list(QUALITY_PRESETS.keys()) + ["Custom"])
         self.preset.setCurrentText(ctx.settings.get("quality_preset", "Balanced"))
         self.preset.activated.connect(self._apply_preset)
+        tip(self.preset, "One-click transcription trade-off: Fast (tiny Whisper) → Accurate "
+                         "(small Whisper). Adjusting the fields below switches this to Custom")
         form.addRow("Speed ⇄ Quality", self.preset)
         form.addRow(hint("Fast = tiny Whisper (quickest) · Balanced = base · Accurate = small (best). "
                          "Pick a larger Ollama model below for richer minutes."))
@@ -1060,22 +1130,32 @@ class SettingsPage(QWidget):
         for i in range(self.whisper.count()):
             if self.whisper.itemData(i) == cur:
                 self.whisper.setCurrentIndex(i); break
+        tip(self.whisper, "Speech-to-text model size: tiny is fastest, large-v3 most accurate. "
+                          "Downloads once on first use (size shown per model)")
         form.addRow("Whisper model", self.whisper)
 
         self.compute = QComboBox(); self.compute.addItems(["int8", "int8_float16", "float16", "float32"])
         self.compute.setCurrentText(ctx.settings.get("whisper_compute"))
+        tip(self.compute, "Numeric precision for transcription — int8 is best for most CPUs; "
+                          "float16 only helps on a GPU")
         form.addRow("Whisper compute", self.compute)
 
         self.device = QComboBox(); self.device.addItems(["auto", "cpu", "cuda"])
         self.device.setCurrentText(ctx.settings.get("whisper_device"))
+        tip(self.device, "Where transcription runs. 'auto' uses the CPU (safe everywhere); "
+                         "'cuda' needs an NVIDIA GPU with CUDA libraries — falls back to CPU if unavailable")
         form.addRow("Whisper device", self.device)
 
         self.lang = QLineEdit(ctx.settings.get("language"))
         self.lang.setPlaceholderText("auto, or a code like en / ur / ar")
+        tip(self.lang, "Spoken language of your meetings. 'auto' detects it; a fixed code "
+                       "(en, ur, ar…) is faster and more reliable")
         form.addRow("Language", self.lang)
 
         self.fillers = QCheckBox("Remove filler words")
         self.fillers.setChecked(ctx.settings.get("remove_fillers", True))
+        tip(self.fillers, "Strip 'um', 'uh', repeated words etc. from transcripts before the AI "
+                          "summarises them")
         form.addRow("", self.fillers)
 
         self.diarize = QCheckBox("Identify speakers (offline, beta)")
@@ -1086,45 +1166,65 @@ class SettingsPage(QWidget):
 
         self.chunk = QSpinBox(); self.chunk.setRange(1500, 20000); self.chunk.setSingleStep(500)
         self.chunk.setValue(int(ctx.settings.get("chunk_chars", 6000)))
+        tip(self.chunk, "How much text the AI processes per part for long meetings. Lower = safer "
+                        "on small models, higher = fewer parts. Default 6000 suits most setups")
         form.addRow("Transcript chunk size (chars)", self.chunk)
 
         self.repo = QLineEdit(ctx.settings.get("github_repo", ""))
         self.repo.setPlaceholderText("owner/name  (e.g. mico360om/MICO360-Meetings)")
+        tip(self.repo, "GitHub repository checked for new releases (owner/name). Also used by "
+                       "the crash reporter's 'Report on GitHub' button")
         form.addRow("GitHub repo (for updates)", self.repo)
         self.auto_check = QCheckBox("Auto-check on startup")
         self.auto_check.setChecked(ctx.settings.get("auto_check_updates", True))
+        tip(self.auto_check, "Quietly check GitHub for a newer version when the app starts — "
+                             "nothing installs without your confirmation")
         form.addRow("", self.auto_check)
 
         self.crash_reporter = QCheckBox("Show crash reporter on unexpected errors")
         self.crash_reporter.setChecked(ctx.settings.get("crash_reporter", True))
+        tip(self.crash_reporter, "On an unexpected error, offer a review-before-send report dialog. "
+                                 "Nothing is ever sent automatically")
         form.addRow("Crash reporting", self.crash_reporter)
         report_btn = QPushButton("Report a problem…")
         report_btn.clicked.connect(self._report_problem)
+        tip(report_btn, "Open a problem report with the recent app log — review/edit it, then "
+                        "send via GitHub or email if you choose")
         form.addRow("", report_btn)
 
         # --- Email (SMTP / Mailjet) ---------------------------------------
         form.addRow(hint("— Email (SMTP) — used to send minutes. For Mailjet: host "
                          "in-v3.mailjet.com, port 587, user = API key, password = Secret key."))
         self.smtp_host = QLineEdit(ctx.settings.get("smtp_host", "in-v3.mailjet.com"))
+        tip(self.smtp_host, "Your email provider's SMTP server — for Mailjet: in-v3.mailjet.com")
         form.addRow("SMTP host", self.smtp_host)
         self.smtp_port = QSpinBox(); self.smtp_port.setRange(1, 65535)
         self.smtp_port.setValue(int(ctx.settings.get("smtp_port", 587)))
+        tip(self.smtp_port, "587 (STARTTLS) works almost everywhere; 465 = SSL; 25 is often "
+                            "blocked by ISPs")
         form.addRow("SMTP port", self.smtp_port)
         self.email_from = QLineEdit(ctx.settings.get("email_from", ""))
         self.email_from.setPlaceholderText("validated sender, e.g. admin@mico360.com")
+        tip(self.email_from, "The From address — must be a sender you have validated with your "
+                             "email provider, or sending will be rejected")
         form.addRow("From address", self.email_from)
         self.smtp_user = QLineEdit(ctx.settings.get("smtp_user", ""))
         self.smtp_user.setPlaceholderText("Mailjet API key")
+        tip(self.smtp_user, "SMTP username — for Mailjet this is your API key")
         form.addRow("SMTP user / API key", self.smtp_user)
         self.smtp_password = QLineEdit(ctx.settings.get("smtp_password", ""))
         self.smtp_password.setEchoMode(QLineEdit.Password)
         self.smtp_password.setPlaceholderText("Mailjet Secret key")
+        tip(self.smtp_password, "SMTP password — for Mailjet this is your Secret key. Stored only "
+                                "in your local settings file, never in the app or repository")
         form.addRow("SMTP password / Secret", self.smtp_password)
         test_btn = QPushButton("Send test email")
         test_btn.clicked.connect(self._send_test_email)
+        tip(test_btn, "Send a test message to the From address to confirm these settings work")
         form.addRow("", test_btn)
 
         save = QPushButton("Save settings"); save.setObjectName("Primary"); save.clicked.connect(self._save)
+        tip(save, "Save all settings on this page — model and appearance changes apply immediately")
         form.addRow("", save)
 
         from ..config import DATA_DIR, LOG_DIR

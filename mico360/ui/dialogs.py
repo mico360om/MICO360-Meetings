@@ -15,6 +15,7 @@ from ..core.profiles import (
     ALIGNMENTS, CompanyProfile, LOGO_POSITIONS, PAGENUM_POSITIONS, ProfileStore,
 )
 from ..core.prompts import TRANSCRIPT_TOKEN
+from .components import tip
 
 
 class PagePreview(QWidget):
@@ -130,9 +131,19 @@ class ProfileDialog(QDialog):
         self.page_pos.setCurrentText(self.profile.page_number_position)
         self.page_fmt = QLineEdit(self.profile.page_number_format)
 
+        tip(self.logo_pos, "Where the logo sits in the exported letterhead: left, centre or right")
+        tip(self.logo_w, "Printed logo width in millimetres — height scales automatically "
+                         "without losing quality")
+        tip(self.footer_align, "Alignment of the footer text on exported pages")
+        tip(self.page_nums, "Print page numbers on exported PDF/Word documents")
+        tip(self.page_pos, "Where page numbers appear: header or footer, left/centre/right")
+        tip(self.page_fmt, "Page-number wording — {n} is the page, {total} the page count, "
+                           "e.g. 'Page {n} of {total}'")
         self._logo_path = self.profile.logo_path
         self.logo_btn = QPushButton("Choose logo…")
         self.logo_btn.clicked.connect(self._choose_logo)
+        tip(self.logo_btn, "Pick a PNG/JPG logo — it is copied into the profile at full "
+                           "resolution, so the original file can move")
         self.logo_lbl = QLabel(Path(self._logo_path).name if self._logo_path else "No logo")
         self.logo_lbl.setObjectName("Hint")
         logo_row = QHBoxLayout(); logo_row.addWidget(self.logo_btn); logo_row.addWidget(self.logo_lbl, 1)
@@ -140,6 +151,8 @@ class ProfileDialog(QDialog):
         self._accent = self.profile.accent_color
         self.color_btn = QPushButton("Accent colour…")
         self.color_btn.clicked.connect(self._choose_color)
+        tip(self.color_btn, "Brand colour used for headings, the letterhead rule and table "
+                            "headers in exports")
         self._paint_color_btn()
 
         form.addRow("Company name", self.name)
@@ -244,6 +257,7 @@ class PromptDialog(QDialog):
         self.category = QComboBox(); self.category.setEditable(True)
         self.category.addItems(PROMPT_CATEGORIES + ["General"])
         self.category.setCurrentText(category or "General")
+        tip(self.category, "Groups the prompt in the library — pick one or type a new category")
         ccol.addWidget(self.category)
         row.addLayout(ncol, 2); row.addLayout(ccol, 1)
         lay.addLayout(row)
@@ -284,7 +298,9 @@ class EmailComposeDialog(QDialog):
         lay = QVBoxLayout(self)
         form = QFormLayout()
         self.to = QLineEdit(to); self.to.setPlaceholderText("recipient@example.com, another@example.com")
+        tip(self.to, "Recipient address(es), separated by commas — required")
         self.cc = QLineEdit()
+        tip(self.cc, "Optional carbon-copy addresses, separated by commas")
         self.subject = QLineEdit(subject)
         form.addRow("To", self.to)
         form.addRow("Cc", self.cc)
@@ -294,7 +310,9 @@ class EmailComposeDialog(QDialog):
         att = QHBoxLayout()
         att.addWidget(QLabel("Attach:"))
         self.att_pdf = QCheckBox("PDF"); self.att_pdf.setChecked(True)
+        tip(self.att_pdf, "Attach the minutes as a PDF, branded with the active company profile")
         self.att_docx = QCheckBox("Word (.docx)")
+        tip(self.att_docx, "Attach the minutes as an editable Word document")
         att.addWidget(self.att_pdf); att.addWidget(self.att_docx); att.addStretch()
         lay.addLayout(att)
 

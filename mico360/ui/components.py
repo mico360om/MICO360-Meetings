@@ -104,6 +104,21 @@ def subtitle(text: str) -> QLabel:
     return lbl
 
 
+def tip(widget, text: str):
+    """Attach a tooltip AND matching accessible description (screen readers).
+
+    One consistent voice app-wide: sentence case, concise, ends without a period
+    unless multi-sentence. Qt shows tooltips on hover and keyboard focus, and
+    positions them to avoid covering the control.
+    """
+    widget.setToolTip(text)
+    try:
+        widget.setAccessibleDescription(text)
+    except Exception:
+        pass
+    return widget
+
+
 class DropArea(QFrame):
     """Drag-and-drop + click-to-browse area for media/document files."""
     fileChosen = Signal(str)

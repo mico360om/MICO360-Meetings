@@ -23,7 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import recording as R
-from .components import Card, section_title
+from .components import Card, section_title, tip
 
 
 # ---------------------------------------------------------------------------
@@ -111,12 +111,19 @@ class RecordingPanel(QWidget):
         type_row = QHBoxLayout()
         self.type_group = QButtonGroup(self)
         self._type_btns = {}
+        _type_tips = {
+            "audio": "Record sound only — smallest files, ideal for transcription (WAV or MP3)",
+            "screen": "Record your screen as MP4 video with the selected audio — good for "
+                      "online meetings shown on screen",
+            "camera": "Record your webcam as MP4 video with the selected audio",
+        }
         for key, label, icon in (("audio", "Audio", "🎙"), ("screen", "Screen + audio", "🖥"),
                                   ("camera", "Camera + audio", "📷")):
             b = QPushButton(f"{icon}  {label}")
             b.setCheckable(True)
             b.setCursor(Qt.PointingHandCursor)
             b.clicked.connect(self._update_config_visibility)
+            tip(b, _type_tips[key])
             self.type_group.addButton(b)
             self._type_btns[key] = b
             type_row.addWidget(b)
@@ -131,8 +138,12 @@ class RecordingPanel(QWidget):
         # long device names must not widen the page — cap width, full text in popup
         self.mic_box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.mic_box.setMinimumContentsLength(16)
+        tip(self.mic_box, "Which microphone to record from — pick 'No audio' for silent video. "
+                          "Use Refresh devices after plugging in a mic")
         self.format_box = QComboBox()
         self.format_box.addItems(["WAV (recommended)", "MP3"])
+        tip(self.format_box, "Audio file format: WAV is lossless and best for transcription; "
+                             "MP3 is smaller for sharing")
         # Audio source: mic / system (speaker loopback) / both
         self.source_box = QComboBox()
         self._sys_ok = R.system_audio_supported()
@@ -141,6 +152,8 @@ class RecordingPanel(QWidget):
             self.source_box.addItem("System audio (what you hear)", "system")
             self.source_box.addItem("Microphone + System audio", "both")
         self.source_box.currentIndexChanged.connect(self._update_config_visibility)
+        tip(self.source_box, "What to capture: your microphone, the computer's own sound "
+                             "('what you hear' — captures online-meeting participants), or both mixed")
         self.mic_status = QLabel()
         self.mic_status.setObjectName("Hint")
         self.mic_status.setWordWrap(True)        # long "no mic" message must wrap, not widen the page
@@ -158,9 +171,12 @@ class RecordingPanel(QWidget):
         refresh = QPushButton("↻ Refresh devices")
         refresh.setObjectName("Ghost")
         refresh.clicked.connect(self.refresh_devices)
+        tip(refresh, "Re-scan microphones — use after plugging in or enabling a device")
         self.start_btn = QPushButton("● Start recording")
         self.start_btn.setObjectName("Primary")
         self.start_btn.clicked.connect(self._start)
+        tip(self.start_btn, "Begin recording with the options above — a live panel shows the "
+                            "timer, level meter and file size while recording")
         start_row.addWidget(refresh)
         start_row.addStretch()
         start_row.addWidget(self.start_btn)
@@ -243,10 +259,16 @@ class RecordingPanel(QWidget):
         # controls
         ctl = QHBoxLayout()
         self.pause_btn = QPushButton("⏸ Pause"); self.pause_btn.clicked.connect(self._toggle_pause)
+        tip(self.pause_btn, "Pause the recording — the timer freezes and nothing is captured "
+                            "until you resume")
         self.cancel_btn = QPushButton("✕ Cancel"); self.cancel_btn.setObjectName("Danger")
         self.cancel_btn.clicked.connect(self._cancel)
+        tip(self.cancel_btn, "Discard this recording completely — the file is deleted and "
+                             "cannot be recovered")
         self.stop_btn = QPushButton("⏹ Stop & Save"); self.stop_btn.setObjectName("Primary")
         self.stop_btn.clicked.connect(self._stop)
+        tip(self.stop_btn, "Finish and save the recording, then show a summary with the file "
+                           "details. Video may take a moment to finalise")
         ctl.addWidget(self.pause_btn)
         ctl.addStretch()
         ctl.addWidget(self.cancel_btn)
@@ -275,11 +297,15 @@ class RecordingPanel(QWidget):
         row = QHBoxLayout()
         self.open_folder_btn = QPushButton("📂 Open folder")
         self.open_folder_btn.clicked.connect(self._open_folder)
+        tip(self.open_folder_btn, "Open the folder containing the saved recording in Explorer")
         new_btn = QPushButton("● New recording")
         new_btn.clicked.connect(lambda: self.stack.setCurrentIndex(0))
+        tip(new_btn, "Back to the recording options to start another recording — this one "
+                     "stays saved")
         self.use_btn = QPushButton("✓ Use for transcription")
         self.use_btn.setObjectName("Primary")
         self.use_btn.clicked.connect(self._use_recording)
+        tip(self.use_btn, "Add this recording to the transcription queue in the Upload tab")
         row.addWidget(self.open_folder_btn)
         row.addStretch()
         row.addWidget(new_btn)

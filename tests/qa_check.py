@@ -351,6 +351,38 @@ def main() -> int:
     check("File queue drag-reorder enabled",
           win.new_page.files_list.dragDropMode() != 0)
 
+    # ===================================================================
+    # Tooltips (coverage + accessibility)
+    # ===================================================================
+    from PySide6.QtWidgets import QPushButton as _QP, QComboBox as _QC, QLineEdit as _QL
+    key_widgets = {
+        "nav buttons": list(win.nav_group.buttons()),
+        "generate/export/email/copy/save": [win.new_page.generate_btn, win.new_page.export_btn,
+                                            win.new_page.email_btn, win.new_page.copy_btn,
+                                            win.new_page.save_btn],
+        "step-3 dropdowns": [win.new_page.model_box, win.new_page.style_box,
+                             win.new_page.prompt_box, win.new_page.mtype_box],
+        "recorder controls": [win.new_page.recorder_panel.start_btn,
+                              win.new_page.recorder_panel.stop_btn,
+                              win.new_page.recorder_panel.source_box,
+                              win.new_page.recorder_panel.mic_box],
+        "history/actions": [win.history_page.search, win.actions_page.search,
+                            win.actions_page.export_btn],
+        "updates": [win.updates_page.check_btn, win.updates_page.repo_btn],
+        "settings key fields": [win.settings_page.preset, win.settings_page.whisper,
+                                win.settings_page.install_btn, win.settings_page.smtp_password],
+    }
+    missing_tips = [f"{grp}[{i}]" for grp, ws in key_widgets.items()
+                    for i, w in enumerate(ws) if not w.toolTip().strip()]
+    check("Tooltips on all key controls", not missing_tips, str(missing_tips[:4]))
+    no_a11y = [f"{grp}[{i}]" for grp, ws in key_widgets.items()
+               for i, w in enumerate(ws)
+               if w.toolTip().strip() and not w.accessibleDescription().strip()]
+    check("Tooltips mirrored to accessible descriptions", not no_a11y, str(no_a11y[:4]))
+    long_tips = [w.toolTip()[:40] for ws in key_widgets.values() for w in ws
+                 if len(w.toolTip()) > 220]
+    check("Tooltip wording concise (<220 chars)", not long_tips, str(long_tips[:2]))
+
     # tally
     passed = sum(1 for _, ok, _ in results if ok)
     print(f"\n==== {passed}/{len(results)} checks passed ====")

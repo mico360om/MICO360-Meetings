@@ -23,14 +23,14 @@ from .pages_extra import ActionItemsPage, HelpPage, UpdatesPage
 log = logging.getLogger("mico360.window")
 
 NAV = [
-    ("New Meeting", "✚"),
-    ("History", "🕑"),
-    ("Action Items", "✔"),
-    ("Company Profiles", "🏢"),
-    ("Prompt Library", "💬"),
-    ("Updates", "⬇"),
-    ("Help & About", "ⓘ"),
-    ("Settings", "⚙"),
+    ("New Meeting", "✚", "Upload, record or paste a meeting and generate minutes"),
+    ("History", "🕑", "Search and reopen past meetings (Ctrl+F to search)"),
+    ("Action Items", "✔", "All tasks from every meeting — track status, export CSV"),
+    ("Company Profiles", "🏢", "Branding for exported minutes: logo, footer, page numbers"),
+    ("Prompt Library", "💬", "Create and manage the AI prompts used to write minutes"),
+    ("Updates", "⬇", "Check for and install new versions of the app"),
+    ("Help & About", "ⓘ", "Guides, contact, terms and privacy (F1)"),
+    ("Settings", "⚙", "AI models, recording, email and app preferences"),
 ]
 
 
@@ -129,12 +129,15 @@ class MainWindow(QMainWindow):
         v.addLayout(brand_row)
         v.addSpacing(12)
 
+        from .components import tip
         self.nav_group = QButtonGroup(self); self.nav_group.setExclusive(True)
-        for i, (label, icon) in enumerate(NAV):
+        for i, (label, icon, desc) in enumerate(NAV):
             btn = QPushButton(f"  {icon}   {label}")
             btn.setObjectName("NavBtn"); btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
             btn.clicked.connect(lambda _=False, idx=i: self._navigate(idx))
+            tip(btn, f"{desc}  ·  Ctrl+{i + 1}")
+            btn.setAccessibleName(label)
             self.nav_group.addButton(btn, i)
             v.addWidget(btn)
         self.nav_group.button(0).setChecked(True)
@@ -142,8 +145,11 @@ class MainWindow(QMainWindow):
         v.addStretch()
         self.status_chip = QLabel(); self.status_chip.setObjectName("Hint")
         self.status_chip.setWordWrap(True)
+        tip(self.status_chip, "Local Ollama AI server status. The app needs Ollama running "
+                              "to generate minutes — start it from the Ollama app or 'ollama serve'")
         v.addWidget(self.status_chip)
         ver = QLabel(f"v{__version__}"); ver.setObjectName("Hint")
+        tip(ver, "Installed app version — check Updates for newer releases")
         v.addWidget(ver)
         return side
 

@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from .. import __app_name__, __version__
 from ..config import TMP_DIR
 from ..core import updater
-from .components import Card, section_title, subtitle
+from .components import Card, section_title, subtitle, tip
 from .context import AppContext
 from .workers import UpdateCheckWorker, UpdateDownloadWorker
 
@@ -69,9 +69,13 @@ class UpdatesPage(QWidget):
         hl.addLayout(col); hl.addStretch()
         self.repo_btn = QPushButton("GitHub repo")
         self.repo_btn.clicked.connect(self._open_repo)
+        tip(self.repo_btn, "Open the project's GitHub page in your browser — release notes and "
+                           "downloads live there")
         self.check_btn = QPushButton("Check for updates")
         self.check_btn.setObjectName("Primary")
         self.check_btn.clicked.connect(self.check)
+        tip(self.check_btn, "Compare your version with the latest GitHub release. Requires "
+                            "internet; nothing installs without your confirmation")
         hl.addWidget(self.repo_btn); hl.addWidget(self.check_btn)
         self.v.addWidget(head)
 
@@ -95,12 +99,18 @@ class UpdatesPage(QWidget):
         self.action_row = QHBoxLayout()
         self.download_btn = QPushButton("Download update"); self.download_btn.setObjectName("Primary")
         self.download_btn.clicked.connect(self._download); self.download_btn.setVisible(False)
+        tip(self.download_btn, "Download the new installer in the background — you can keep "
+                               "working while it downloads")
         self.install_btn = QPushButton("Install & restart"); self.install_btn.setObjectName("Primary")
         self.install_btn.clicked.connect(self._install); self.install_btn.setVisible(False)
+        tip(self.install_btn, "Close the app, install the update silently and reopen it. "
+                              "Unsaved work is autosaved first")
         self.release_btn = QPushButton("Open release page")
         self.release_btn.clicked.connect(self._open_release); self.release_btn.setVisible(False)
+        tip(self.release_btn, "Open the release on GitHub to download the installer manually")
         self.retry_btn = QPushButton("Retry"); self.retry_btn.clicked.connect(self.check)
         self.retry_btn.setVisible(False)
+        tip(self.retry_btn, "Try the update check again — see the message above for what failed")
         self.action_row.addStretch()
         for b in (self.release_btn, self.retry_btn, self.download_btn, self.install_btn):
             self.action_row.addWidget(b)
@@ -285,9 +295,13 @@ class ActionItemsPage(QWidget):
         bar = QHBoxLayout()
         self.search = QLineEdit(); self.search.setPlaceholderText("Search task, person, meeting or status…")
         self.search.textChanged.connect(self.reload)
+        tip(self.search, "Filter as you type — matches task text, responsible person, meeting "
+                         "title and status")
         refresh = QPushButton("Refresh"); refresh.clicked.connect(self.reload)
+        tip(refresh, "Re-scan all meetings in History for action items")
         self.export_btn = QPushButton("Export CSV…"); self.export_btn.setObjectName("Primary")
         self.export_btn.clicked.connect(self._export)
+        tip(self.export_btn, "Save the currently filtered list as a CSV file you can open in Excel")
         bar.addWidget(self.search); bar.addWidget(refresh); bar.addWidget(self.export_btn)
         v.addLayout(bar)
 
@@ -301,6 +315,9 @@ class ActionItemsPage(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.cellDoubleClicked.connect(self._on_double_click)
+        tip(self.table, "All action items found in your meetings' minutes. Double-click a Status "
+                        "cell to cycle Pending → In Progress → Done → Cancelled; double-click a "
+                        "Meeting cell to open that meeting")
         v.addWidget(self.table, 1)
 
         self.summary = QLabel(""); self.summary.setObjectName("Hint")
