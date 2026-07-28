@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
         for i in range(len(NAV)):
             add(f"Ctrl+{i + 1}", lambda idx=i: (self.nav_group.button(idx).setChecked(True),
                                                 self._navigate(idx)))
+        add("Ctrl+N", lambda: (self._goto(self.new_page), self.new_page._new_meeting()))
         add("Ctrl+G", lambda: self.new_page._generate())
         add("Ctrl+E", lambda: self.new_page._export())
         add("Ctrl+S", lambda: self.new_page._save_history())

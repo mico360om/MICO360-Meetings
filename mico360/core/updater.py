@@ -70,7 +70,11 @@ def is_newer(latest: str, current: str) -> bool:
 
 
 def repo_url(repo: str) -> str:
+    """GitHub URL for a repo, falling back to the app's default repository."""
     repo = (repo or "").strip().strip("/")
+    if not repo:
+        from ..config import DEFAULT_REPO
+        repo = DEFAULT_REPO.strip().strip("/")
     return f"https://github.com/{repo}" if repo else ""
 
 

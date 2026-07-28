@@ -88,6 +88,11 @@ class NewMeetingPage(QWidget):
 
         # collapse/expand all toggle
         toggle_row = QHBoxLayout()
+        self.new_meeting_btn = QPushButton("✚ New meeting"); self.new_meeting_btn.setObjectName("Ghost")
+        self.new_meeting_btn.clicked.connect(self._new_meeting)
+        tip(self.new_meeting_btn, "Save the current meeting to History and clear the form to "
+                                  "start a fresh one (Ctrl+N)")
+        toggle_row.addWidget(self.new_meeting_btn)
         self.expand_all_btn = QPushButton("Collapse all"); self.expand_all_btn.setObjectName("Ghost")
         self.expand_all_btn.clicked.connect(self._toggle_all)
         tip(self.expand_all_btn, "Fold or unfold all four steps at once — you can also click "
@@ -639,11 +644,31 @@ class NewMeetingPage(QWidget):
     def _autosave(self):
         sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
         if not sig.strip("\x00"):
+            # Form was emptied — detach from the saved record so the NEXT meeting
+            # is stored separately instead of overwriting the previous one.
+            self._current_id = None
+            self._autosave_sig = ""
             return
         if sig == self._autosave_sig:                # nothing changed
             return
         if self._save_history(silent=True):
             self._autosave_sig = sig
+
+    def _new_meeting(self):
+        """Clear the form and start a fresh, unlinked meeting."""
+        if (self.transcript.toPlainText().strip() or self.minutes.toPlainText().strip()):
+            self._autosave()                          # keep what's there
+        self._current_id = None
+        self._autosave_sig = ""
+        self.transcript.clear()
+        self.minutes.clear()
+        self._clear_files()
+        self.meet_title.clear(); self.meet_date.clear(); self.meet_attendees.clear()
+        self.sec_source.set_expanded(True)
+        self.sec_transcript.set_expanded(True)
+        self.sec_minutes.set_status("empty")
+        self.toast.show_message("Started a new meeting — the previous one is saved in History.",
+                                "success", 4000)
 
     def _guess_title(self) -> str:
         for line in self.minutes.toPlainText().splitlines():
