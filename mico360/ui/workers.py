@@ -178,6 +178,24 @@ class UpdateCheckWorker(QThread):
         self.done.emit(info)
 
 
+class GitUpdateWorker(QThread):
+    """Run a git check/pull off the UI thread (network + subprocess can block)."""
+    done = Signal(dict)
+
+    def __init__(self, action: str = "check"):   # "check" | "pull"
+        super().__init__()
+        self.action = action
+
+    def run(self):
+        from ..core import git_update
+        try:
+            res = git_update.pull_update() if self.action == "pull" else git_update.check_update()
+        except Exception as exc:                 # never let the thread crash silently
+            log.exception("git update worker failed")
+            res = {"ok": False, "error": str(exc)}
+        self.done.emit(res)
+
+
 class UpdateDownloadWorker(QThread):
     progress = Signal(float, int, int)  # frac, read, total
     finished_ok = Signal(str)           # downloaded path (only after verification)

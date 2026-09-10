@@ -154,6 +154,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "window_geometry": "",
     "github_repo": DEFAULT_REPO,
     "auto_check_updates": True,
+    "git_auto_update": False,           # source checkouts: git pull --ff-only on startup
     "crash_reporter": True,             # show the opt-in crash dialog on errors
     "onboarded": False,                 # first-run guide shown
     # Email (SMTP) — credentials are stored ONLY in the local settings file,

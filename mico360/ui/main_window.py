@@ -87,8 +87,26 @@ class MainWindow(QMainWindow):
         # optional silent update check on startup
         if ctx.settings.get("auto_check_updates", True) and ctx.settings.get("github_repo", ""):
             QTimer.singleShot(2500, self.updates_page.check)
+        # optional git auto-update (source checkouts)
+        if ctx.settings.get("git_auto_update", False):
+            QTimer.singleShot(1800, self._git_auto_update)
         # first-run onboarding
         QTimer.singleShot(400, self._maybe_onboard)
+
+    def _git_auto_update(self):
+        from ..core import git_update
+        if not git_update.is_git_checkout():
+            return
+        from .workers import GitUpdateWorker
+        self._git_auto_worker = GitUpdateWorker("pull")
+        self._git_auto_worker.done.connect(self._on_git_auto)
+        self._git_auto_worker.start()
+
+    def _on_git_auto(self, res: dict):
+        if res.get("ok") and res.get("updated"):
+            self.toast.show_message(
+                f"Updated from Git ({res.get('commit', '')}). Restart to apply the update.",
+                "success", 8000)
 
     def _maybe_onboard(self):
         from .onboarding import maybe_show

@@ -469,6 +469,27 @@ def main():
         return "pt scaling + Settings control"
     t("ui.text_scale", _text_scale)
 
+    def _git_update():
+        from mico360.core import git_update as g
+        from mico360.ui.workers import GitUpdateWorker
+        assert isinstance(g.is_git_checkout(), bool)
+        root = g.repo_root()
+        if root is not None:
+            assert (root / ".git").exists()
+            c = g.current_commit()
+            assert c == "" or all(ch in "0123456789abcdef" for ch in c)
+        assert GitUpdateWorker("pull").action == "pull"
+        up = win.updates_page
+        if hasattr(up, "git_update_btn"):        # present only on a source checkout
+            up._on_git_check({"ok": True, "behind": 2, "branch": "main"})
+            assert not up.git_update_btn.isHidden()
+            up._on_git_check({"ok": True, "behind": 0})
+            assert up.git_update_btn.isHidden()
+            up._on_git_check({"ok": False, "error": "boom"})
+            assert "boom" in up.git_status.text()
+        return "git detect + commit + worker + check logic"
+    t("core.git_update", _git_update)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
         assert win.help_page.findChild(QTabWidget).count() == 5     # incl. Shortcuts

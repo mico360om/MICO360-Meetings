@@ -10,9 +10,10 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-    QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton,
+    QScrollArea, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
+    QVBoxLayout, QWidget,
 )
 
 from .. import __app_name__, __version__
@@ -82,6 +83,11 @@ class UpdatesPage(QWidget):
         hl.addWidget(self.repo_btn); hl.addWidget(self.check_btn)
         self.v.addWidget(head)
 
+        # Git self-update — only when running from a source checkout.
+        from ..core import git_update
+        if git_update.is_git_checkout():
+            self._build_git_card()
+
         # details card
         self.detail = Card()
         self.dl_layout = QVBoxLayout(self.detail)
@@ -123,6 +129,92 @@ class UpdatesPage(QWidget):
 
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         outer.addWidget(_scroll(content))
+
+    # -- git self-update (source checkouts) --------------------------------
+    def _build_git_card(self):
+        from ..core import git_update
+        self._git_worker = None
+        card = Card(); gl = QVBoxLayout(card); gl.setContentsMargins(16, 14, 16, 14); gl.setSpacing(8)
+        row = QHBoxLayout()
+        col = QVBoxLayout(); col.setSpacing(2)
+        col.addWidget(section_title("Source update (Git)"))
+        self.git_info = QLabel(f"Running from source · commit {git_update.current_commit() or '—'}")
+        self.git_info.setObjectName("Hint"); self.git_info.setWordWrap(True)
+        col.addWidget(self.git_info)
+        row.addLayout(col); row.addStretch()
+        self.git_check_btn = QPushButton("Check for updates")
+        self.git_check_btn.clicked.connect(self._git_check)
+        tip(self.git_check_btn, "Fetch the latest commits from the git remote and show if you're behind")
+        self.git_update_btn = QPushButton("Update & restart"); self.git_update_btn.setObjectName("Primary")
+        self.git_update_btn.clicked.connect(self._git_pull); self.git_update_btn.setVisible(False)
+        tip(self.git_update_btn, "git pull (fast-forward only), then restart the app to load the new code")
+        row.addWidget(self.git_check_btn); row.addWidget(self.git_update_btn)
+        gl.addLayout(row)
+        self.git_auto = QCheckBox("Auto-update from Git on startup")
+        self.git_auto.setChecked(self.ctx.settings.get("git_auto_update", False))
+        self.git_auto.toggled.connect(lambda on: self.ctx.settings.set("git_auto_update", on))
+        tip(self.git_auto, "On startup, fast-forward to the latest source and offer to restart. "
+                           "Local changes are never overwritten")
+        gl.addWidget(self.git_auto)
+        self.git_status = QLabel(""); self.git_status.setObjectName("Hint"); self.git_status.setWordWrap(True)
+        gl.addWidget(self.git_status)
+        self.v.insertWidget(3, card)      # just under the version card
+
+    def _git_check(self):
+        from .workers import GitUpdateWorker
+        self.git_check_btn.setEnabled(False); self.git_status.setText("Checking the git remote…")
+        self._git_worker = GitUpdateWorker("check")
+        self._git_worker.done.connect(self._on_git_check)
+        self._git_worker.start()
+
+    def _on_git_check(self, res: dict):
+        self.git_check_btn.setEnabled(True)
+        if not res.get("ok"):
+            self.git_update_btn.setVisible(False)
+            self.git_status.setText(f"⚠ {res.get('error', 'Check failed.')}")
+            return
+        behind = res.get("behind", 0)
+        if behind > 0:
+            self.git_status.setText(f"{behind} new commit(s) on {res.get('branch', '')} — ready to update.")
+            self.git_update_btn.setVisible(True)
+        else:
+            self.git_status.setText("✓ You're on the latest source.")
+            self.git_update_btn.setVisible(False)
+
+    def _git_pull(self):
+        from .workers import GitUpdateWorker
+        self.git_update_btn.setEnabled(False); self.git_status.setText("Updating from git…")
+        self._git_worker = GitUpdateWorker("pull")
+        self._git_worker.done.connect(self._on_git_pull)
+        self._git_worker.start()
+
+    def _on_git_pull(self, res: dict):
+        self.git_update_btn.setEnabled(True)
+        if not res.get("ok"):
+            self.git_status.setText(f"⚠ {res.get('error', 'Update failed.')}")
+            return
+        from ..core import git_update
+        self.git_info.setText(f"Running from source · commit {git_update.current_commit() or '—'}")
+        if res.get("updated"):
+            self.git_status.setText("✓ Updated. Restart to apply.")
+            self.git_update_btn.setVisible(False)
+            self._offer_restart()
+        else:
+            self.git_status.setText("✓ Already up to date.")
+            self.git_update_btn.setVisible(False)
+
+    def _offer_restart(self):
+        from PySide6.QtWidgets import QApplication
+        if QMessageBox.question(self, "Restart",
+                                "The update was pulled. Restart now to apply it?") != QMessageBox.Yes:
+            return
+        import subprocess
+        try:
+            subprocess.Popen([sys.executable] + sys.argv, close_fds=True)
+        except Exception:
+            self.toast.show_message("Couldn't relaunch — please restart the app manually.", "warn")
+            return
+        QApplication.instance().quit()
 
     # -- check --------------------------------------------------------------
     def check(self):
