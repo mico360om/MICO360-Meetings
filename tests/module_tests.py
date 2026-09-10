@@ -315,6 +315,27 @@ def main():
         return "one-click chain flag + transcript fallback"
     t("ui.one_click_generate", _one_click)
 
+    def _wizard():
+        np_ = win.new_page
+        assert np_.wizard.count() == 5, "5 wizard steps"
+        np_._media_queue = []; np_.transcript.clear(); np_._reached = 0; np_._goto_step(0)
+        # can't leave Source with no source; Back hidden on the first step
+        assert not np_._validate_step(np_.STEP_SOURCE)[0]
+        assert np_.back_btn.isHidden() and not np_.next_btn.isHidden()
+        # add a transcript -> advance through the steps
+        np_.transcript.setPlainText("hello meeting notes")
+        assert np_._validate_step(np_.STEP_SOURCE)[0]
+        np_._next(); assert np_.wizard.currentIndex() == np_.STEP_TRANSCRIPT
+        np_._next(); assert np_.wizard.currentIndex() == np_.STEP_SETUP
+        np_._next(); assert np_.wizard.currentIndex() == np_.STEP_REVIEW
+        # Review populated; footer swaps Next -> Create
+        assert "words" in np_._review_vals["Transcript"].text()
+        assert np_.next_btn.isHidden() and not np_.generate_btn.isHidden()
+        np_._back(); assert np_.wizard.currentIndex() == np_.STEP_SETUP
+        np_.transcript.clear(); np_._reached = 0; np_._goto_step(0)
+        return "5 steps + validation + next/back + review"
+    t("ui.wizard", _wizard)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
         assert win.help_page.findChild(QTabWidget).count() == 4

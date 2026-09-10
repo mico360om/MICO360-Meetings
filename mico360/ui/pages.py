@@ -7,11 +7,11 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout,
-    QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-    QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QScrollArea, QSizePolicy,
-    QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout,
+    QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
+    QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
+    QScrollArea, QSizePolicy, QSpinBox, QSplitter, QStackedWidget, QTabWidget,
+    QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from ..core import documents
@@ -48,6 +48,10 @@ def _scroll(inner: QWidget, max_width: int = 1160) -> QScrollArea:
 # New Meeting
 # ===========================================================================
 class NewMeetingPage(QWidget):
+    # Wizard step indices
+    STEP_SOURCE, STEP_TRANSCRIPT, STEP_SETUP, STEP_REVIEW, STEP_MINUTES = range(5)
+    STEP_TITLES = ["Source", "Transcript", "Setup", "Review", "Minutes"]
+
     def __init__(self, ctx: AppContext, toast):
         super().__init__()
         self.ctx = ctx
@@ -76,54 +80,133 @@ class NewMeetingPage(QWidget):
         content = QWidget()
         v = QVBoxLayout(content)
         v.setContentsMargins(24, 20, 24, 24)
-        v.setSpacing(16)
+        v.setSpacing(14)
 
         title = QLabel("New Meeting"); title.setObjectName("PageTitle")
-        sub = subtitle("Upload, record or paste a transcript, then generate minutes locally.")
-        v.addWidget(title); v.addWidget(sub)
+        v.addWidget(title)
+        v.addWidget(subtitle("Follow the steps to turn a recording, file or transcript into minutes."))
 
-        # Each step is a collapsible section. Start with Source + Transcript open
-        # and Generate + Minutes folded so the screen is short; they auto-expand
-        # as you progress, and you can fold/unfold any of them.
+        # Readiness banner sits just below the title.
+        self.ready_banner = self._build_ready_banner()
+        v.addWidget(self.ready_banner)
+
+        # Progress stepper header
+        v.addWidget(self._build_stepper())
+
+        # The steps live in a stack; only one shows at a time.
+        self.wizard = QStackedWidget()
         self.sec_source = self._step1_source()
         self.sec_transcript = self._step2_transcript()
-        self.sec_generate = self._step3_generate()
+        self.sec_generate = self._step3_generate()      # meeting details + AI setup
+        self.sec_review = self._step_review()
         self.sec_minutes = self._step4_minutes()
-        self.sec_transcript.set_expanded(True)
-        self.sec_generate.set_expanded(False)
-        self.sec_minutes.set_expanded(False)
-        self.sec_generate.set_status("model · style")
-        self.sec_minutes.set_status("empty")
-        for s in (self.sec_source, self.sec_transcript, self.sec_generate, self.sec_minutes):
-            v.addWidget(s)
+        for p in (self.sec_source, self.sec_transcript, self.sec_generate,
+                  self.sec_review, self.sec_minutes):
+            self.wizard.addWidget(p)
+        v.addWidget(self.wizard)
 
-        # collapse/expand all toggle
-        toggle_row = QHBoxLayout()
-        self.new_meeting_btn = QPushButton("✚ New meeting"); self.new_meeting_btn.setObjectName("Ghost")
-        self.new_meeting_btn.clicked.connect(self._new_meeting)
-        tip(self.new_meeting_btn, "Save the current meeting to History and clear the form to "
-                                  "start a fresh one (Ctrl+N)")
-        toggle_row.addWidget(self.new_meeting_btn)
-        self.expand_all_btn = QPushButton("Collapse all"); self.expand_all_btn.setObjectName("Ghost")
-        self.expand_all_btn.clicked.connect(self._toggle_all)
-        tip(self.expand_all_btn, "Fold or unfold all four steps at once — you can also click "
-                                 "any step's header")
-        toggle_row.addStretch(); toggle_row.addWidget(self.expand_all_btn)
-
-        # progress
+        # Operation status + progress (transcription / generation).
+        self.status = QLabel(""); self.status.setObjectName("Hint")
         self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0)
         self.progress.setVisible(False)
-        self.status = QLabel(""); self.status.setObjectName("Hint")
-        v.insertLayout(2, toggle_row)
         v.addWidget(self.status)
         v.addWidget(self.progress)
+
+        # Back / Next / Create footer.
+        v.addLayout(self._build_footer())
         v.addStretch()
 
-        # Readiness banner sits just below the title, above everything else.
-        self.ready_banner = self._build_ready_banner()
-        v.insertWidget(2, self.ready_banner)
-
+        self._reached = 0
+        self._goto_step(self.STEP_SOURCE)
         outer.addWidget(_scroll(content))
+
+    # -- wizard shell -------------------------------------------------------
+    def _build_stepper(self) -> QWidget:
+        w = QWidget()
+        row = QHBoxLayout(w); row.setContentsMargins(0, 0, 0, 2); row.setSpacing(4)
+        self._step_chips = []
+        for i, name in enumerate(self.STEP_TITLES):
+            chip = QPushButton(f"{i + 1} {name}"); chip.setObjectName("StepChip")
+            chip.setCheckable(True); chip.setCursor(Qt.PointingHandCursor)
+            chip.clicked.connect(lambda _=False, idx=i: self._goto_step(idx))
+            tip(chip, f"Step {i + 1}: {name}")
+            self._step_chips.append(chip); row.addWidget(chip)
+        row.addStretch()
+        return w
+
+    def _build_footer(self) -> QHBoxLayout:
+        f = QHBoxLayout()
+        self.back_btn = QPushButton("←  Back"); self.back_btn.setObjectName("Ghost")
+        self.back_btn.clicked.connect(self._back)
+        tip(self.back_btn, "Return to the previous step")
+        self.new_meeting_btn = QPushButton("✚  New meeting"); self.new_meeting_btn.setObjectName("Ghost")
+        self.new_meeting_btn.clicked.connect(self._new_meeting)
+        tip(self.new_meeting_btn, "Save this meeting to History and start a fresh one (Ctrl+N)")
+        self.cancel_btn = QPushButton("Cancel"); self.cancel_btn.setObjectName("Ghost")
+        self.cancel_btn.setVisible(False); self.cancel_btn.clicked.connect(self._cancel)
+        tip(self.cancel_btn, "Stop the current generation — the transcript is kept")
+        self.generate_btn = QPushButton("✨  Create meeting"); self.generate_btn.setObjectName("Primary")
+        self.generate_btn.clicked.connect(self._create_meeting)
+        tip(self.generate_btn, "Transcribe (if needed) and generate the minutes, then save to "
+                               "History (Ctrl+G)")
+        self.next_btn = QPushButton("Next  →"); self.next_btn.setObjectName("Primary")
+        self.next_btn.clicked.connect(self._next)
+        tip(self.next_btn, "Continue to the next step")
+        f.addWidget(self.back_btn); f.addStretch()
+        f.addWidget(self.new_meeting_btn); f.addWidget(self.cancel_btn)
+        f.addWidget(self.generate_btn); f.addWidget(self.next_btn)
+        return f
+
+    def _goto_step(self, i: int):
+        i = max(0, min(i, len(self.STEP_TITLES) - 1))
+        if i > self._reached and not self._advance_ok(self.wizard.currentIndex()):
+            return                                       # forward jump blocked by validation
+        self.wizard.setCurrentIndex(i)
+        self._reached = max(self._reached, i)
+        if i == self.STEP_REVIEW:
+            self._refresh_review()
+        self._update_stepper()
+
+    def _update_stepper(self):
+        i = self.wizard.currentIndex()
+        for idx, chip in enumerate(self._step_chips):
+            chip.setChecked(idx == i)
+            chip.setProperty("done", idx < i)
+            chip.setEnabled(idx <= self._reached)
+            chip.style().unpolish(chip); chip.style().polish(chip)
+        self.back_btn.setVisible(i > 0)
+        self.next_btn.setVisible(i in (self.STEP_SOURCE, self.STEP_TRANSCRIPT, self.STEP_SETUP))
+        self.generate_btn.setVisible(i == self.STEP_REVIEW)
+        self.new_meeting_btn.setVisible(i == self.STEP_MINUTES)
+
+    def _advance_ok(self, i: int) -> bool:
+        ok, msg = self._validate_step(i)
+        if not ok:
+            self.toast.show_message(msg, "warn")
+        return ok
+
+    def _validate_step(self, i: int):
+        if i == self.STEP_SOURCE:
+            if self._media_queue or self.transcript.toPlainText().strip():
+                return True, ""
+            return False, "Add a file, make a recording, or paste a transcript to continue."
+        if i == self.STEP_TRANSCRIPT:
+            if self.transcript.toPlainText().strip():
+                return True, ""
+            return False, "Transcribe your media (Step 1) or paste a transcript to continue."
+        return True, ""
+
+    def _next(self):
+        i = self.wizard.currentIndex()
+        if self._advance_ok(i):
+            self._goto_step(i + 1)
+
+    def _back(self):
+        self._goto_step(self.wizard.currentIndex() - 1)
+
+    def _create_meeting(self):
+        """Review step's action: transcribe (if needed), generate minutes, save."""
+        self._transcribe_and_generate()
 
     # -- readiness banner ---------------------------------------------------
     def _build_ready_banner(self) -> QWidget:
@@ -206,19 +289,49 @@ class NewMeetingPage(QWidget):
         if self.on_switch_local:
             self.on_switch_local()
 
-    def _toggle_all(self):
-        secs = (self.sec_source, self.sec_transcript, self.sec_generate, self.sec_minutes)
-        expand = not all(s.is_expanded() for s in secs)
-        for s in secs:
-            s.set_expanded(expand)
-        self.expand_all_btn.setText("Collapse all" if expand else "Expand all")
-
     def _card(self, title_text: str, expanded: bool = True):
-        section = CollapsibleSection(title_text, expanded=expanded)
-        return section, section.content
+        """A plain wizard step panel: a header + a content layout to fill."""
+        panel = QWidget(); panel.setObjectName("Card")
+        lay = QVBoxLayout(panel); lay.setContentsMargins(22, 18, 22, 20); lay.setSpacing(12)
+        hdr = QLabel(title_text); hdr.setObjectName("StepHeader")
+        lay.addWidget(hdr)
+        return panel, lay
+
+    def _step_review(self) -> QWidget:
+        card, lay = self._card("Review")
+        lay.addWidget(hint("Check the details below, then click “Create meeting” to transcribe "
+                           "(if needed) and generate the minutes."))
+        grid = QGridLayout(); grid.setHorizontalSpacing(18); grid.setVerticalSpacing(9)
+        self._review_vals: dict[str, QLabel] = {}
+        for r, name in enumerate(("Title", "Date / time", "Attendees", "Source",
+                                  "Transcript", "AI mode", "Model", "Style", "Prompt")):
+            k = QLabel(name); k.setObjectName("Hint")
+            val = QLabel("—"); val.setObjectName("ReviewVal"); val.setWordWrap(True)
+            grid.addWidget(k, r, 0, Qt.AlignTop); grid.addWidget(val, r, 1)
+            self._review_vals[name] = val
+        grid.setColumnStretch(1, 1)
+        lay.addLayout(grid)
+        lay.addStretch()
+        return card
+
+    def _refresh_review(self):
+        v = self._review_vals
+        v["Title"].setText(self.meet_title.text().strip() or "(auto — inferred from the minutes)")
+        v["Date / time"].setText(self.meet_date.text().strip() or "—")
+        v["Attendees"].setText(self.meet_attendees.text().strip() or "—")
+        n = len(self._media_queue)
+        v["Source"].setText(f"{n} media file(s) queued for transcription" if n
+                            else "Pasted / typed transcript")
+        words = len(self.transcript.toPlainText().split())
+        v["Transcript"].setText(f"{words:,} words" if words else "empty — nothing to summarise yet")
+        v["AI mode"].setText("MICO360 Cloud" if self.ctx.provider() == "cloud" else "Local (Ollama)")
+        v["Model"].setText(self.model_box.currentText() or "—")
+        v["Style"].setText(self.style_box.currentText() or "—")
+        v["Prompt"].setText("Custom (edited for this run)" if self.toggle_prompt.isChecked()
+                            else (self.prompt_box.currentText() or "—"))
 
     def _step1_source(self) -> QWidget:
-        card, lay = self._card("Step 1 · Add your meeting")
+        card, lay = self._card("Add your meeting")
         self.source_tabs = QTabWidget()
 
         # Upload tab
@@ -298,8 +411,6 @@ class NewMeetingPage(QWidget):
         self.files_list.addItem(it)
         if is_media:
             self._set_transcribe_enabled(True)
-        if self.files_list.count():
-            self.sec_source.set_status(f"{self.files_list.count()} file(s)")
 
     def _remove_selected(self):
         for it in self.files_list.selectedItems():
@@ -308,14 +419,11 @@ class NewMeetingPage(QWidget):
                 self._media_queue.remove(path)
             self.files_list.takeItem(self.files_list.row(it))
         self._set_transcribe_enabled(bool(self._media_queue))
-        n = self.files_list.count()
-        self.sec_source.set_status(f"{n} file(s)" if n else "")
 
     def _clear_files(self):
         self.files_list.clear()
         self._media_queue.clear()
         self._set_transcribe_enabled(False)
-        self.sec_source.set_status("")
 
     def _on_recording_ready(self, path: str):
         """A finished recording -> queue it for transcription (shown in Upload tab)."""
@@ -326,7 +434,7 @@ class NewMeetingPage(QWidget):
                                 "success", 5000)
 
     def _step2_transcript(self) -> QWidget:
-        card, lay = self._card("Step 2 · Transcript")
+        card, lay = self._card("Transcript")
         lay.addWidget(hint("Editable — paste a transcript here, or review the transcription result."))
         self.transcript = QPlainTextEdit()
         self.transcript.setPlaceholderText("Paste or edit the meeting transcript here…")
@@ -344,7 +452,7 @@ class NewMeetingPage(QWidget):
         return card
 
     def _step3_generate(self) -> QWidget:
-        card, lay = self._card("Step 3 · Generate minutes")
+        card, lay = self._card("Meeting details & AI setup")
 
         # Meeting type preset + calendar pre-fill
         mrow = QHBoxLayout()
@@ -413,18 +521,8 @@ class NewMeetingPage(QWidget):
         tip(self.prompt_edit, "One-off prompt for this generation. Keep [TRANSCRIPT_HERE] where "
                               "the transcript should be inserted")
         lay.addWidget(self.prompt_edit)
-
-        actions = QHBoxLayout()
-        self.generate_btn = QPushButton("✨  Generate minutes")
-        self.generate_btn.setObjectName("Primary")
-        self.generate_btn.clicked.connect(self._generate)
-        tip(self.generate_btn, "Send the transcript to the local AI and write the minutes (Ctrl+G). "
-                               "Long meetings are processed in parts — nothing leaves your computer")
-        self.cancel_btn = QPushButton("Cancel"); self.cancel_btn.setObjectName("Ghost")
-        self.cancel_btn.clicked.connect(self._cancel); self.cancel_btn.setVisible(False)
-        tip(self.cancel_btn, "Stop the current generation — the transcript is kept")
-        actions.addStretch(); actions.addWidget(self.cancel_btn); actions.addWidget(self.generate_btn)
-        lay.addLayout(actions)
+        lay.addStretch()
+        # Note: the primary action (Create meeting) + Cancel live in the wizard footer.
         return card
 
     def _step4_minutes(self) -> QWidget:
@@ -446,6 +544,7 @@ class NewMeetingPage(QWidget):
         lay.addWidget(self.minutes_tabs)
 
         row = QHBoxLayout()
+        self.minutes_count = QLabel(""); self.minutes_count.setObjectName("Hint")
         self.copy_btn = QPushButton("Copy"); self.copy_btn.clicked.connect(self._copy)
         tip(self.copy_btn, "Copy the minutes with formatting — pastes styled into Word/Outlook, "
                            "plain into text editors (Ctrl+Shift+C)")
@@ -459,6 +558,7 @@ class NewMeetingPage(QWidget):
         self.export_btn.clicked.connect(self._export)
         tip(self.export_btn, "Save as Word, PDF, text, Markdown or HTML (Ctrl+E). Uses the active "
                              "Company Profile for logo, footer and page numbers")
+        row.addWidget(self.minutes_count)
         row.addWidget(self.copy_btn); row.addWidget(self.save_btn)
         row.addStretch(); row.addWidget(self.email_btn); row.addWidget(self.export_btn)
         lay.addLayout(row)
@@ -541,7 +641,6 @@ class NewMeetingPage(QWidget):
                 self.meet_date.setText(d["date"])
             if d.get("attendees"):
                 self.meet_attendees.setText(", ".join(d["attendees"]))
-            self.sec_generate.set_expanded(True)
             self.toast.show_message("Meeting details imported from calendar.", "success")
         except Exception as exc:
             self.toast.show_message(f"Could not read .ics: {exc}", "warn", 5000)
@@ -559,14 +658,10 @@ class NewMeetingPage(QWidget):
     def _update_counts(self):
         words = len(self.transcript.toPlainText().split())
         self.transcript_count.setText(f"{words:,} words")
-        self.sec_transcript.set_status(f"{words:,} words" if words else "empty")
-        # once there's a transcript, reveal the Generate step
-        if words and not self.sec_generate.is_expanded():
-            self.sec_generate.set_expanded(True)
 
     def _update_minutes_status(self):
         words = len(self.minutes.toPlainText().split())
-        self.sec_minutes.set_status(f"{words:,} words" if words else "empty")
+        self.minutes_count.setText(f"{words:,} words" if words else "")
 
     # -- file handling ------------------------------------------------------
     def _add_file(self, path: str):
@@ -726,13 +821,11 @@ class NewMeetingPage(QWidget):
         self._busy(False)
         self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
         self._set_transcribe_enabled(bool(self._media_queue))   # reflect leftover queue
-        # focus the output: open Minutes, fold the earlier steps
-        self.sec_minutes.set_status("generated")
-        self.sec_minutes.set_expanded(True)
-        self.sec_source.set_expanded(False)
-        self.sec_transcript.set_expanded(False)
-        self.sec_generate.set_expanded(False)
-        self.toast.show_message("Minutes generated.", "success")
+        # "Create meeting" saves the result and lands on the final Minutes step.
+        self._save_history(silent=True)
+        self._reached = self.STEP_MINUTES
+        self._goto_step(self.STEP_MINUTES)
+        self.toast.show_message("Minutes generated and saved to History.", "success")
 
     def _cancel(self):
         if self._worker:
@@ -815,9 +908,8 @@ class NewMeetingPage(QWidget):
         self.minutes.clear()
         self._clear_files()
         self.meet_title.clear(); self.meet_date.clear(); self.meet_attendees.clear()
-        self.sec_source.set_expanded(True)
-        self.sec_transcript.set_expanded(True)
-        self.sec_minutes.set_status("empty")
+        self._reached = 0
+        self._goto_step(self.STEP_SOURCE)
         self.toast.show_message("Started a new meeting — the previous one is saved in History.",
                                 "success", 4000)
 
@@ -950,10 +1042,10 @@ class NewMeetingPage(QWidget):
         self._autosave_sig = m.transcript + "\x00" + m.minutes
         if m.style:
             self.style_box.setCurrentText(m.style)
-        self.sec_transcript.set_expanded(bool(m.transcript))
-        self.sec_minutes.set_expanded(bool(m.minutes))
-        self.sec_minutes.set_status("loaded" if m.minutes else "empty")
-        self.sec_source.set_expanded(False)
+        # opening a saved meeting unlocks the whole wizard; land on Minutes if it
+        # already has them, otherwise on the Transcript step to continue.
+        self._reached = len(self.STEP_TITLES) - 1
+        self._goto_step(self.STEP_MINUTES if m.minutes else self.STEP_TRANSCRIPT)
         self.toast.show_message(f"Loaded: {m.title}", "info")
 
 

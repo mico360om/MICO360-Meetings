@@ -168,6 +168,17 @@ QToolTip {{ background: {surface2}; color: {text}; border: 1px solid {border}; b
 QSplitter::handle {{ background: {border}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
 
+/* ---- Wizard stepper ----------------------------------------------------- */
+#StepChip {{ background: transparent; border: 1px solid transparent; border-radius: 999px;
+            padding: 6px 10px; color: {muted}; font-weight: 600; font-size: 10pt; }}
+#StepChip:hover {{ color: {text}; background: {surface2}; }}
+#StepChip:checked {{ background: {accent}; color: {accent_text}; }}
+#StepChip:disabled {{ color: {muted}; background: transparent; }}
+#StepChip[done="true"] {{ color: {accent}; background: {surface2}; }}
+#StepSep {{ color: {muted}; font-size: 10pt; }}
+#StepHeader {{ font-size: 13pt; font-weight: 700; color: {text}; }}
+#ReviewVal {{ color: {text}; font-weight: 600; }}
+
 /* ---- Readiness banner (AI not ready) ------------------------------------ */
 #Banner {{ background: {warning_soft}; border: 1px solid {warning}; border-radius: 12px; }}
 #BannerIcon {{ color: {warning}; font-size: 15pt; }}
