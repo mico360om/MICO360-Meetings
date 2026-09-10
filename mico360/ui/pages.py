@@ -35,7 +35,7 @@ log = logging.getLogger("mico360.pages")
 UPLOAD_EXTS = set(MEDIA_EXTS) | documents.DOC_EXTS | documents.IMAGE_EXTS
 
 
-def _scroll(inner: QWidget, max_width: int = 1160) -> QScrollArea:
+def _scroll(inner: QWidget, max_width: int = 1440) -> QScrollArea:
     sa = QScrollArea()
     sa.setWidgetResizable(True)
     sa.setFrameShape(QScrollArea.NoFrame)
@@ -1288,6 +1288,7 @@ class HistoryPage(QWidget):
         self.table.setSortingEnabled(True)                       # click headers to sort
         self.table.sortByColumn(self._COL_UPDATED, Qt.DescendingOrder)   # newest first by default
         self.table.setAlternatingRowColors(True)
+        self.table.setTextElideMode(Qt.ElideRight)               # long titles elide, never scroll
         self.table.verticalHeader().setVisible(False)
         self.table.doubleClicked.connect(self._open_selected)    # double-click opens
         self.table.itemSelectionChanged.connect(self._update_preview)  # single-click previews

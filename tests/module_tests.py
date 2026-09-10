@@ -589,6 +589,26 @@ def main():
         return "person/status/deadline/meeting filters + overdue"
     t("ui.action_filters", _action_filters)
 
+    def _responsive_tables():
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QHeaderView
+        ap, hp = win.actions_page, win.history_page
+        # primary text column stretches; long text elides instead of scrolling
+        assert ap.table.horizontalHeader().sectionResizeMode(ap._COL_TASK) == QHeaderView.Stretch
+        assert hp.table.horizontalHeader().sectionResizeMode(hp._COL_TITLE) == QHeaderView.Stretch
+        assert ap.table.textElideMode() == Qt.ElideRight
+        assert hp.table.textElideMode() == Qt.ElideRight
+        # the fixed (non-stretch) columns stay narrow enough to fit the 1080px
+        # minimum window, leaving room for the stretch column
+        afix = sum(ap.table.columnWidth(c) for c in
+                   (ap._COL_OWNER, ap._COL_DUE, ap._COL_PRIO, ap._COL_STATUS,
+                    ap._COL_MEETING, ap._COL_DATE))
+        hfix = sum(hp.table.columnWidth(c) for c in
+                   (hp._COL_STATUS, hp._COL_STYLE, hp._COL_MODEL, hp._COL_UPDATED))
+        assert afix < 780 and hfix < 560
+        return "tables: stretch primary + elide + bounded columns"
+    t("ui.responsive_tables", _responsive_tables)
+
     def _prompt_library():
         pp = win.prompts_page
         pp.search.clear(); pp.cat_filter.setCurrentText("All categories"); pp.reload()

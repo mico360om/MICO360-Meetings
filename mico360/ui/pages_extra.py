@@ -29,7 +29,7 @@ log = logging.getLogger("mico360.pages_extra")
 SUPPORT_EMAIL = "info@mico360.com"
 
 
-def _scroll(inner: QWidget, max_width: int = 1160) -> QScrollArea:
+def _scroll(inner: QWidget, max_width: int = 1440) -> QScrollArea:
     sa = QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QScrollArea.NoFrame)
     if max_width:
         inner.setMaximumWidth(max_width)
@@ -468,10 +468,13 @@ class ActionItemsPage(QWidget):
         self.table.setHorizontalHeaderLabels(
             ["Task", "Responsible", "Deadline", "Priority", "Status", "Meeting", "Date"])
         hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(self._COL_TASK, QHeaderView.Stretch)
-        for c in (self._COL_OWNER, self._COL_DUE, self._COL_PRIO, self._COL_STATUS,
-                  self._COL_MEETING, self._COL_DATE):
-            hh.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(self._COL_TASK, QHeaderView.Stretch)   # Task fills spare width
+        hh.setStretchLastSection(False); hh.setMinimumSectionSize(60)
+        for c, w in ((self._COL_OWNER, 120), (self._COL_DUE, 112), (self._COL_PRIO, 104),
+                     (self._COL_STATUS, 132), (self._COL_MEETING, 170), (self._COL_DATE, 104)):
+            hh.setSectionResizeMode(c, QHeaderView.Interactive)
+            self.table.setColumnWidth(c, w)
+        self.table.setTextElideMode(Qt.ElideRight)     # long text elides, never scrolls
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -585,7 +588,9 @@ class ActionItemsPage(QWidget):
                            (self._COL_DATE, it.meeting_date)):
                 item = QTableWidgetItem(val)
                 if c == self._COL_TASK and (it.notes or "").strip():
-                    item.setToolTip("Notes: " + it.notes)
+                    item.setToolTip(it.task + "\n\nNotes: " + it.notes)
+                elif c in (self._COL_TASK, self._COL_MEETING, self._COL_OWNER):
+                    item.setToolTip(val)          # full text when the cell elides
                 if overdue:
                     item.setBackground(QColor(_OVERDUE_TINT))
                     if c == self._COL_DUE:

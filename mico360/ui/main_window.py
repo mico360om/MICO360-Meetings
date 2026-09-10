@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{__app_name__}")
         # minimum chosen so no page overflows horizontally; everything above is responsive
         self.setMinimumSize(QSize(1080, 660))
-        self.resize(1180, 760)
+        self.resize(1320, 820)
 
         icon_path = resource_path("assets", "app.ico")
         if icon_path.exists():
