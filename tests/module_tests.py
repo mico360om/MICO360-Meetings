@@ -480,14 +480,68 @@ def main():
             combo = ap.table.cellWidget(0, 3)
             assert isinstance(combo, QComboBox) and combo.currentText() == "Pending"
             assert [combo.itemText(i) for i in range(combo.count())] == \
-                ["Pending", "In Progress", "Done", "Cancelled"]
-            combo.setCurrentText("Done"); ap._change_status(0)
-            assert calls == ["Done"], calls
+                ["Pending", "In Progress", "Completed", "Cancelled"]
+            combo.setCurrentText("Completed"); ap._change_status(0)
+            assert calls == ["Completed"], calls
         finally:
             ctx.action_items.all_items, ctx.action_items.set_status = orig_all, orig_set
             ap.reload()
         return "inline status dropdown + change"
     t("ui.action_status_dropdown", _action_status_dropdown)
+
+    def _action_logic():
+        from datetime import date, timedelta
+        from mico360.core import tasks as T
+        from mico360.core.tasks import ActionItem
+        assert T.normalize_status("Done") == "Completed"
+        assert T.normalize_status("wip") == "In Progress"
+        assert T.normalize_status("") == "Pending"
+        assert T.parse_deadline("2020-01-15") == date(2020, 1, 15)
+        assert T.parse_deadline("15/01/2020") == date(2020, 1, 15)
+        assert T.parse_deadline("TBD") is None
+        past = (date.today() - timedelta(days=2)).isoformat()
+        future = (date.today() + timedelta(days=5)).isoformat()
+        assert T.is_overdue(ActionItem("t", "o", past, "Pending"))
+        assert not T.is_overdue(ActionItem("t", "o", past, "Completed"))   # closed
+        assert not T.is_overdue(ActionItem("t", "o", future, "Pending"))
+        assert T.effective_status(ActionItem("t", "o", past, "In Progress")) == "Overdue"
+        assert T.effective_status(ActionItem("t", "o", future, "Pending")) == "Pending"
+        return "normalize + deadline parse + overdue detection"
+    t("core.action_logic", _action_logic)
+
+    def _action_filters():
+        from datetime import date, timedelta
+        from mico360.core.tasks import ActionItem
+        ap = win.actions_page
+        orig = ctx.action_items.all_items
+        past = (date.today() - timedelta(days=2)).isoformat()
+        data = [
+            ActionItem("t1", "Bob", past, "Pending", 1, "M1", "d"),        # overdue
+            ActionItem("t2", "Carol", "", "Completed", 2, "M2", "d"),
+            ActionItem("t3", "Bob", "", "Pending", 1, "M1", "d"),
+        ]
+        try:
+            ctx.action_items.all_items = lambda q="": list(data)
+            ap.reload(); assert ap.table.rowCount() == 3
+            ap.person_filter.setCurrentText("Bob"); assert ap.table.rowCount() == 2
+            ap.person_filter.setCurrentText("All people")
+            ap.status_filter.setCurrentText("Overdue")
+            assert ap.table.rowCount() == 1 and ap._items[0].task == "t1"
+            ap.status_filter.setCurrentText("Completed")
+            assert ap.table.rowCount() == 1 and ap._items[0].task == "t2"
+            ap.status_filter.setCurrentText("All statuses")
+            ap.meeting_filter.setCurrentText("M2")
+            assert ap.table.rowCount() == 1 and ap._items[0].task == "t2"
+            ap.meeting_filter.setCurrentText("All meetings")
+            ap.deadline_filter.setCurrentText("Overdue")
+            assert ap.table.rowCount() == 1 and ap._items[0].task == "t1"
+            ap.deadline_filter.setCurrentText("No date"); assert ap.table.rowCount() == 2
+        finally:
+            for cb in (ap.person_filter, ap.status_filter, ap.deadline_filter, ap.meeting_filter):
+                cb.setCurrentIndex(0)
+            ctx.action_items.all_items = orig; ap.reload()
+        return "person/status/deadline/meeting filters + overdue"
+    t("ui.action_filters", _action_filters)
 
     def _editable_title():
         np_ = win.new_page

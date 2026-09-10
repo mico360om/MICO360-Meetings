@@ -7,13 +7,13 @@ import sys
 import time
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QColor, QDesktopServices
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout,
     QHeaderView, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton,
-    QScrollArea, QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser,
-    QVBoxLayout, QWidget,
+    QScrollArea, QStackedWidget, QTabWidget, QTableWidget, QTableWidgetItem,
+    QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from .. import __app_name__, __version__
@@ -399,102 +399,233 @@ class UpdatesPage(QWidget):
 # ===========================================================================
 # Action Items — tasks across all meetings
 # ===========================================================================
-_STATUS_COLOR = {"Pending": "#F59E0B", "In Progress": "#A83326",
-                 "Done": "#22C55E", "Cancelled": "#9A9AA0"}
+_STATUS_COLOR = {"Pending": "#B8760F", "In Progress": "#A83326",
+                 "Completed": "#16A34A", "Cancelled": "#9A9AA0",
+                 "Overdue": "#DC2626"}
+# subtle row tint for overdue tasks (light / dark)
+_OVERDUE_TINT = "#FCEBEA"
 
 
 class ActionItemsPage(QWidget):
+    _COL_TASK, _COL_OWNER, _COL_DUE, _COL_STATUS, _COL_MEETING, _COL_DATE = range(6)
+    _DEADLINE_FILTERS = ["Any deadline", "Overdue", "Due today", "Due this week",
+                         "Has a date", "No date"]
+
     def __init__(self, ctx: AppContext, toast, on_open_meeting=None):
         super().__init__()
         self.ctx = ctx
         self.toast = toast
         self.on_open_meeting = on_open_meeting
-        self._items = []
+        self._items = []            # currently displayed (filtered) items
+        self._all = []              # all items for the current search (for filters)
+        self._reloading = False     # guard against filter-repopulation recursion
 
         v = QVBoxLayout(self); v.setContentsMargins(*M.PAGE_MARGINS); v.setSpacing(M.PAGE_GAP)
         title = QLabel("Action Items"); title.setObjectName("PageTitle")
         v.addWidget(title)
-        v.addWidget(subtitle("Every action item from all your meetings in one place. "
-                             "Set a task's status with the dropdown; double-click a meeting to open it."))
+        v.addWidget(subtitle("Every action item from all your meetings in one place. Set a "
+                             "status with the dropdown, filter the list, and spot overdue tasks."))
 
+        # -- search + export -------------------------------------------------
         bar = QHBoxLayout()
-        self.search = QLineEdit(); self.search.setPlaceholderText("Search task, person, meeting or status…")
-        self.search.textChanged.connect(self.reload)
-        tip(self.search, "Filter as you type — matches task text, responsible person, meeting "
-                         "title and status")
-        refresh = QPushButton("Refresh"); refresh.clicked.connect(self.reload)
+        self.search = QLineEdit(); self.search.setPlaceholderText("Search task, person or meeting…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._on_search_changed)
+        tip(self.search, "Filter as you type — matches task text, responsible person and meeting title")
+        refresh = QPushButton("↻  Refresh"); refresh.setObjectName("Ghost"); refresh.clicked.connect(self.reload)
         tip(refresh, "Re-scan all meetings in History for action items")
         self.export_btn = QPushButton("Export CSV…"); self.export_btn.setObjectName("Primary")
         self.export_btn.clicked.connect(self._export)
         tip(self.export_btn, "Save the currently filtered list as a CSV file you can open in Excel")
-        bar.addWidget(self.search); bar.addWidget(refresh); bar.addWidget(self.export_btn)
+        bar.addWidget(self.search, 1); bar.addWidget(refresh); bar.addWidget(self.export_btn)
         v.addLayout(bar)
 
+        # -- filters: person · status · deadline · meeting -------------------
+        self._search_timer = QTimer(self); self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(220); self._search_timer.timeout.connect(self.reload)
+
+        fbar = QHBoxLayout()
+        self.person_filter = QComboBox(); tip(self.person_filter, "Show only tasks for one responsible person")
+        self.status_filter = QComboBox(); tip(self.status_filter, "Show only tasks with a given status (incl. Overdue)")
+        self.deadline_filter = QComboBox(); self.deadline_filter.addItems(self._DEADLINE_FILTERS)
+        tip(self.deadline_filter, "Filter by deadline: overdue, due today/this week, dated or undated")
+        self.meeting_filter = QComboBox(); tip(self.meeting_filter, "Show only tasks from one meeting")
+        for lbl, cb in (("Person", self.person_filter), ("Status", self.status_filter),
+                        ("Deadline", self.deadline_filter), ("Meeting", self.meeting_filter)):
+            cap = QLabel(lbl); cap.setObjectName("Hint")
+            fbar.addWidget(cap); fbar.addWidget(cb)
+            cb.currentIndexChanged.connect(self._apply_filters)
+        self.clear_btn = QPushButton("Clear"); self.clear_btn.setObjectName("Ghost")
+        self.clear_btn.clicked.connect(self._clear_filters)
+        tip(self.clear_btn, "Reset all filters and the search box")
+        fbar.addStretch(); fbar.addWidget(self.clear_btn)
+        v.addLayout(fbar)
+
+        # -- table / empty / loading ----------------------------------------
         self.table = QTableWidget(0, 6)
         self.table.setHorizontalHeaderLabels(
             ["Task", "Responsible", "Deadline", "Status", "Meeting", "Date"])
         hh = self.table.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.Stretch)
-        for c in (1, 2, 3, 4, 5):
+        hh.setSectionResizeMode(self._COL_TASK, QHeaderView.Stretch)
+        for c in (self._COL_OWNER, self._COL_DUE, self._COL_STATUS, self._COL_MEETING, self._COL_DATE):
             hh.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setVisible(False)
         self.table.cellDoubleClicked.connect(self._on_double_click)
-        tip(self.table, "All action items found in your meetings' minutes. Use the Status dropdown "
-                        "to set Pending / In Progress / Done / Cancelled; double-click a Meeting "
-                        "cell to open that meeting")
-        v.addWidget(self.table, 1)
+        tip(self.table, "Action items from your meetings' minutes. Set a status with the dropdown; "
+                        "overdue tasks are highlighted red; double-click a Meeting cell to open it.")
         self.empty = EmptyState("✔", "No action items yet",
                                 "Action items appear here when a meeting's minutes include an "
                                 "“Action Items” table. Generate minutes in New Meeting to populate this.")
-        self.empty.setVisible(False)
-        v.addWidget(self.empty, 1)
+        self.loading = EmptyState("⏳", "Scanning meetings…", "")
+        self.stack = QStackedWidget()
+        for w in (self.table, self.empty, self.loading):
+            self.stack.addWidget(w)
+        v.addWidget(self.stack, 1)
 
         self.summary = QLabel(""); self.summary.setObjectName("Hint")
         v.addWidget(self.summary)
 
+    # -- search / reload ----------------------------------------------------
+    def _on_search_changed(self, _text=None):
+        self.stack.setCurrentWidget(self.loading)
+        self._search_timer.start()
+
     def reload(self):
+        """Re-scan history for action items, then rebuild filters + table."""
+        self._all = self.ctx.action_items.all_items(self.search.text())
+        self._rebuild_filter_options()
+        self._apply_filters()
+
+    def _rebuild_filter_options(self):
+        from ..core.tasks import STATUS_CYCLE, OVERDUE
+        self._reloading = True
+        try:
+            people = sorted({(i.owner or "").strip() for i in self._all if (i.owner or "").strip()})
+            meetings = sorted({i.meeting_title for i in self._all if i.meeting_title})
+            self._fill_combo(self.person_filter, ["All people"] + people)
+            self._fill_combo(self.status_filter, ["All statuses"] + STATUS_CYCLE + [OVERDUE])
+            self._fill_combo(self.meeting_filter, ["All meetings"] + meetings)
+        finally:
+            self._reloading = False
+
+    @staticmethod
+    def _fill_combo(combo: QComboBox, options: list[str]):
+        prev = combo.currentText()
+        combo.blockSignals(True)
+        combo.clear(); combo.addItems(options)
+        i = combo.findText(prev)
+        combo.setCurrentIndex(i if i >= 0 else 0)      # keep selection if still present
+        combo.blockSignals(False)
+
+    def _clear_filters(self):
+        for cb in (self.person_filter, self.status_filter, self.deadline_filter, self.meeting_filter):
+            cb.blockSignals(True); cb.setCurrentIndex(0); cb.blockSignals(False)
+        self.search.clear()          # triggers reload via _on_search_changed
+        self.reload()
+
+    def _apply_filters(self):
+        if self._reloading:
+            return
+        from ..core import tasks as T
+        from datetime import date, timedelta
+        person = self.person_filter.currentText()
+        status = self.status_filter.currentText()
+        dl = self.deadline_filter.currentText()
+        meeting = self.meeting_filter.currentText()
+        today = date.today()
+
+        def keep(it) -> bool:
+            if person not in ("", "All people") and (it.owner or "").strip() != person:
+                return False
+            if meeting not in ("", "All meetings") and it.meeting_title != meeting:
+                return False
+            if status not in ("", "All statuses") and T.effective_status(it, today) != status:
+                return False
+            if dl != self._DEADLINE_FILTERS[0]:
+                d = T.parse_deadline(it.deadline)
+                if dl == "Overdue" and not T.is_overdue(it, today):
+                    return False
+                if dl == "Due today" and d != today:
+                    return False
+                if dl == "Due this week" and not (d and today <= d <= today + timedelta(days=7)):
+                    return False
+                if dl == "Has a date" and d is None:
+                    return False
+                if dl == "No date" and d is not None:
+                    return False
+            return True
+
+        self._items = [it for it in self._all if keep(it)]
+        self._populate()
+
+    # -- table --------------------------------------------------------------
+    def _populate(self):
+        from ..core import tasks as T
         from ..core.tasks import STATUS_CYCLE
-        self._items = self.ctx.action_items.all_items(self.search.text())
+        from datetime import date
+        today = date.today()
         self.table.setRowCount(len(self._items))
+        overdue_n = 0
         for r, it in enumerate(self._items):
-            # text columns
-            for c, val in ((0, it.task), (1, it.owner or "—"), (2, it.deadline or "—"),
-                           (4, it.meeting_title), (5, it.meeting_date)):
-                self.table.setItem(r, c, QTableWidgetItem(val))
-            # Status: an inline dropdown (obvious, vs the old double-click-to-cycle)
+            overdue = T.is_overdue(it, today)
+            overdue_n += int(overdue)
+            due_txt = it.deadline or "—"
+            if overdue:
+                due_txt = "⚠ " + due_txt
+            for c, val in ((self._COL_TASK, it.task), (self._COL_OWNER, it.owner or "—"),
+                           (self._COL_DUE, due_txt), (self._COL_MEETING, it.meeting_title),
+                           (self._COL_DATE, it.meeting_date)):
+                item = QTableWidgetItem(val)
+                if overdue:
+                    item.setBackground(QColor(_OVERDUE_TINT))
+                    if c == self._COL_DUE:
+                        item.setForeground(QColor(_STATUS_COLOR["Overdue"]))
+                self.table.setItem(r, c, item)
+            # Status dropdown (settable statuses only; Overdue is derived).
             combo = QComboBox()
             combo.addItems(STATUS_CYCLE)
             if it.status not in STATUS_CYCLE:
                 combo.addItem(it.status)
             combo.setCurrentText(it.status)
+            shown = "Overdue" if overdue else it.status
             combo.setStyleSheet(
-                f"color:{_STATUS_COLOR.get(it.status, '#9A9AA0')}; font-weight:600;")
-            combo.setToolTip("Change this task's status")
+                f"color:{_STATUS_COLOR.get(shown, '#9A9AA0')}; font-weight:600;")
+            combo.setToolTip("Overdue — past its deadline. Change this task's status here."
+                             if overdue else "Change this task's status")
             combo.activated.connect(lambda _i, row=r: self._change_status(row))
-            self.table.setCellWidget(r, 3, combo)
-        done = sum(1 for i in self._items if i.status == "Done")
+            self.table.setCellWidget(r, self._COL_STATUS, combo)
+
+        # summary
+        n = len(self._items)
+        done = sum(1 for i in self._items if i.status == "Completed")
         cancelled = sum(1 for i in self._items if i.status == "Cancelled")
-        open_ = len(self._items) - done - cancelled     # Cancelled is not "open"
-        cancelled_txt = f" · {cancelled} cancelled" if cancelled else ""
-        self.summary.setText(f"{len(self._items)} action item(s) · {done} done · "
-                             f"{open_} open{cancelled_txt}  ·  set status with the dropdown")
-        # empty state: distinguish "none anywhere" from "no search matches"
+        open_ = n - done - cancelled
+        parts = [f"{n} shown", f"{done} completed", f"{open_} open"]
+        if overdue_n:
+            parts.append(f"{overdue_n} overdue")
+        total = len(self._all)
+        suffix = f" (of {total})" if n != total else ""
+        self.summary.setText("  ·  ".join(parts) + suffix)
+
         if self._items:
-            self.table.setVisible(True); self.empty.setVisible(False); self.summary.setVisible(True)
+            self.stack.setCurrentWidget(self.table)
+        elif self._all:
+            self.empty.set("No matching action items",
+                           "No tasks match the current filters. Adjust or clear them "
+                           "to see more.", "🔍")
+            self.stack.setCurrentWidget(self.empty)
         else:
-            if self.search.text().strip():
-                self.empty.set(f"No action items match “{self.search.text().strip()}”",
-                               "Try a different search, or clear the box to see everything.", "🔍")
-            else:
-                self.empty.set("No action items yet",
-                               "Action items appear here when a meeting's minutes include an "
-                               "“Action Items” table. Generate minutes in New Meeting to populate this.", "✔")
-            self.table.setVisible(False); self.empty.setVisible(True); self.summary.setVisible(False)
+            self.empty.set("No action items yet",
+                           "Action items appear here when a meeting's minutes include an "
+                           "“Action Items” table. Generate minutes in New Meeting to populate this.", "✔")
+            self.stack.setCurrentWidget(self.empty)
 
     def _change_status(self, row: int):
         if 0 <= row < len(self._items):
-            combo = self.table.cellWidget(row, 3)
+            combo = self.table.cellWidget(row, self._COL_STATUS)
             if combo is not None:
                 self.ctx.action_items.set_status(self._items[row], combo.currentText())
                 self.reload()
@@ -502,7 +633,7 @@ class ActionItemsPage(QWidget):
     def _on_double_click(self, row, col):
         if not (0 <= row < len(self._items)):
             return
-        if col == 4 and self.on_open_meeting:           # Meeting → open it
+        if col == self._COL_MEETING and self.on_open_meeting:    # Meeting → open it
             m = self.ctx.history.get(self._items[row].meeting_id)
             if m:
                 self.on_open_meeting(m)

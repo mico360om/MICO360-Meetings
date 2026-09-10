@@ -11,6 +11,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 
 from ..config import DATA_DIR
@@ -19,8 +20,68 @@ from ..export import md_blocks
 log = logging.getLogger("mico360.tasks")
 
 STATUS_FILE = DATA_DIR / "action_status.json"
-STATUS_CYCLE = ["Pending", "In Progress", "Done", "Cancelled"]
+# The settable workflow statuses. "Overdue" is NOT here — it is a derived state
+# (a past deadline on a still-open task), computed by is_overdue().
+STATUS_CYCLE = ["Pending", "In Progress", "Completed", "Cancelled"]
+OVERDUE = "Overdue"
+_CLOSED = {"Completed", "Cancelled"}
 _PLACEHOLDER = {"", "...", "-", "—", "…", "n/a", "na", "not specified", "tbd"}
+
+# Map the many ways minutes phrase a status onto our four canonical ones.
+_STATUS_SYNONYMS = {
+    "done": "Completed", "complete": "Completed", "completed": "Completed",
+    "closed": "Completed", "resolved": "Completed", "finished": "Completed",
+    "cancelled": "Cancelled", "canceled": "Cancelled", "dropped": "Cancelled",
+    "in progress": "In Progress", "in-progress": "In Progress", "wip": "In Progress",
+    "ongoing": "In Progress", "doing": "In Progress", "started": "In Progress",
+    "pending": "Pending", "open": "Pending", "to do": "Pending", "todo": "Pending",
+    "to-do": "Pending", "not started": "Pending", "new": "Pending", "": "Pending",
+}
+
+# Deadline strings in minutes vary wildly; try the common explicit-date shapes.
+_DATE_FORMATS = ["%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
+                 "%d.%m.%Y", "%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y",
+                 "%b %d %Y", "%d %b", "%d %B"]
+
+
+def normalize_status(status: str) -> str:
+    """Fold a free-text status onto a canonical STATUS_CYCLE value (unknown
+    values are kept, title-preserved, so nothing is silently lost)."""
+    s = (status or "").strip()
+    return _STATUS_SYNONYMS.get(s.lower(), s or "Pending")
+
+
+def parse_deadline(text: str) -> date | None:
+    """Best-effort parse of a free-text deadline into a date, or None."""
+    s = (text or "").strip()
+    if not s or s.lower() in _PLACEHOLDER:
+        return None
+    try:
+        return date.fromisoformat(s[:10])
+    except Exception:
+        pass
+    for fmt in _DATE_FORMATS:
+        try:
+            d = datetime.strptime(s, fmt).date()
+            if "%Y" not in fmt:                    # year-less → assume current year
+                d = d.replace(year=date.today().year)
+            return d
+        except Exception:
+            continue
+    return None
+
+
+def is_overdue(item: "ActionItem", today: date | None = None) -> bool:
+    """True when a task has a parseable past deadline and is still open."""
+    if normalize_status(item.status) in _CLOSED:
+        return False
+    d = parse_deadline(item.deadline)
+    return d is not None and d < (today or date.today())
+
+
+def effective_status(item: "ActionItem", today: date | None = None) -> str:
+    """The status to display/filter on: OVERDUE overrides an open task."""
+    return OVERDUE if is_overdue(item, today) else normalize_status(item.status)
 
 
 @dataclass
@@ -106,6 +167,7 @@ class ActionItemStore:
                 it.meeting_date = time.strftime("%Y-%m-%d", time.localtime(m.updated_at))
                 if it.key() in self._overrides:
                     it.status = self._overrides[it.key()]
+                it.status = normalize_status(it.status)   # fold "Done" etc. -> canonical
                 out.append(it)
         if search.strip():
             q = search.lower()

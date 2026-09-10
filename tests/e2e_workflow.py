@@ -105,11 +105,13 @@ def main() -> int:
     items = win.actions_page._items
     mine = [i for i in items if i.meeting_id == saved_id]
     check("Action Items synced from saved minutes", len(mine) == 1 and mine[0].task == "Verify E2E")
-    done = sum(1 for i in items if i.status == "Done")
+    completed = sum(1 for i in items if i.status == "Completed")
+    cancelled = sum(1 for i in items if i.status == "Cancelled")
+    open_ = len(items) - completed - cancelled
     summary = win.actions_page.summary.text()
     check("Action Items summary calculation correct",
-          f"{len(items)} action item(s)" in summary and f"{done} done" in summary
-          and f"{len(items) - done} open" in summary, summary[:70])
+          f"{len(items)} shown" in summary and f"{completed} completed" in summary
+          and f"{open_} open" in summary, summary[:80])
 
     # ---- Step 7: all 5 exports round-trip with real content --------------
     from mico360.export import service
@@ -152,7 +154,7 @@ def main() -> int:
     # Cancelled action items are not counted as 'open'
     from mico360.core.tasks import ActionItem
     win.actions_page._items = [
-        ActionItem(task="a", owner="", deadline="", status="Done"),
+        ActionItem(task="a", owner="", deadline="", status="Completed"),
         ActionItem(task="b", owner="", deadline="", status="Cancelled"),
         ActionItem(task="c", owner="", deadline="", status="Pending"),
     ]
@@ -160,7 +162,7 @@ def main() -> int:
     s = win.actions_page.summary
     win.actions_page.reload = win.actions_page.reload  # keep ref
     # recompute summary directly via the same logic path
-    done = sum(1 for i in win.actions_page._items if i.status == "Done")
+    done = sum(1 for i in win.actions_page._items if i.status == "Completed")
     cancelled = sum(1 for i in win.actions_page._items if i.status == "Cancelled")
     open_ = len(win.actions_page._items) - done - cancelled
     check("Action-item open count excludes Cancelled", open_ == 1,
