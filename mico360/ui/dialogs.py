@@ -36,7 +36,7 @@ class PagePreview(QWidget):
         # page
         margin = 8
         page = QRectF(margin, margin, w - 2 * margin, h - 2 * margin)
-        p.fillRect(self.rect(), QColor("#0E1626"))
+        p.fillRect(self.rect(), QColor("#201E24"))
         p.setBrush(QColor("#FFFFFF")); p.setPen(QColor("#D7DEEA"))
         p.drawRoundedRect(page, 6, 6)
         if not self.profile:

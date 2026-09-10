@@ -37,10 +37,10 @@ def _scroll(inner: QWidget, max_width: int = 1160) -> QScrollArea:
 
 
 _STATUS_COLORS = {
-    updater.AVAILABLE: "#3B82F6", updater.UP_TO_DATE: "#22C55E",
-    updater.DOWNLOADING: "#3B82F6", updater.INSTALLING: "#F59E0B",
+    updater.AVAILABLE: "#A83326", updater.UP_TO_DATE: "#22C55E",
+    updater.DOWNLOADING: "#F59E0B", updater.INSTALLING: "#F59E0B",
     updater.COMPLETED: "#22C55E", updater.FAILED: "#EF4444",
-    updater.NOT_CONFIGURED: "#F59E0B", updater.CHECKING: "#8FA0BD",
+    updater.NOT_CONFIGURED: "#F59E0B", updater.CHECKING: "#A79FA9",
 }
 
 
@@ -195,7 +195,7 @@ class UpdatesPage(QWidget):
         </div>"""
 
     def _set_status(self, status: str, text: str):
-        color = _STATUS_COLORS.get(status, "#8FA0BD")
+        color = _STATUS_COLORS.get(status, "#A79FA9")
         self.status_row.setText(
             f"<span style='color:{color}; font-weight:700;'>● {status}</span> &nbsp; {text}")
 
@@ -306,8 +306,8 @@ class UpdatesPage(QWidget):
 # ===========================================================================
 # Action Items — tasks across all meetings
 # ===========================================================================
-_STATUS_COLOR = {"Pending": "#F59E0B", "In Progress": "#3B82F6",
-                 "Done": "#22C55E", "Cancelled": "#8FA0BD"}
+_STATUS_COLOR = {"Pending": "#F59E0B", "In Progress": "#A83326",
+                 "Done": "#22C55E", "Cancelled": "#9A9AA0"}
 
 
 class ActionItemsPage(QWidget):
@@ -368,9 +368,8 @@ class ActionItemsPage(QWidget):
                                      it.status, it.meeting_title, it.meeting_date)):
                 cell = QTableWidgetItem(val)
                 if c == 3:
-                    cell.setForeground(Qt.GlobalColor.white)
                     from PySide6.QtGui import QColor
-                    cell.setForeground(QColor(_STATUS_COLOR.get(it.status, "#E6ECF5")))
+                    cell.setForeground(QColor(_STATUS_COLOR.get(it.status, "#9A9AA0")))
                 self.table.setItem(r, c, cell)
         done = sum(1 for i in self._items if i.status == "Done")
         cancelled = sum(1 for i in self._items if i.status == "Cancelled")

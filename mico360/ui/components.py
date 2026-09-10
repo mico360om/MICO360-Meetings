@@ -225,20 +225,22 @@ class Toast(QLabel):
         super().__init__(parent)
         self.setVisible(False)
         self.setAlignment(Qt.AlignCenter)
+        # Charcoal chip (brand-neutral, reads on both themes) with a colour-coded
+        # border per message kind — no off-brand navy/blue.
         self.setStyleSheet(
-            "background: #1E2A47; color: #E6ECF5; border: 1px solid #2A3a5c;"
-            "border-radius: 8px; padding: 10px 16px; font-size: 10pt;"
+            "background: #26222A; color: #ECEAEF; border: 1px solid #39353F;"
+            "border-radius: 10px; padding: 10px 16px; font-size: 10pt;"
         )
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(lambda: self.setVisible(False))
 
     def show_message(self, text: str, kind: str = "info", msec: int = 3500):
-        color = {"info": "#3B82F6", "success": "#22C55E",
-                 "error": "#EF4444", "warn": "#F59E0B"}.get(kind, "#3B82F6")
+        color = {"info": "#6E6670", "success": "#22C55E",
+                 "error": "#EF4444", "warn": "#F59E0B"}.get(kind, "#6E6670")
         self.setStyleSheet(
-            f"background: #1E2A47; color: #E6ECF5; border: 1px solid {color};"
-            "border-radius: 8px; padding: 10px 16px; font-size: 10pt;"
+            f"background: #26222A; color: #ECEAEF; border: 1px solid {color};"
+            "border-radius: 10px; padding: 10px 16px; font-size: 10pt;"
         )
         self.setText(text)
         self.adjustSize()

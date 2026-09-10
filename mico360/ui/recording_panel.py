@@ -64,7 +64,7 @@ class AudioVisualizer(QWidget):
             elif lv > 0.45:
                 col = QColor("#F59E0B")
             else:
-                col = QColor("#22C55E") if self._active else QColor("#33415C")
+                col = QColor("#22C55E") if self._active else QColor("#4A4550")
             p.setBrush(col)
             p.setPen(Qt.NoPen)
             p.drawRoundedRect(int(x), int(y), int(bw), int(bh), 2, 2)
