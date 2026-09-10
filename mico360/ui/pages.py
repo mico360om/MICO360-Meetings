@@ -50,6 +50,7 @@ class NewMeetingPage(QWidget):
         self._media_queue: list[str] = []
         self._worker = None
         self._current_id: int | None = None
+        self._loaded_from_history = False       # True while editing a record opened from History
         self._build()
         self.refresh_models()
         self.refresh_prompts()
@@ -647,9 +648,13 @@ class NewMeetingPage(QWidget):
     def _autosave(self):
         sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
         if not sig.strip("\x00"):
-            # Form was emptied — detach from the saved record so the NEXT meeting
-            # is stored separately instead of overwriting the previous one.
-            self._current_id = None
+            # Form emptied. For a brand-new meeting, detach from the saved record
+            # so the NEXT meeting is stored separately (never overwriting the
+            # previous one). For a meeting opened from History, keep the link so
+            # clearing and retyping still edits that same record rather than
+            # forking a duplicate.
+            if not self._loaded_from_history:
+                self._current_id = None
             self._autosave_sig = ""
             return
         if sig == self._autosave_sig:                # nothing changed
@@ -662,6 +667,7 @@ class NewMeetingPage(QWidget):
         if (self.transcript.toPlainText().strip() or self.minutes.toPlainText().strip()):
             self._autosave()                          # keep what's there
         self._current_id = None
+        self._loaded_from_history = False
         self._autosave_sig = ""
         self.transcript.clear()
         self.minutes.clear()
@@ -793,8 +799,12 @@ class NewMeetingPage(QWidget):
 
     def load_meeting(self, m: Meeting):
         self._current_id = m.id
+        self._loaded_from_history = True
         self.transcript.setPlainText(m.transcript)
         self.minutes.setPlainText(m.minutes)
+        # seed the autosave signature so opening a meeting doesn't trigger an
+        # immediate redundant re-save (which would bump its "Updated" time)
+        self._autosave_sig = m.transcript + "\x00" + m.minutes
         if m.style:
             self.style_box.setCurrentText(m.style)
         self.sec_transcript.set_expanded(bool(m.transcript))

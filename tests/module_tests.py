@@ -318,7 +318,7 @@ def main():
 
     def _workers():
         from mico360.ui import workers as w
-        for cls in ("TranscribeWorker", "GenerateWorker", "RecorderThread",
+        for cls in ("TranscribeWorker", "GenerateWorker", "EmailWorker",
                     "UpdateCheckWorker", "UpdateDownloadWorker", "ModelPullWorker", "ExportWorker"):
             assert hasattr(w, cls), cls
         return "7 worker classes"

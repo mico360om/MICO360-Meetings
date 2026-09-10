@@ -4,12 +4,9 @@ so the UI never blocks. Progress and results are delivered via Qt signals.
 from __future__ import annotations
 
 import logging
-import time
-from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
-from ..config import TMP_DIR
 from ..core.ollama_client import OllamaGenerator
 from ..core.transcription import TranscriptionEngine, TranscriptResult
 from ..core import updater
@@ -205,43 +202,4 @@ class UpdateDownloadWorker(QThread):
             self.failed.emit("Download cancelled.")
         except Exception as exc:
             log.exception("update download failed")
-            self.failed.emit(str(exc))
-
-
-class RecorderThread(QThread):
-    """Microphone recorder. Writes a 16 kHz mono WAV to the temp dir."""
-    level = Signal(float)               # 0..1 input level for a VU meter
-    elapsed = Signal(float)             # seconds
-    finished_ok = Signal(str)           # wav path
-    failed = Signal(str)
-
-    def __init__(self, samplerate: int = 16000):
-        super().__init__()
-        self.samplerate = samplerate
-        self._stop = False
-        self.out_path = str(TMP_DIR / f"recording_{int(time.time())}.wav")
-
-    def stop(self):
-        self._stop = True
-
-    def run(self):
-        try:
-            import numpy as np
-            import sounddevice as sd
-            import soundfile as sf
-
-            TMP_DIR.mkdir(parents=True, exist_ok=True)
-            start = time.time()
-            with sf.SoundFile(self.out_path, mode="w", samplerate=self.samplerate,
-                              channels=1, subtype="PCM_16") as f:
-                with sd.InputStream(samplerate=self.samplerate, channels=1,
-                                    dtype="float32", blocksize=2048) as stream:
-                    while not self._stop:
-                        data, _ = stream.read(2048)
-                        f.write(data)
-                        self.level.emit(float(min(1.0, float(np.abs(data).max()) * 1.5)))
-                        self.elapsed.emit(time.time() - start)
-            self.finished_ok.emit(self.out_path)
-        except Exception as exc:
-            log.exception("recording failed")
             self.failed.emit(str(exc))

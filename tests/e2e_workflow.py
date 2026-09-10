@@ -182,8 +182,25 @@ def main() -> int:
     check("Email config loads from settings", isinstance(cfg.configured, bool),
           f"configured={cfg.configured}")
 
+    # ---- Step 11: editing a loaded meeting by clearing keeps same record --
+    np_._new_meeting()
+    np_.transcript.setPlainText("loaded-edit marker LE1")
+    np_._autosave()
+    edit_id = np_._current_id
+    win._open_meeting(ctx.history.get(edit_id))    # loaded_from_history = True
+    np_.transcript.clear(); np_.minutes.clear()
+    for _ in range(2):
+        app.processEvents()
+    np_._autosave()                                # empty — must NOT detach (loaded)
+    np_.transcript.setPlainText("rewritten content LE2")
+    np_._autosave()
+    check("Clearing a loaded meeting edits same record (no fork)",
+          np_._current_id == edit_id
+          and ctx.history.get(edit_id).transcript.strip() == "rewritten content LE2",
+          f"edit_id={edit_id}, now={np_._current_id}")
+
     # cleanup test records
-    for mid in {saved_id, new_id}:
+    for mid in {saved_id, new_id, edit_id}:
         if mid:
             ctx.history.delete(mid)
 
