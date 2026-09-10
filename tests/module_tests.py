@@ -107,6 +107,21 @@ def main():
         return f"CPU transcribe {len(res.text)} chars"
     t("core.transcription", _transcription)
 
+    def _reassurance():
+        from mico360.core import transcription as T
+        assert isinstance(T.model_cached("base"), bool)
+        assert not T.model_cached("definitely-not-a-model-xyz")
+        assert "MB" in T.APPROX_SIZE["tiny"]
+        # the generation pipeline surfaces a cold-load reassurance in its first message
+        from mico360.core.generation import run_minutes_pipeline
+        msgs: list[str] = []
+        run_minutes_pipeline(lambda p, c: "ok", "m", "a short meeting transcript",
+                             "[TRANSCRIPT_HERE]", "Formal Minutes",
+                             progress=lambda f, s: msgs.append(s))
+        assert any("can take up to a minute" in m for m in msgs), msgs
+        return "whisper first-run detection + cold-load messaging"
+    t("core.reassurance", _reassurance)
+
     def _ollama():
         from mico360.core import ollama_client as oc
         st = oc.check_status()

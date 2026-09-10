@@ -48,7 +48,8 @@ def run_minutes_pipeline(
     # --- Single-pass for short transcripts ---
     if len(chunks) <= 1:
         if progress:
-            progress(0.15, f"Generating {style} with {model}…")
+            progress(0.15, f"Generating {style} with {model} — the first request can take up to "
+                           "a minute while the model loads…")
         prompt = prompts.build_generation_prompt(template, style, cleaned)
         result = chat(prompt, cancel)
         if progress:
@@ -60,7 +61,8 @@ def run_minutes_pipeline(
     n = len(chunks)
     for i, ch in enumerate(chunks, start=1):
         if progress:
-            progress(0.1 + 0.7 * (i - 1) / n, f"Analyzing part {i} of {n}…")
+            note = " (the first request can take up to a minute)" if i == 1 else ""
+            progress(0.1 + 0.7 * (i - 1) / n, f"Analyzing part {i} of {n}…{note}")
         p = prompts.CHUNK_SUMMARY_PROMPT.format(idx=i, total=n).replace(
             prompts.TRANSCRIPT_TOKEN, ch
         )

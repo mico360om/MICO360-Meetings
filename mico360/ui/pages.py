@@ -723,6 +723,15 @@ class NewMeetingPage(QWidget):
             self.toast.show_message("No media files queued.", "warn")
             return
         self._set_transcribe_enabled(False)           # prevent a second, interleaved run
+        # First-run reassurance: the Whisper model downloads once on first use.
+        from ..core import transcription as _T
+        size = self.ctx.settings.get("whisper_model", "base")
+        if not _T.model_cached(size):
+            approx = _T.APPROX_SIZE.get(size, "a few hundred MB")
+            self.toast.show_message(
+                f"First run: downloading the Whisper ‘{size}’ model (~{approx}). This happens "
+                "once and can take a minute — you can Cancel any time.", "info", 9000)
+        self.cancel_btn.setVisible(True)              # keep Cancel prominent during the wait
         self._media_total = len(self._media_queue)
         self._media_done = 0
         self._busy(True, "Starting transcription…")
@@ -735,6 +744,7 @@ class NewMeetingPage(QWidget):
                 self._auto_generate = False
                 self._generate()
             else:
+                self.cancel_btn.setVisible(False)
                 self._busy(False)
                 self.toast.show_message("Transcription complete.", "success")
             return

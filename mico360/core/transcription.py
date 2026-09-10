@@ -26,6 +26,26 @@ WHISPER_MODELS = [
     ("Large-v3 (~3 GB, best)", "large-v3"),
 ]
 
+# Approximate one-time download size per model, for first-run reassurance.
+APPROX_SIZE = {
+    "tiny": "75 MB", "base": "145 MB", "small": "480 MB",
+    "medium": "1.5 GB", "large-v3": "3 GB", "large": "3 GB",
+}
+
+
+def model_cached(size: str) -> bool:
+    """Whether the faster-whisper model for `size` is already downloaded locally
+    (so we can tell a first-run download from a fast warm load)."""
+    try:
+        if not MODELS_DIR.exists():
+            return False
+        for d in MODELS_DIR.iterdir():
+            if d.is_dir() and size in d.name and next(d.rglob("*.bin"), None):
+                return True
+    except Exception:
+        pass
+    return False
+
 
 @dataclass
 class Segment:
@@ -92,7 +112,12 @@ class TranscriptionEngine:
         if self._model is not None and self._loaded_key == self._key():
             return
         if progress:
-            progress(0.02, f"Loading Whisper '{self.model_size}' model…")
+            if model_cached(self.model_size):
+                progress(0.02, f"Loading the Whisper '{self.model_size}' model…")
+            else:
+                approx = APPROX_SIZE.get(self.model_size, "a few hundred MB")
+                progress(0.02, f"Downloading the Whisper '{self.model_size}' model "
+                               f"(~{approx}, first run — this can take a minute)…")
 
         # Device selection is conservative: "auto" means CPU. GPU (CUDA) needs
         # the cuBLAS/cuDNN runtime DLLs which we do NOT bundle, so auto-selecting
