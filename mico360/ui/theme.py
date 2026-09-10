@@ -201,15 +201,18 @@ QToolTip {{ background: {surface2}; color: {text}; border: {bw} solid {border}; 
 QSplitter::handle {{ background: {border}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
 
-/* ---- Wizard stepper ----------------------------------------------------- */
-#StepChip {{ background: transparent; border: {bw} solid transparent; border-radius: {r_pill};
-            padding: 6px 10px; color: {muted}; font-weight: 600; font-size: 10pt; }}
-#StepChip:hover {{ color: {text}; background: {surface2}; }}
-#StepChip:checked {{ background: {accent}; color: {accent_text}; }}
-#StepChip:disabled {{ color: {muted}; background: transparent; }}
-#StepChip[done="true"] {{ color: {accent}; background: {surface2}; }}
-#StepSep {{ color: {muted}; font-size: 10pt; }}
+/* ---- Wizard progress stepper -------------------------------------------- */
+#StepNum {{ border: 2px solid {border}; border-radius: 13px; background: {surface};
+           color: {muted}; font-weight: 700; font-size: 10pt; }}
+#StepNum[state="active"] {{ border-color: {accent}; color: {accent}; background: {surface}; }}
+#StepNum[state="done"] {{ border-color: {accent}; color: {accent_text}; background: {accent}; }}
+#StepLabel {{ color: {muted}; font-weight: 600; font-size: 10pt; }}
+#StepLabel[state="active"] {{ color: {text}; }}
+#StepLabel[state="done"] {{ color: {accent}; }}
+#StepConn {{ background: {border}; border: none; border-radius: 1px; }}
+#StepConn[on="true"] {{ background: {accent}; }}
 #StepHeader {{ font-size: {fs_section}; font-weight: 700; color: {text}; }}
+#ReviewGroup {{ color: {accent}; font-size: {fs_small}; font-weight: 700; }}
 #ReviewVal {{ color: {text}; font-weight: 600; }}
 
 /* ---- Empty states ------------------------------------------------------- */

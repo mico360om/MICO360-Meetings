@@ -21,7 +21,8 @@ from ..core.prompts import OUTPUT_STYLES, SavedPrompt
 from ..core.transcription import WHISPER_MODELS
 from . import metrics as M
 from .components import (
-    Card, CollapsibleSection, DropArea, EmptyState, hint, section_title, subtitle, tip,
+    Card, CollapsibleSection, DropArea, EmptyState, StepIndicator, hint,
+    section_title, subtitle, tip,
 )
 from .context import AppContext
 from .dialogs import ProfileDialog, PromptDialog
@@ -126,17 +127,9 @@ class NewMeetingPage(QWidget):
 
     # -- wizard shell -------------------------------------------------------
     def _build_stepper(self) -> QWidget:
-        w = QWidget()
-        row = QHBoxLayout(w); row.setContentsMargins(0, 0, 0, 2); row.setSpacing(4)
-        self._step_chips = []
-        for i, name in enumerate(self.STEP_TITLES):
-            chip = QPushButton(f"{i + 1} {name}"); chip.setObjectName("StepChip")
-            chip.setCheckable(True); chip.setCursor(Qt.PointingHandCursor)
-            chip.clicked.connect(lambda _=False, idx=i: self._goto_step(idx))
-            tip(chip, f"Step {i + 1}: {name}")
-            self._step_chips.append(chip); row.addWidget(chip)
-        row.addStretch()
-        return w
+        self.stepper = StepIndicator(self.STEP_TITLES)
+        self.stepper.stepClicked.connect(self._goto_step)
+        return self.stepper
 
     def _build_footer(self) -> QHBoxLayout:
         f = QHBoxLayout()
@@ -173,11 +166,7 @@ class NewMeetingPage(QWidget):
 
     def _update_stepper(self):
         i = self.wizard.currentIndex()
-        for idx, chip in enumerate(self._step_chips):
-            chip.setChecked(idx == i)
-            chip.setProperty("done", idx < i)
-            chip.setEnabled(idx <= self._reached)
-            chip.style().unpolish(chip); chip.style().polish(chip)
+        self.stepper.set_state(i, self._reached)
         self.back_btn.setVisible(i > 0)
         self.next_btn.setVisible(i in (self.STEP_SOURCE, self.STEP_TRANSCRIPT, self.STEP_SETUP))
         self.generate_btn.setVisible(i == self.STEP_REVIEW)
@@ -302,19 +291,33 @@ class NewMeetingPage(QWidget):
         return panel, lay
 
     def _step_review(self) -> QWidget:
-        card, lay = self._card("Review")
-        lay.addWidget(hint("Check the details below, then click “Create meeting” to transcribe "
+        card, lay = self._card("Review & create")
+        lay.addWidget(hint("Check everything below, then click “Create meeting” to transcribe "
                            "(if needed) and generate the minutes."))
-        grid = QGridLayout(); grid.setHorizontalSpacing(18); grid.setVerticalSpacing(9)
+        # Grouped for scannability. (display label, storage key) — keys are kept
+        # stable because _refresh_review and tests look them up by key.
         self._review_vals: dict[str, QLabel] = {}
-        for r, name in enumerate(("Title", "Date / time", "Attendees", "Source",
-                                  "Transcript", "AI mode", "Model", "Style", "Prompt")):
-            k = QLabel(name); k.setObjectName("Hint")
-            val = QLabel("—"); val.setObjectName("ReviewVal"); val.setWordWrap(True)
-            grid.addWidget(k, r, 0, Qt.AlignTop); grid.addWidget(val, r, 1)
-            self._review_vals[name] = val
-        grid.setColumnStretch(1, 1)
-        lay.addLayout(grid)
+        groups = [
+            ("Meeting", [("Title", "Title"), ("Date / time", "Date / time"),
+                         ("Attendees", "Attendees")]),
+            ("Source", [("Source", "Source"), ("Transcript", "Transcript")]),
+            ("AI settings", [("Mode", "AI mode"), ("Model", "Model"),
+                             ("Style", "Style"), ("Prompt", "Prompt")]),
+        ]
+        for gi, (gname, rows) in enumerate(groups):
+            sub = QLabel(gname.upper()); sub.setObjectName("ReviewGroup")
+            if gi:
+                sub.setContentsMargins(0, M.SM, 0, 0)
+            lay.addWidget(sub)
+            grid = QGridLayout(); grid.setHorizontalSpacing(M.LG); grid.setVerticalSpacing(M.SM)
+            for r, (disp, key) in enumerate(rows):
+                k = QLabel(disp); k.setObjectName("Hint")
+                val = QLabel("—"); val.setObjectName("ReviewVal"); val.setWordWrap(True)
+                grid.addWidget(k, r, 0, Qt.AlignTop); grid.addWidget(val, r, 1)
+                self._review_vals[key] = val
+            grid.setColumnStretch(1, 1)
+            grid.setColumnMinimumWidth(0, 130)
+            lay.addLayout(grid)
         lay.addStretch()
         return card
 

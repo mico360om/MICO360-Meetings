@@ -84,6 +84,74 @@ class CollapsibleSection(QFrame):
         self.content.addLayout(layout)
 
 
+class _StepItem(QWidget):
+    """A clickable badge+label pair inside the wizard StepIndicator."""
+    clicked = Signal(int)
+
+    def __init__(self, index: int):
+        super().__init__()
+        self._i = index
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mousePressEvent(self, e):     # the whole item (badge + label) navigates
+        self.clicked.emit(self._i)
+
+
+class StepIndicator(QWidget):
+    """A horizontal progress stepper: numbered circular badges joined by a
+    progress line. Each step is done (✓), active, or upcoming, and clickable.
+
+    States are driven by set_state(current, reached); clicks emit stepClicked.
+    """
+    stepClicked = Signal(int)
+
+    def __init__(self, titles: list[str], parent=None):
+        super().__init__(parent)
+        self._badges: list[QLabel] = []
+        self._labels: list[QLabel] = []
+        self._conns: list[QFrame] = []
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, M.XS)
+        row.setSpacing(0)
+        for i, name in enumerate(titles):
+            item = _StepItem(i)
+            item.clicked.connect(self.stepClicked)
+            il = QHBoxLayout(item)
+            il.setContentsMargins(0, 0, 0, 0)
+            il.setSpacing(M.SM)
+            badge = QLabel(str(i + 1))
+            badge.setObjectName("StepNum")
+            badge.setAlignment(Qt.AlignCenter)
+            badge.setFixedSize(26, 26)
+            lbl = QLabel(name)
+            lbl.setObjectName("StepLabel")
+            il.addWidget(badge)
+            il.addWidget(lbl)
+            self._badges.append(badge)
+            self._labels.append(lbl)
+            row.addWidget(item)
+            if i < len(titles) - 1:
+                conn = QFrame()
+                conn.setObjectName("StepConn")
+                conn.setFixedHeight(2)
+                conn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+                self._conns.append(conn)
+                row.addWidget(conn, 1)
+
+    def set_state(self, current: int, reached: int):
+        for i, (badge, label) in enumerate(zip(self._badges, self._labels)):
+            state = "done" if i < current else ("active" if i == current else "todo")
+            badge.setText("✓" if i < current else str(i + 1))
+            for w in (badge, label):
+                w.setProperty("state", state)
+                w.style().unpolish(w)
+                w.style().polish(w)
+        for i, conn in enumerate(self._conns):
+            conn.setProperty("on", "true" if i < current else "false")
+            conn.style().unpolish(conn)
+            conn.style().polish(conn)
+
+
 class EmptyState(QWidget):
     """A centred placeholder shown when a list/table has nothing to display —
     an icon, a title and an optional one-line description, updatable via set()."""

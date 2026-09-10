@@ -376,6 +376,10 @@ def main():
         # Review populated; footer swaps Next -> Create
         assert "words" in np_._review_vals["Transcript"].text()
         assert np_.next_btn.isHidden() and not np_.generate_btn.isHidden()
+        # progress stepper: completed steps show a check, current is active
+        assert np_.stepper._badges[0].text() == "✓"
+        assert np_.stepper._badges[np_.STEP_REVIEW].property("state") == "active"
+        assert np_.stepper._badges[np_.STEP_MINUTES].property("state") == "todo"
         np_._back(); assert np_.wizard.currentIndex() == np_.STEP_SETUP
         np_.transcript.clear(); np_._reached = 0; np_._goto_step(0)
         return "5 steps + validation + next/back + review"
