@@ -416,6 +416,40 @@ def main():
         return "History + Action Items empty/populated toggle"
     t("ui.empty_states", _empty_states)
 
+    def _history_features():
+        from mico360.core.history import Meeting
+        hp = win.history_page
+        orig = ctx.history.list
+        data = [
+            Meeting(1, "Complete one", 0, 300, style="Formal", model="llama3.1",
+                    transcript="t", minutes="# M\nbody"),
+            Meeting(2, "Draft one", 0, 200, transcript="only transcript", minutes=""),
+            Meeting(3, "Empty one", 0, 100, transcript="", minutes=""),
+        ]
+        try:
+            ctx.history.list = lambda q="", limit=500: list(data)
+            # status classification
+            assert hp._status_of(data[0]) == "Complete"
+            assert hp._status_of(data[1]) == "Draft"
+            assert hp._status_of(data[2]) == "Empty"
+            # 5 sortable columns; newest-first default
+            hp.status_filter.setCurrentText("All statuses"); hp.reload()
+            assert hp.table.columnCount() == 5 and hp.table.isSortingEnabled()
+            assert hp.table.rowCount() == 3 and "3 meetings" in hp.count_lbl.text()
+            # status filter narrows the list
+            hp.status_filter.setCurrentText("Draft"); hp.reload()
+            assert hp.table.rowCount() == 1 and "filtered" in hp.count_lbl.text()
+            assert hp._selected_meeting().id == 2
+            # single-click preview reflects the selected meeting
+            hp.status_filter.setCurrentText("All statuses"); hp.reload()
+            hp.table.selectRow(0); hp._update_preview()
+            assert hp.pv_title.text() and "Select a meeting" not in hp.pv_title.text()
+        finally:
+            hp.status_filter.setCurrentText("All statuses")
+            ctx.history.list = orig; hp.reload()
+        return "sortable cols + status filter + preview + status badges"
+    t("ui.history_features", _history_features)
+
     def _save_indicator():
         np_ = win.new_page
         np_.transcript.clear(); np_.minutes.clear()
