@@ -365,23 +365,17 @@ class NewMeetingPage(QWidget):
         list_bar.addWidget(self.remove_btn)
         list_bar.addWidget(self.clear_btn)
 
-        # Secondary: transcribe only (for reviewing/editing the transcript first).
-        self.transcribe_btn = QPushButton("Transcribe only")
-        self.transcribe_btn.setObjectName("Ghost")
+        # Transcribe the queued media to text; then continue through the wizard
+        # (review the transcript → Setup → Review → "Create meeting" generates).
+        self.transcribe_btn = QPushButton("✨  Transcribe")
+        self.transcribe_btn.setObjectName("Primary")
         self.transcribe_btn.clicked.connect(self._start_transcription)
         self.transcribe_btn.setEnabled(False)
-        tip(self.transcribe_btn, "Transcribe the queued media to text only, so you can review and "
-                                 "edit it before generating. Offline Whisper — first run downloads "
-                                 "the model (internet needed once)")
-        # Primary happy-path: transcribe, then generate minutes in one click.
-        self.tg_btn = QPushButton("✨  Transcribe & generate minutes")
-        self.tg_btn.setObjectName("Primary")
-        self.tg_btn.clicked.connect(self._transcribe_and_generate)
-        self.tg_btn.setEnabled(False)
-        tip(self.tg_btn, "One click: transcribe the queued media and then generate minutes using "
-                         "the model, style and prompt selected in Step 3 — the whole flow in one go")
+        tip(self.transcribe_btn, "Transcribe the queued media to text, so you can review and edit it "
+                                 "before generating minutes. Offline Whisper — first run downloads "
+                                 "the model (internet needed once). Then click Next to continue")
         cta = QHBoxLayout(); cta.addStretch()
-        cta.addWidget(self.transcribe_btn); cta.addWidget(self.tg_btn)
+        cta.addWidget(self.transcribe_btn)
         upl.addWidget(self.drop)
         upl.addWidget(hint("Documents are read instantly into the transcript; audio/video are transcribed with Whisper. "
                            "Recordings also appear here."))
@@ -403,9 +397,8 @@ class NewMeetingPage(QWidget):
 
     # -- queue management ---------------------------------------------------
     def _set_transcribe_enabled(self, on: bool):
-        """Enable/disable both source-action buttons together."""
+        """Enable/disable the Transcribe action (has media queued)."""
         self.transcribe_btn.setEnabled(on)
-        self.tg_btn.setEnabled(on)
 
     def _add_queue_item(self, path: str, label: str, is_media: bool):
         it = QListWidgetItem(label)
@@ -433,7 +426,7 @@ class NewMeetingPage(QWidget):
         self._media_queue.append(path)
         self._add_queue_item(path, f"⏺  {Path(path).name}  (recorded)", True)
         self.source_tabs.setCurrentIndex(0)   # show the queue + action buttons
-        self.toast.show_message("Recording added — click ‘Transcribe & generate minutes’.",
+        self.toast.show_message("Recording added — click ‘Transcribe’ to continue.",
                                 "success", 5000)
 
     def _step2_transcript(self) -> QWidget:

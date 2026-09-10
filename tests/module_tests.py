@@ -307,9 +307,9 @@ def main():
     def _one_click():
         np_ = win.new_page
         np_._set_transcribe_enabled(True)
-        assert np_.tg_btn.isEnabled() and np_.transcribe_btn.isEnabled()
+        assert np_.transcribe_btn.isEnabled()
         np_._set_transcribe_enabled(False)
-        assert not np_.tg_btn.isEnabled() and not np_.transcribe_btn.isEnabled()
+        assert not np_.transcribe_btn.isEnabled()
         called = {}
         orig_start, orig_gen = np_._start_transcription, np_._generate
         np_._start_transcription = lambda: called.setdefault("start", True)
