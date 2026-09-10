@@ -101,6 +101,11 @@ QLabel#Muted, #Hint {{ color: {muted}; font-size: {fs_hint}; }}
 
 /* ---- Cards / collapsible sections --------------------------------------- */
 #Card {{ background: {surface}; border: {bw} solid {border}; border-radius: {r_lg}; }}
+#CardActive {{ background: {surface}; border: 2px solid {accent}; border-radius: {r_lg}; }}
+#ProfileName {{ font-size: {fs_section}; font-weight: 700; color: {text}; }}
+#ActiveBadge {{ color: {success}; font-weight: 700; font-size: {fs_small}; }}
+#LogoThumb {{ background: {surface2}; border: {bw} solid {border}; border-radius: {r_md};
+             color: {accent_text}; font-weight: 800; font-size: 16pt; }}
 QToolButton#SectionHeader {{
     border: none; background: transparent; color: {text};
     font-size: {fs_section}; font-weight: 700; text-align: left; padding: 12px 8px;

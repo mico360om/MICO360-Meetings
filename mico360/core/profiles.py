@@ -78,6 +78,14 @@ class ProfileStore:
             return CompanyProfile.from_dict(json.loads(f.read_text(encoding="utf-8")))
         return None
 
+    def updated_at(self, profile_id: str) -> float:
+        """Last-modified time of a profile (its JSON file's mtime), or 0."""
+        f = self.dir / f"{profile_id}.json"
+        try:
+            return f.stat().st_mtime if f.exists() else 0.0
+        except Exception:
+            return 0.0
+
     def save(self, profile: CompanyProfile) -> CompanyProfile:
         if not (profile.name or "").strip():
             profile.name = "Company"            # never persist a blank company name
