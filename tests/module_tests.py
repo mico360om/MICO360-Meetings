@@ -127,6 +127,15 @@ def main():
         st = oc.check_status()
         assert isinstance(st.models, list)
         assert oc.RECOMMENDED_MODELS and callable(oc.pull_model)
+        # text-model filter: vision/embedding models are hidden, text models kept
+        u = oc.usable_for_text
+        assert u("llama3.1:latest", {"family": "llama"})
+        assert u("qwen2.5:3b", {"families": ["qwen2"]})
+        assert not u("llama3.2-vision:11b", {"families": ["mllama", "clip"]})
+        assert not u("llava:7b", {"family": "llava"})
+        assert not u("nomic-embed-text", {"family": "nomic-bert"})
+        assert not u("mxbai-embed-large", None)      # name hint, no details
+        assert u("mistral", None)                     # unknown details → keep
         return f"ollama running={st.running} models={len(st.models)}"
     t("core.ollama_client", _ollama)
 

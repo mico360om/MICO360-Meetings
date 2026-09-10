@@ -1088,8 +1088,33 @@ class NewMeetingPage(QWidget):
         # allow retrying the remaining transcription queue after a failure
         self._set_transcribe_enabled(bool(self._media_queue))
         if msg and "cancel" not in msg.lower():
+            friendly = self._explain_ai_error(msg)
+            if friendly:
+                title, body, short = friendly
+                QMessageBox.warning(self, title, body)
+                self.toast.show_message(short, "error", 6000)
+                return
             QMessageBox.critical(self, "Error", msg)
         self.toast.show_message(msg or "Failed.", "error", 5000)
+
+    def _explain_ai_error(self, msg: str):
+        """Turn a raw Ollama/model failure into a clear, actionable message.
+        Returns (title, body, short) or None to fall back to the raw error."""
+        low = msg.lower()
+        model = self.model_box.currentText().strip()
+        if "unknown model architecture" in low or "error loading model" in low:
+            body = (f"Ollama couldn't load the model “{model}”.\n\n"
+                    "This model can't write minutes — it's most likely a vision or "
+                    "embedding model, or your Ollama version is too old to run it.\n\n"
+                    "What to do:\n"
+                    "•  In Step 3 (Setup), pick a text model such as “llama3.1”.\n"
+                    "•  If you don't have one, open Settings → Install Required Model and "
+                    "download Llama 3.1.\n"
+                    "•  Or update Ollama from ollama.com/download, then: ollama pull llama3.1\n\n"
+                    f"Details: {msg}")
+            return ("Incompatible AI model", body,
+                    "That model can't generate minutes — pick a text model like llama3.1.")
+        return None
 
     def _busy(self, on: bool, msg: str = ""):
         self.progress.setVisible(on)

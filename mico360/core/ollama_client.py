@@ -55,14 +55,49 @@ def pull_model(host: str, model: str, progress=None, cancel=None) -> None:
             progress(frac, status, completed, total)
 
 
+# Model families/names that cannot write text minutes, so we hide them from the
+# picker: vision/multimodal (e.g. llama3.2-vision → 'mllama'/'clip') and
+# embedding models. Offering these leads to Ollama load errors like
+# "unknown model architecture: 'mllama'".
+_VISION_FAMILIES = {"clip", "mllama", "llava", "qwen2vl", "qwen2.5vl", "mllama4"}
+_EMBED_FAMILIES = {"bert", "nomic-bert", "gte", "stella", "jina-bert"}
+_VISION_NAME_HINTS = ("vision", "llava", "-vl", "minicpm-v", "moondream", "bakllava")
+_EMBED_NAME_HINTS = ("embed", "nomic-embed", "mxbai", "bge-", "all-minilm", "snowflake-arctic-embed")
+
+
+def usable_for_text(name: str, details: dict | None) -> bool:
+    """True if an Ollama model can generate text (not vision-only / embedding)."""
+    try:
+        fams = set()
+        d = details or {}
+        fam = d.get("family") if hasattr(d, "get") else None
+        if fam:
+            fams.add(str(fam).lower())
+        for f in (d.get("families") if hasattr(d, "get") else None) or []:
+            if f:
+                fams.add(str(f).lower())
+        low = (name or "").lower()
+        if fams & _VISION_FAMILIES or any(h in low for h in _VISION_NAME_HINTS):
+            return False
+        if fams & _EMBED_FAMILIES or any(h in low for h in _EMBED_NAME_HINTS):
+            return False
+        return True
+    except Exception:                       # never hide a model on a shape surprise
+        return True
+
+
 def check_status(host: str = "http://127.0.0.1:11434") -> OllamaStatus:
-    """Return whether the Ollama server is reachable and which models exist."""
+    """Return whether the Ollama server is reachable and which usable text
+    models exist. Vision-only and embedding models are filtered out because
+    they cannot produce minutes."""
     try:
         resp = _client(host).list()
         models = []
         for m in resp.get("models", []):
             name = m.get("model") or m.get("name")
-            if name:
+            if not name:
+                continue
+            if usable_for_text(name, m.get("details")):
                 models.append(name)
         return OllamaStatus(running=True, models=sorted(models))
     except Exception as exc:
