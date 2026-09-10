@@ -63,6 +63,7 @@ class NewMeetingPage(QWidget):
         self._current_id: int | None = None
         self._loaded_from_history = False       # True while editing a record opened from History
         self._auto_generate = False             # chain generation after a one-click transcription
+        self._last_saved_at = None              # timestamp of the last History save (for the indicator)
         # Wired by MainWindow so the readiness banner's actions can navigate.
         self.on_open_settings = None            # callable() -> open the Settings page
         self.on_install_model = None            # callable() -> Settings + focus the installer
@@ -547,6 +548,9 @@ class NewMeetingPage(QWidget):
 
         row = QHBoxLayout()
         self.minutes_count = QLabel(""); self.minutes_count.setObjectName("Hint")
+        self.save_status = QLabel(""); self.save_status.setObjectName("Hint")
+        tip(self.save_status, "Your work autosaves to History every 20 seconds — this shows when "
+                              "it was last saved")
         self.copy_btn = QPushButton("Copy"); self.copy_btn.clicked.connect(self._copy)
         tip(self.copy_btn, "Copy the minutes with formatting — pastes styled into Word/Outlook, "
                            "plain into text editors (Ctrl+Shift+C)")
@@ -560,7 +564,7 @@ class NewMeetingPage(QWidget):
         self.export_btn.clicked.connect(self._export)
         tip(self.export_btn, "Save as Word, PDF, text, Markdown or HTML (Ctrl+E). Uses the active "
                              "Company Profile for logo, footer and page numbers")
-        row.addWidget(self.minutes_count)
+        row.addWidget(self.minutes_count); row.addWidget(self.save_status)
         row.addWidget(self.copy_btn); row.addWidget(self.save_btn)
         row.addStretch(); row.addWidget(self.email_btn); row.addWidget(self.export_btn)
         lay.addLayout(row)
@@ -660,10 +664,12 @@ class NewMeetingPage(QWidget):
     def _update_counts(self):
         words = len(self.transcript.toPlainText().split())
         self.transcript_count.setText(f"{words:,} words")
+        self._update_save_indicator()
 
     def _update_minutes_status(self):
         words = len(self.minutes.toPlainText().split())
         self.minutes_count.setText(f"{words:,} words" if words else "")
+        self._update_save_indicator()
 
     # -- file handling ------------------------------------------------------
     def _add_file(self, path: str):
@@ -881,9 +887,34 @@ class NewMeetingPage(QWidget):
             minutes=self.minutes.toPlainText(),
         )
         self._current_id = self.ctx.history.save(m)
+        import time
+        self._autosave_sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
+        self._last_saved_at = time.time()
+        self._update_save_indicator()
         if not silent:
             self.toast.show_message("Saved to history.", "success")
         return self._current_id
+
+    # -- save-state indicator ----------------------------------------------
+    def _is_dirty(self) -> bool:
+        sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
+        return bool(sig.strip("\x00")) and sig != getattr(self, "_autosave_sig", "")
+
+    def _update_save_indicator(self):
+        if not hasattr(self, "save_status"):
+            return
+        if self._is_dirty():
+            self.save_status.setText("● Unsaved changes")
+            self.save_status.setStyleSheet("color:#F59E0B;")          # amber
+        elif getattr(self, "_last_saved_at", None):
+            import time
+            ago = time.time() - self._last_saved_at
+            when = ("just now" if ago < 45 else f"{int(ago // 60)}m ago" if ago < 3600
+                    else "over an hour ago")
+            self.save_status.setText(f"✓ Saved · {when}")
+            self.save_status.setStyleSheet("color:#22C55E;")          # green
+        else:
+            self.save_status.setText("")
 
     # -- autosave -----------------------------------------------------------
     def _setup_autosave(self):
@@ -893,6 +924,7 @@ class NewMeetingPage(QWidget):
         self._autosave_timer.start()
 
     def _autosave(self):
+        self._update_save_indicator()                # keep the relative time fresh
         sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
         if not sig.strip("\x00"):
             # Form emptied. For a brand-new meeting, detach from the saved record
