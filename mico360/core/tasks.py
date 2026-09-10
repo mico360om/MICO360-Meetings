@@ -118,6 +118,15 @@ class ActionItemStore:
         item.status = status
         self._save()
 
+    def drop_meeting(self, meeting_id: int) -> None:
+        """Remove any status overrides belonging to a deleted meeting."""
+        prefix = f"{meeting_id}:"
+        removed = [k for k in self._overrides if k.startswith(prefix)]
+        for k in removed:
+            del self._overrides[k]
+        if removed:
+            self._save()
+
     def cycle_status(self, item: ActionItem) -> str:
         cur = item.status if item.status in STATUS_CYCLE else "Pending"
         nxt = STATUS_CYCLE[(STATUS_CYCLE.index(cur) + 1) % len(STATUS_CYCLE)]

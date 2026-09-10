@@ -494,10 +494,13 @@ class NewMeetingPage(QWidget):
         self._media_queue = ordered
 
     def _start_transcription(self):
+        if getattr(self, "_worker", None) and self._worker.isRunning():
+            return                                    # already transcribing — ignore re-click
         self._sync_queue_from_list()
         if not self._media_queue:
             self.toast.show_message("No media files queued.", "warn")
             return
+        self.transcribe_btn.setEnabled(False)         # prevent a second, interleaved run
         self._media_total = len(self._media_queue)
         self._media_done = 0
         self._busy(True, "Starting transcription…")
@@ -728,8 +731,7 @@ class NewMeetingPage(QWidget):
         from .dialogs import EmailComposeDialog
         title = self._guess_title()
         prefill_to = ""  # attendee names aren't emails; leave blank
-        body = ("Hi,\n\nPlease find the minutes for our meeting below"
-                + (" (also attached)." if True else ".") + "\n\n"
+        body = ("Hi,\n\nPlease find the minutes for our meeting below.\n\n"
                 + md.replace("**", "") + "\n\n— Sent from MICO360 Meetings")
         dlg = EmailComposeDialog(f"Meeting Minutes — {title}", body, prefill_to, self)
         if not dlg.exec():
@@ -775,6 +777,8 @@ class NewMeetingPage(QWidget):
     def _on_failed(self, msg: str):
         self._busy(False)
         self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
+        # allow retrying the remaining transcription queue after a failure
+        self.transcribe_btn.setEnabled(bool(self._media_queue))
         if msg and "cancel" not in msg.lower():
             QMessageBox.critical(self, "Error", msg)
         self.toast.show_message(msg or "Failed.", "error", 5000)
@@ -866,6 +870,7 @@ class HistoryPage(QWidget):
             return
         if QMessageBox.question(self, "Delete", f"Delete '{m.title}'?") == QMessageBox.Yes:
             self.ctx.history.delete(m.id)
+            self.ctx.action_items.drop_meeting(m.id)   # purge orphaned status overrides
             self.reload()
             self.toast.show_message("Deleted.", "success")
 

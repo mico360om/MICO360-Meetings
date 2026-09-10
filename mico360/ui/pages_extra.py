@@ -336,8 +336,11 @@ class ActionItemsPage(QWidget):
                     cell.setForeground(QColor(_STATUS_COLOR.get(it.status, "#E6ECF5")))
                 self.table.setItem(r, c, cell)
         done = sum(1 for i in self._items if i.status == "Done")
+        cancelled = sum(1 for i in self._items if i.status == "Cancelled")
+        open_ = len(self._items) - done - cancelled     # Cancelled is not "open"
+        cancelled_txt = f" · {cancelled} cancelled" if cancelled else ""
         self.summary.setText(f"{len(self._items)} action item(s) · {done} done · "
-                             f"{len(self._items) - done} open  ·  double-click Status to change")
+                             f"{open_} open{cancelled_txt}  ·  double-click Status to change")
 
     def _on_double_click(self, row, col):
         if not (0 <= row < len(self._items)):
