@@ -351,6 +351,17 @@ def main():
         return "5 steps + validation + next/back + review"
     t("ui.wizard", _wizard)
 
+    def _preview_default():
+        np_ = win.new_page
+        np_.minutes_tabs.setCurrentIndex(0)                 # start on raw Edit
+        np_.minutes.setPlainText("# Minutes\n\n- point one")
+        np_._show_minutes_preview()
+        assert np_.minutes_tabs.tabText(np_.minutes_tabs.currentIndex()) == "Preview"
+        assert np_.minutes_preview.toHtml().strip()
+        np_.minutes.clear(); np_.minutes_tabs.setCurrentIndex(0)
+        return "minutes default to formatted Preview"
+    t("ui.minutes_preview_default", _preview_default)
+
     def _empty_states():
         from mico360.core.history import Meeting
         hp, ap = win.history_page, win.actions_page

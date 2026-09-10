@@ -855,10 +855,12 @@ class NewMeetingPage(QWidget):
         # History record is findable — the user can rename it on this step.
         if not self.meeting_title.text().strip():
             self.meeting_title.setText(self.meet_title.text().strip() or self._guess_title())
-        # "Create meeting" saves the result and lands on the final Minutes step.
+        # "Create meeting" saves the result and lands on the final Minutes step,
+        # showing the formatted Preview first.
         self._save_history(silent=True)
         self._reached = self.STEP_MINUTES
         self._goto_step(self.STEP_MINUTES)
+        self._show_minutes_preview()
         self.toast.show_message("Minutes generated and saved to History.", "success")
 
     def _cancel(self):
@@ -874,6 +876,12 @@ class NewMeetingPage(QWidget):
             md = self.minutes.toPlainText()
             self.minutes_preview.setHtml(render_fragment(md) if md.strip()
                                          else "<p style='color:#888'>Nothing to preview yet.</p>")
+
+    def _show_minutes_preview(self):
+        """Open the formatted Preview tab (so readers see nicely formatted minutes
+        first, not raw Markdown) and make sure it's rendered."""
+        self.minutes_tabs.setCurrentIndex(1)      # 0 = Edit, 1 = Preview
+        self._on_minutes_tab(1)
 
     def _copy(self):
         txt = self.minutes.toPlainText()
@@ -1114,6 +1122,8 @@ class NewMeetingPage(QWidget):
         # already has them, otherwise on the Transcript step to continue.
         self._reached = len(self.STEP_TITLES) - 1
         self._goto_step(self.STEP_MINUTES if m.minutes else self.STEP_TRANSCRIPT)
+        if m.minutes:
+            self._show_minutes_preview()
         self.toast.show_message(f"Loaded: {m.title}", "info")
 
 
