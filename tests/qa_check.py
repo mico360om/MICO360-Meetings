@@ -136,8 +136,8 @@ def main() -> int:
     # --- help/about/terms/privacy + email ---
     from PySide6.QtWidgets import QTextBrowser
     help_html = " ".join(b.toHtml() for b in win.help_page.findChildren(QTextBrowser))
-    check("Help/About/Terms/Privacy tabs present",
-          win.help_page.findChild(QTabWidget).count() == 4)
+    check("Help/About/Shortcuts/Terms/Privacy tabs present",
+          win.help_page.findChild(QTabWidget).count() == 5)
     check("Support email info@mico360.com shown", "info@mico360.com" in help_html)
 
     # --- updates page fields ---

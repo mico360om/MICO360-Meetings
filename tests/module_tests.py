@@ -410,13 +410,33 @@ def main():
         return "inline status dropdown + change"
     t("ui.action_status_dropdown", _action_status_dropdown)
 
+    def _editable_title():
+        np_ = win.new_page
+        np_.transcript.clear(); np_.minutes.clear(); np_.meeting_title.clear()
+        np_._current_id = None; np_._autosave_sig = ""; np_._last_saved_at = None
+        np_.minutes.setPlainText("# M\nbody"); np_.meeting_title.setText("Q3 Budget Review")
+        mid = np_._save_history(silent=True)
+        assert ctx.history.get(mid).title == "Q3 Budget Review", "explicit title saved"
+        np_.meeting_title.setText("Q3 Budget Review — final")   # rename → dirty → autosave
+        assert np_._is_dirty()
+        np_._autosave()
+        assert ctx.history.get(mid).title == "Q3 Budget Review — final", "rename persisted"
+        np_.meeting_title.clear(); np_.load_meeting(ctx.history.get(mid))
+        assert np_.meeting_title.text() == "Q3 Budget Review — final", "title restored on load"
+        ctx.history.delete(mid)
+        np_.transcript.clear(); np_.minutes.clear(); np_.meeting_title.clear()
+        np_._current_id = None; np_._autosave_sig = ""; np_._loaded_from_history = False
+        return "explicit title saved + renamed + restored"
+    t("ui.editable_title", _editable_title)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
-        assert win.help_page.findChild(QTabWidget).count() == 4
+        assert win.help_page.findChild(QTabWidget).count() == 5     # incl. Shortcuts
         html = " ".join(b.toHtml() for b in win.help_page.findChildren(QTextBrowser))
         assert "info@mico360.com" in html
+        assert "Keyboard shortcuts" in html and "Ctrl+G" in html
         win.updates_page.check  # callable exists
-        return "Help(4 tabs)+Updates"
+        return "Help(5 tabs incl. Shortcuts)+Updates"
     t("ui.pages_extra", _pages_extra)
 
     def _onboarding():

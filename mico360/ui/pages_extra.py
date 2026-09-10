@@ -442,6 +442,7 @@ class HelpPage(QWidget):
         tabs = QTabWidget()
         tabs.addTab(self._tab(self._about_html()), "About Us")
         tabs.addTab(self._tab(self._help_html()), "Help")
+        tabs.addTab(self._tab(self._shortcuts_html()), "Shortcuts")
         tabs.addTab(self._tab(self._terms_html()), "Terms & Conditions")
         tabs.addTab(self._tab(self._privacy_html()), "Privacy Policy")
         v.addWidget(tabs, 1)
@@ -480,6 +481,32 @@ class HelpPage(QWidget):
           <p>Email: <a href='mailto:{SUPPORT_EMAIL}'>{SUPPORT_EMAIL}</a><br>
              Website / Repository: {repo}</p>
           <p style='color:#888'>© {time.strftime('%Y')} MICO360. All rights reserved.</p>""")
+
+    def _shortcuts_html(self) -> str:
+        def rows(pairs):
+            return "".join(
+                f"<tr><td style='padding:3px 20px 3px 0; white-space:nowrap;'>"
+                f"<code>{k}</code></td><td style='padding:3px 0;'>{a}</td></tr>"
+                for k, a in pairs)
+        nav = rows((f"Ctrl+{i + 1}", label) for i, label in enumerate(
+            ["New Meeting", "History", "Action Items", "Company Profiles",
+             "Prompt Library", "Updates", "Help & About", "Settings"]))
+        actions = rows([
+            ("Ctrl+N", "Start a new meeting"),
+            ("Ctrl+G", "Generate / create the minutes"),
+            ("Ctrl+E", "Export the minutes"),
+            ("Ctrl+S", "Save to History"),
+            ("Ctrl+Shift+C", "Copy the minutes (with formatting)"),
+            ("Ctrl+F", "Jump to History and search"),
+            ("F1", "Open this Help page"),
+        ])
+        return self._wrap(f"""
+          <h2>Keyboard shortcuts</h2>
+          <h3>Navigate</h3>
+          <table cellspacing='0'>{nav}</table>
+          <h3>Actions</h3>
+          <table cellspacing='0'>{actions}</table>
+          <p style='color:#888'>Every control also shows its shortcut in its tooltip on hover.</p>""")
 
     def _help_html(self) -> str:
         return self._wrap(f"""
