@@ -1411,28 +1411,26 @@ class SettingsPage(QWidget):
         super().__init__()
         self.ctx = ctx; self.toast = toast
         self.on_theme_change = on_theme_change; self.on_models_change = on_models_change
-        content = QWidget()
-        form = QFormLayout(content)
-        form.setContentsMargins(24, 20, 24, 24); form.setSpacing(12)
-        # Responsive form: fields grow to fill, and on narrow widths the field
-        # wraps below its label instead of forcing horizontal scroll.
-        from PySide6.QtWidgets import QFormLayout as _QFL
-        form.setRowWrapPolicy(_QFL.WrapLongRows)
-        form.setFieldGrowthPolicy(_QFL.AllNonFixedFieldsGrow)
-        form.setLabelAlignment(Qt.AlignLeft)
+        outer = QVBoxLayout(self); outer.setContentsMargins(24, 20, 24, 24); outer.setSpacing(12)
 
+        # Header: page title + an always-visible Appearance (theme) selector.
+        header = QHBoxLayout()
         title = QLabel("Settings"); title.setObjectName("PageTitle")
-        form.addRow(title)
-        form.addRow(subtitle("Configure AI models, appearance, updates and crash reporting."))
-
+        header.addWidget(title); header.addStretch()
+        al = QLabel("Appearance"); al.setObjectName("Hint")
         self.theme = QComboBox(); self.theme.addItems(["dark", "light"])
         self.theme.setCurrentText(ctx.settings.get("theme"))
         self.theme.currentTextChanged.connect(self._theme_changed)
         tip(self.theme, "Switch between dark and light themes — applies immediately")
-        form.addRow("Appearance", self.theme)
+        header.addWidget(al); header.addWidget(self.theme)
+        outer.addLayout(header)
+        outer.addWidget(subtitle("Grouped by area — AI, transcription, email, updates and data."))
 
-        # AI mode (provider) — the ONLY thing the user selects; the endpoint is
-        # fixed, there is no URL/key to configure here.
+        self._tabs = QTabWidget()
+        outer.addWidget(self._tabs, 1)
+
+        # ---- AI tab -------------------------------------------------------
+        ai_sa, form = self._tab_form(); self._ai_scroll = ai_sa
         from ..config import AI_PROVIDERS
         self.provider_box = QComboBox()
         self._provider_keys = list(AI_PROVIDERS.keys())
@@ -1448,7 +1446,6 @@ class SettingsPage(QWidget):
         form.addRow("AI mode", self.provider_box)
         form.addRow(hint("Minutes are written by the selected AI mode. Transcription always runs "
                          "locally with Whisper — switching mode never sends your audio anywhere."))
-
         self.host = QLineEdit(ctx.settings.get("ollama_host"))
         tip(self.host, "Address of your local Ollama server. Leave the default "
                        "http://127.0.0.1:11434 unless you run Ollama elsewhere")
@@ -1463,11 +1460,8 @@ class SettingsPage(QWidget):
         mrow = QHBoxLayout(); mrow.addWidget(self.model, 1); mrow.addWidget(refresh)
         mwrap = QWidget(); mwrap.setLayout(mrow)
         form.addRow("Default Ollama model", mwrap)
-
-        # --- Environment status + Install Required Model -------------------
         self.env_lbl = QLabel(); self.env_lbl.setObjectName("Hint"); self.env_lbl.setWordWrap(True)
         form.addRow("Environment", self.env_lbl)
-
         from ..core.ollama_client import RECOMMENDED_MODELS
         self.install_model_box = QComboBox(); self.install_model_box.setEditable(True)
         self.install_model_box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -1490,7 +1484,10 @@ class SettingsPage(QWidget):
         form.addRow("", self.install_status)
         self._pull_worker = None
         self._refresh_env()
+        self._ai_tab_index = self._tabs.addTab(ai_sa, "AI")
 
+        # ---- Transcription tab -------------------------------------------
+        tr_sa, form = self._tab_form()
         from ..config import QUALITY_PRESETS
         self.preset = QComboBox()
         self.preset.addItems(list(QUALITY_PRESETS.keys()) + ["Custom"])
@@ -1500,8 +1497,7 @@ class SettingsPage(QWidget):
                          "(small Whisper). Adjusting the fields below switches this to Custom")
         form.addRow("Speed ⇄ Quality", self.preset)
         form.addRow(hint("Fast = tiny Whisper (quickest) · Balanced = base · Accurate = small (best). "
-                         "Pick a larger Ollama model below for richer minutes."))
-
+                         "Pick a larger Ollama model in the AI tab for richer minutes."))
         self.whisper = QComboBox()
         for label, size in WHISPER_MODELS:
             self.whisper.addItem(label, size)
@@ -1512,68 +1508,42 @@ class SettingsPage(QWidget):
         tip(self.whisper, "Speech-to-text model size: tiny is fastest, large-v3 most accurate. "
                           "Downloads once on first use (size shown per model)")
         form.addRow("Whisper model", self.whisper)
-
         self.compute = QComboBox(); self.compute.addItems(["int8", "int8_float16", "float16", "float32"])
         self.compute.setCurrentText(ctx.settings.get("whisper_compute"))
         tip(self.compute, "Numeric precision for transcription — int8 is best for most CPUs; "
                           "float16 only helps on a GPU")
         form.addRow("Whisper compute", self.compute)
-
         self.device = QComboBox(); self.device.addItems(["auto", "cpu", "cuda"])
         self.device.setCurrentText(ctx.settings.get("whisper_device"))
         tip(self.device, "Where transcription runs. 'auto' uses the CPU (safe everywhere); "
                          "'cuda' needs an NVIDIA GPU with CUDA libraries — falls back to CPU if unavailable")
         form.addRow("Whisper device", self.device)
-
         self.lang = QLineEdit(ctx.settings.get("language"))
         self.lang.setPlaceholderText("auto, or a code like en / ur / ar")
         tip(self.lang, "Spoken language of your meetings. 'auto' detects it; a fixed code "
                        "(en, ur, ar…) is faster and more reliable")
         form.addRow("Language", self.lang)
-
         self.fillers = QCheckBox("Remove filler words")
         self.fillers.setChecked(ctx.settings.get("remove_fillers", True))
         tip(self.fillers, "Strip 'um', 'uh', repeated words etc. from transcripts before the AI "
                           "summarises them")
         form.addRow("", self.fillers)
-
         self.diarize = QCheckBox("Identify speakers (offline, beta)")
         self.diarize.setChecked(ctx.settings.get("diarize", False))
         self.diarize.setToolTip("Labels the transcript as Speaker 1/2/3 using offline "
                                 "voice clustering. Approximate — best with a few clear speakers.")
         form.addRow("Speakers", self.diarize)
-
         self.chunk = QSpinBox(); self.chunk.setRange(1500, 20000); self.chunk.setSingleStep(500)
         self.chunk.setValue(int(ctx.settings.get("chunk_chars", 6000)))
         tip(self.chunk, "How much text the AI processes per part for long meetings. Lower = safer "
                         "on small models, higher = fewer parts. Default 6000 suits most setups")
         form.addRow("Transcript chunk size (chars)", self.chunk)
+        self._tabs.addTab(tr_sa, "Transcription")
 
-        self.repo = QLineEdit(ctx.settings.get("github_repo", ""))
-        self.repo.setPlaceholderText("owner/name  (e.g. mico360om/MICO360-Meetings)")
-        tip(self.repo, "GitHub repository checked for new releases (owner/name). Also used by "
-                       "the crash reporter's 'Report on GitHub' button")
-        form.addRow("GitHub repo (for updates)", self.repo)
-        self.auto_check = QCheckBox("Auto-check on startup")
-        self.auto_check.setChecked(ctx.settings.get("auto_check_updates", True))
-        tip(self.auto_check, "Quietly check GitHub for a newer version when the app starts — "
-                             "nothing installs without your confirmation")
-        form.addRow("", self.auto_check)
-
-        self.crash_reporter = QCheckBox("Show crash reporter on unexpected errors")
-        self.crash_reporter.setChecked(ctx.settings.get("crash_reporter", True))
-        tip(self.crash_reporter, "On an unexpected error, offer a review-before-send report dialog. "
-                                 "Nothing is ever sent automatically")
-        form.addRow("Crash reporting", self.crash_reporter)
-        report_btn = QPushButton("Report a problem…")
-        report_btn.clicked.connect(self._report_problem)
-        tip(report_btn, "Open a problem report with the recent app log — review/edit it, then "
-                        "send via GitHub or email if you choose")
-        form.addRow("", report_btn)
-
-        # --- Email (SMTP / Mailjet) ---------------------------------------
-        form.addRow(hint("— Email (SMTP) — used to send minutes. For Mailjet: host "
-                         "in-v3.mailjet.com, port 587, user = API key, password = Secret key."))
+        # ---- Email tab ----------------------------------------------------
+        em_sa, form = self._tab_form()
+        form.addRow(hint("Used to send minutes by email. For Mailjet: host in-v3.mailjet.com, "
+                         "port 587, user = API key, password = Secret key."))
         self.smtp_host = QLineEdit(ctx.settings.get("smtp_host", "in-v3.mailjet.com"))
         tip(self.smtp_host, "Your email provider's SMTP server — for Mailjet: in-v3.mailjet.com")
         form.addRow("SMTP host", self.smtp_host)
@@ -1601,26 +1571,67 @@ class SettingsPage(QWidget):
         test_btn.clicked.connect(self._send_test_email)
         tip(test_btn, "Send a test message to the From address to confirm these settings work")
         form.addRow("", test_btn)
+        self._tabs.addTab(em_sa, "Email")
 
-        save = QPushButton("Save settings"); save.setObjectName("Primary"); save.clicked.connect(self._save)
-        tip(save, "Save all settings on this page — model and appearance changes apply immediately")
-        form.addRow("", save)
+        # ---- Updates tab --------------------------------------------------
+        up_sa, form = self._tab_form()
+        self.repo = QLineEdit(ctx.settings.get("github_repo", ""))
+        self.repo.setPlaceholderText("owner/name  (e.g. mico360om/MICO360-Meetings)")
+        tip(self.repo, "GitHub repository checked for new releases (owner/name). Also used by "
+                       "the crash reporter's 'Report on GitHub' button")
+        form.addRow("GitHub repo (for updates)", self.repo)
+        self.auto_check = QCheckBox("Auto-check on startup")
+        self.auto_check.setChecked(ctx.settings.get("auto_check_updates", True))
+        tip(self.auto_check, "Quietly check GitHub for a newer version when the app starts — "
+                             "nothing installs without your confirmation")
+        form.addRow("", self.auto_check)
+        self.crash_reporter = QCheckBox("Show crash reporter on unexpected errors")
+        self.crash_reporter.setChecked(ctx.settings.get("crash_reporter", True))
+        tip(self.crash_reporter, "On an unexpected error, offer a review-before-send report dialog. "
+                                 "Nothing is ever sent automatically")
+        form.addRow("Crash reporting", self.crash_reporter)
+        report_btn = QPushButton("Report a problem…")
+        report_btn.clicked.connect(self._report_problem)
+        tip(report_btn, "Open a problem report with the recent app log — review/edit it, then "
+                        "send via GitHub or email if you choose")
+        form.addRow("", report_btn)
+        self._tabs.addTab(up_sa, "Updates")
 
+        # ---- Data tab -----------------------------------------------------
+        da_sa, form = self._tab_form()
         from ..config import DATA_DIR, LOG_DIR
+        form.addRow(hint("Where your meetings, transcripts, minutes, profiles and logs are stored "
+                         "on this computer. Everything stays local."))
         for label, path in (("Data folder", DATA_DIR), ("Logs", LOG_DIR)):
             field = QLineEdit(str(path)); field.setReadOnly(True)
             field.setCursorPosition(0)
-            form.addRow(label, field)          # read-only field scrolls internally; no overflow
+            form.addRow(label, field)
+        self._tabs.addTab(da_sa, "Data")
 
-        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
-        self._scroll_area = _scroll(content)
-        outer.addWidget(self._scroll_area)
+        # ---- global Save --------------------------------------------------
+        save_row = QHBoxLayout(); save_row.addStretch()
+        save = QPushButton("Save settings"); save.setObjectName("Primary"); save.clicked.connect(self._save)
+        tip(save, "Save all settings across every tab — model and appearance changes apply immediately")
+        save_row.addWidget(save)
+        outer.addLayout(save_row)
+
+    def _tab_form(self):
+        """A scrollable QFormLayout for one Settings tab; returns (scrollarea, form)."""
+        from PySide6.QtWidgets import QFormLayout as _QFL
+        content = QWidget()
+        form = _QFL(content)
+        form.setContentsMargins(24, 18, 24, 20); form.setSpacing(12)
+        form.setRowWrapPolicy(_QFL.WrapLongRows)
+        form.setFieldGrowthPolicy(_QFL.AllNonFixedFieldsGrow)
+        form.setLabelAlignment(Qt.AlignLeft)
+        return _scroll(content, max_width=900), form
 
     def focus_install(self):
-        """Scroll to and highlight the model installer (used by the New Meeting
-        readiness banner's 'Install a model' action)."""
+        """Open the AI tab and scroll to the model installer (used by the New
+        Meeting readiness banner's 'Install a model' action)."""
         try:
-            self._scroll_area.ensureWidgetVisible(self.install_btn, 60, 120)
+            self._tabs.setCurrentIndex(self._ai_tab_index)
+            self._ai_scroll.ensureWidgetVisible(self.install_btn, 60, 120)
             self.install_model_box.setFocus(Qt.OtherFocusReason)
         except Exception:
             pass

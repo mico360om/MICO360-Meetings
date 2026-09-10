@@ -141,6 +141,8 @@ def main():
                 app.processEvents()
             p = win.stack.widget(i)
             for sa in p.findChildren(SA):
+                if not sa.isVisible():          # skip inactive tab panes (not displayed)
+                    continue
                 if sa.horizontalScrollBar().maximum() > 2:
                     overflow.append((p.__class__.__name__, w))
     ok(not overflow, "No horizontal overflow (3 sizes)", str(overflow[:3]))

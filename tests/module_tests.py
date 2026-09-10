@@ -429,6 +429,20 @@ def main():
         return "explicit title saved + renamed + restored"
     t("ui.editable_title", _editable_title)
 
+    def _settings_tabs():
+        sp = win.settings_page
+        assert [sp._tabs.tabText(i) for i in range(sp._tabs.count())] == \
+            ["AI", "Transcription", "Email", "Updates", "Data"]
+        for attr in ("theme", "provider_box", "host", "model", "install_btn", "preset",
+                     "whisper", "compute", "device", "lang", "fillers", "diarize", "chunk",
+                     "repo", "auto_check", "crash_reporter", "smtp_host", "smtp_port",
+                     "email_from", "smtp_user", "smtp_password"):
+            assert hasattr(sp, attr), attr
+        sp.focus_install(); assert sp._tabs.currentIndex() == sp._ai_tab_index
+        sp._save()                                   # save still works across tabs
+        return "5 tabs + every field preserved + focus_install + save"
+    t("ui.settings_tabs", _settings_tabs)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
         assert win.help_page.findChild(QTabWidget).count() == 5     # incl. Shortcuts

@@ -154,7 +154,7 @@ def main() -> int:
             win._navigate(i)
             page = win.stack.widget(i)
             for sa in page.findChildren(QScrollArea):
-                if not sa.widget():
+                if not sa.widget() or not sa.isVisible():   # skip inactive tab panes
                     continue
                 sa.widget().adjustSize()            # force layout to settle
                 for _ in range(5):
