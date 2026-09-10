@@ -529,7 +529,19 @@ class NewMeetingPage(QWidget):
         return card
 
     def _step4_minutes(self) -> QWidget:
-        card, lay = self._card("Step 4 · Meeting minutes")
+        card, lay = self._card("Meeting minutes")
+
+        # Editable title — this names the meeting in History (auto-filled, editable).
+        trow = QHBoxLayout()
+        tl = QLabel("Title"); tl.setObjectName("Hint")
+        self.meeting_title = QLineEdit()
+        self.meeting_title.setPlaceholderText("Give this meeting a clear title so it's easy to find in History…")
+        self.meeting_title.textChanged.connect(self._update_save_indicator)
+        tip(self.meeting_title, "The name this meeting gets in History. Auto-filled from the minutes — "
+                                "edit it to keep past meetings easy to scan and search")
+        trow.addWidget(tl); trow.addWidget(self.meeting_title, 1)
+        lay.addLayout(trow)
+
         self.minutes_tabs = QTabWidget()
         self.minutes = QPlainTextEdit()
         self.minutes.setPlaceholderText("Generated minutes will appear here. You can edit before exporting.")
@@ -839,6 +851,10 @@ class NewMeetingPage(QWidget):
         self._busy(False)
         self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
         self._set_transcribe_enabled(bool(self._media_queue))   # reflect leftover queue
+        # Auto-fill an editable title (from the Setup field or the minutes) so the
+        # History record is findable — the user can rename it on this step.
+        if not self.meeting_title.text().strip():
+            self.meeting_title.setText(self.meet_title.text().strip() or self._guess_title())
         # "Create meeting" saves the result and lands on the final Minutes step.
         self._save_history(silent=True)
         self._reached = self.STEP_MINUTES
@@ -872,12 +888,18 @@ class NewMeetingPage(QWidget):
         QGuiApplication.clipboard().setMimeData(mime)
         self.toast.show_message("Copied (with formatting) to clipboard.", "success")
 
+    def _content_sig(self) -> str:
+        """Change signature covering everything that gets saved (title included,
+        so renaming a meeting is autosaved too)."""
+        return "\x00".join((self.transcript.toPlainText(), self.minutes.toPlainText(),
+                            self.meeting_title.text()))
+
     def _save_history(self, silent: bool = False) -> int | None:
         if not self.minutes.toPlainText().strip() and not self.transcript.toPlainText().strip():
             if not silent:
                 self.toast.show_message("Nothing to save yet.", "warn")
             return None
-        title = self._guess_title()
+        title = self.meeting_title.text().strip() or self._guess_title()
         m = Meeting(
             id=self._current_id or 0, title=title, created_at=0, updated_at=0,
             source_type="mixed", style=self.style_box.currentText(),
@@ -888,7 +910,7 @@ class NewMeetingPage(QWidget):
         )
         self._current_id = self.ctx.history.save(m)
         import time
-        self._autosave_sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
+        self._autosave_sig = self._content_sig()
         self._last_saved_at = time.time()
         self._update_save_indicator()
         if not silent:
@@ -897,8 +919,8 @@ class NewMeetingPage(QWidget):
 
     # -- save-state indicator ----------------------------------------------
     def _is_dirty(self) -> bool:
-        sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
-        return bool(sig.strip("\x00")) and sig != getattr(self, "_autosave_sig", "")
+        content = self.transcript.toPlainText() + self.minutes.toPlainText()
+        return bool(content.strip()) and self._content_sig() != getattr(self, "_autosave_sig", "")
 
     def _update_save_indicator(self):
         if not hasattr(self, "save_status"):
@@ -925,8 +947,8 @@ class NewMeetingPage(QWidget):
 
     def _autosave(self):
         self._update_save_indicator()                # keep the relative time fresh
-        sig = self.transcript.toPlainText() + "\x00" + self.minutes.toPlainText()
-        if not sig.strip("\x00"):
+        content = self.transcript.toPlainText() + self.minutes.toPlainText()
+        if not content.strip():
             # Form emptied. For a brand-new meeting, detach from the saved record
             # so the NEXT meeting is stored separately (never overwriting the
             # previous one). For a meeting opened from History, keep the link so
@@ -936,10 +958,9 @@ class NewMeetingPage(QWidget):
                 self._current_id = None
             self._autosave_sig = ""
             return
-        if sig == self._autosave_sig:                # nothing changed
+        if self._content_sig() == self._autosave_sig:   # nothing changed (title included)
             return
-        if self._save_history(silent=True):
-            self._autosave_sig = sig
+        self._save_history(silent=True)              # updates _autosave_sig on success
 
     def _new_meeting(self):
         """Clear the form and start a fresh, unlinked meeting."""
@@ -950,6 +971,7 @@ class NewMeetingPage(QWidget):
         self._autosave_sig = ""
         self.transcript.clear()
         self.minutes.clear()
+        self.meeting_title.clear()
         self._clear_files()
         self.meet_title.clear(); self.meet_date.clear(); self.meet_attendees.clear()
         self._reached = 0
@@ -1079,11 +1101,13 @@ class NewMeetingPage(QWidget):
     def load_meeting(self, m: Meeting):
         self._current_id = m.id
         self._loaded_from_history = True
+        self.meeting_title.setText(m.title)
         self.transcript.setPlainText(m.transcript)
         self.minutes.setPlainText(m.minutes)
         # seed the autosave signature so opening a meeting doesn't trigger an
         # immediate redundant re-save (which would bump its "Updated" time)
-        self._autosave_sig = m.transcript + "\x00" + m.minutes
+        self._autosave_sig = self._content_sig()
+        self._last_saved_at = m.updated_at or None
         if m.style:
             self.style_box.setCurrentText(m.style)
         # opening a saved meeting unlocks the whole wizard; land on Minutes if it
