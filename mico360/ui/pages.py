@@ -90,7 +90,12 @@ class NewMeetingPage(QWidget):
 
         title = QLabel("New Meeting"); title.setObjectName("PageTitle")
         v.addWidget(title)
-        v.addWidget(subtitle("Follow the steps to turn a recording, file or transcript into minutes."))
+        self.page_sub = subtitle("Follow the steps to turn a recording, file or transcript into minutes.")
+        v.addWidget(self.page_sub)
+        # Page context: shows when you're editing a meeting opened from History.
+        self.context_lbl = QLabel(""); self.context_lbl.setObjectName("ContextBadge")
+        self.context_lbl.setVisible(False)
+        v.addWidget(self.context_lbl)
 
         # Readiness banner sits just below the title.
         self.ready_banner = self._build_ready_banner()
@@ -978,6 +983,7 @@ class NewMeetingPage(QWidget):
             self._autosave()                          # keep what's there
         self._current_id = None
         self._loaded_from_history = False
+        self.context_lbl.setVisible(False)            # back to "new" context
         self._autosave_sig = ""
         self.transcript.clear()
         self.minutes.clear()
@@ -1212,6 +1218,8 @@ class NewMeetingPage(QWidget):
     def load_meeting(self, m: Meeting):
         self._current_id = m.id
         self._loaded_from_history = True
+        self.context_lbl.setText(f"✎  Editing “{m.title}” — opened from History")
+        self.context_lbl.setVisible(True)
         self.meeting_title.setText(m.title)
         self.transcript.setPlainText(m.transcript)
         self.minutes.setPlainText(m.minutes)

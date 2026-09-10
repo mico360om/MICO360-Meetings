@@ -87,17 +87,23 @@ QMainWindow, #Root {{ background: {bg}; }}
 #Brand {{ font-size: {fs_brand}; font-weight: 800; color: {text}; }}
 #BrandSub {{ color: {muted}; font-size: {fs_micro}; font-weight: 700; }}
 
+#NavGroup {{ color: {muted}; font-size: {fs_micro}; font-weight: 800;
+            padding: 2px 4px 2px 14px; }}
 QPushButton#NavBtn {{
-    text-align: left; padding: {pad_nav}; border: none; border-radius: {r_md};
-    color: {muted}; background: transparent; font-size: {fs_base}; font-weight: 500;
+    text-align: left; padding: {pad_nav}; border: none; border-left: 3px solid transparent;
+    border-radius: {r_md}; color: {muted}; background: transparent;
+    font-size: {fs_base}; font-weight: 500;
 }}
 QPushButton#NavBtn:hover {{ background: {surface2}; color: {text}; }}
-QPushButton#NavBtn:checked {{ background: {accent}; color: {accent_text}; font-weight: 600; }}
+QPushButton#NavBtn:checked {{ background: {accent}; color: {accent_text};
+    font-weight: 700; border-left: 3px solid {accent_text}; }}
 QPushButton#NavBtn:checked:hover {{ background: {accent_hover}; }}
 
 /* ---- Typography / page header ------------------------------------------- */
 #PageTitle {{ font-size: {fs_title}; font-weight: 800; color: {text}; }}
 #PageSub {{ color: {muted}; font-size: {fs_sub}; }}
+#ContextBadge {{ color: {accent}; background: {surface2}; border: {bw} solid {border};
+                border-radius: {r_sm}; padding: 4px 10px; font-size: {fs_hint}; font-weight: 600; }}
 #SectionTitle {{ font-size: {fs_section}; font-weight: 700; color: {text}; }}
 QLabel#Muted, #Hint {{ color: {muted}; font-size: {fs_hint}; }}
 

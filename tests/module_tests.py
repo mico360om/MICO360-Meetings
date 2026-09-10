@@ -609,6 +609,26 @@ def main():
         return "tables: stretch primary + elide + bounded columns"
     t("ui.responsive_tables", _responsive_tables)
 
+    def _navigation():
+        from PySide6.QtWidgets import QLabel
+        # programmatic navigation (e.g. keyboard shortcuts) syncs the active state
+        win._navigate(2)
+        assert win.stack.currentIndex() == 2 and win.nav_group.checkedId() == 2
+        win._navigate(5)
+        assert win.nav_group.checkedId() == 5
+        # logical sidebar grouping is present
+        groups = [l.text() for l in win.findChildren(QLabel) if l.objectName() == "NavGroup"]
+        assert set(groups) == {"WORKSPACE", "LIBRARY", "SYSTEM"}
+        # editing a meeting from History surfaces page context, cleared on New
+        from mico360.core.history import Meeting
+        win.new_page.load_meeting(Meeting(3, "Ctx", 0, 0, minutes="m"))
+        assert not win.new_page.context_lbl.isHidden() and "Ctx" in win.new_page.context_lbl.text()
+        win.new_page._new_meeting()
+        assert win.new_page.context_lbl.isHidden()
+        win._navigate(0)
+        return "active-state sync + groups + editing context"
+    t("ui.navigation", _navigation)
+
     def _prompt_library():
         pp = win.prompts_page
         pp.search.clear(); pp.cat_filter.setCurrentText("All categories"); pp.reload()

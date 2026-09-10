@@ -32,6 +32,8 @@ NAV = [
     ("Help & About", "ⓘ", "Guides, contact, terms and privacy (F1)"),
     ("Settings", "⚙", "AI models, recording, email and app preferences"),
 ]
+# Group header shown above the nav item at this index (logical grouping).
+NAV_SECTIONS = {0: "Workspace", 3: "Library", 5: "System"}
 
 
 class MainWindow(QMainWindow):
@@ -173,6 +175,11 @@ class MainWindow(QMainWindow):
         from .components import tip
         self.nav_group = QButtonGroup(self); self.nav_group.setExclusive(True)
         for i, (label, icon, desc) in enumerate(NAV):
+            if i in NAV_SECTIONS:                       # logical group header
+                if i:
+                    v.addSpacing(10)
+                hdr = QLabel(NAV_SECTIONS[i].upper()); hdr.setObjectName("NavGroup")
+                v.addWidget(hdr)
             btn = QPushButton(f"  {icon}   {label}")
             btn.setObjectName("NavBtn"); btn.setCheckable(True)
             btn.setCursor(Qt.PointingHandCursor)
@@ -196,6 +203,9 @@ class MainWindow(QMainWindow):
 
     def _navigate(self, idx: int):
         self.stack.setCurrentIndex(idx)
+        btn = self.nav_group.button(idx)          # keep the sidebar highlight in sync
+        if btn is not None:
+            btn.setChecked(True)
         page = self.stack.widget(idx)
         if page is self.history_page:
             self.history_page.reload()
