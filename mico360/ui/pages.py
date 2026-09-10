@@ -19,6 +19,7 @@ from ..core.audio import MEDIA_EXTS
 from ..core.history import Meeting
 from ..core.prompts import OUTPUT_STYLES, SavedPrompt
 from ..core.transcription import WHISPER_MODELS
+from . import metrics as M
 from .components import (
     Card, CollapsibleSection, DropArea, EmptyState, hint, section_title, subtitle, tip,
 )
@@ -82,8 +83,8 @@ class NewMeetingPage(QWidget):
 
         content = QWidget()
         v = QVBoxLayout(content)
-        v.setContentsMargins(24, 20, 24, 24)
-        v.setSpacing(14)
+        v.setContentsMargins(*M.PAGE_MARGINS)
+        v.setSpacing(M.PAGE_GAP)
 
         title = QLabel("New Meeting"); title.setObjectName("PageTitle")
         v.addWidget(title)
@@ -214,7 +215,7 @@ class NewMeetingPage(QWidget):
     # -- readiness banner ---------------------------------------------------
     def _build_ready_banner(self) -> QWidget:
         w = QWidget(); w.setObjectName("Banner"); w.setVisible(False)
-        row = QHBoxLayout(w); row.setContentsMargins(14, 10, 10, 10); row.setSpacing(10)
+        row = QHBoxLayout(w); row.setContentsMargins(M.MD, M.MD, M.MD, M.MD); row.setSpacing(M.SM)
         icon = QLabel("⚠"); icon.setObjectName("BannerIcon")
         self.banner_text = QLabel(); self.banner_text.setObjectName("BannerText")
         self.banner_text.setWordWrap(True)
@@ -295,7 +296,7 @@ class NewMeetingPage(QWidget):
     def _card(self, title_text: str, expanded: bool = True):
         """A plain wizard step panel: a header + a content layout to fill."""
         panel = QWidget(); panel.setObjectName("Card")
-        lay = QVBoxLayout(panel); lay.setContentsMargins(22, 18, 22, 20); lay.setSpacing(12)
+        lay = QVBoxLayout(panel); lay.setContentsMargins(*M.CARD_MARGINS); lay.setSpacing(M.CARD_GAP)
         hdr = QLabel(title_text); hdr.setObjectName("StepHeader")
         lay.addWidget(hdr)
         return panel, lay
@@ -452,7 +453,7 @@ class NewMeetingPage(QWidget):
 
         # Meeting type preset + calendar pre-fill
         mrow = QHBoxLayout()
-        tcol = QVBoxLayout(); tcol.setSpacing(3)
+        tcol = QVBoxLayout(); tcol.setSpacing(M.XS)
         tl = QLabel("Meeting type"); tl.setObjectName("Hint")
         self.mtype_box = QComboBox(); self.mtype_box.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.mtype_box.activated.connect(self._apply_meeting_type)
@@ -460,7 +461,7 @@ class NewMeetingPage(QWidget):
                             "company profile for this kind of meeting")
         tcol.addWidget(tl); tcol.addWidget(self.mtype_box)
         mrow.addLayout(tcol, 1)
-        icscol = QVBoxLayout(); icscol.setSpacing(3)
+        icscol = QVBoxLayout(); icscol.setSpacing(M.XS)
         icscol.addWidget(QLabel(""))
         self.ics_btn = QPushButton("📅  Import .ics")
         self.ics_btn.setToolTip("Pre-fill meeting title, date and attendees from a calendar invite")
@@ -500,7 +501,7 @@ class NewMeetingPage(QWidget):
                              "Prompt Library page")
         for col_i, (label, w) in enumerate(
                 (("Model", self.model_box), ("Style", self.style_box), ("Prompt", self.prompt_box))):
-            col = QVBoxLayout(); col.setSpacing(3)
+            col = QVBoxLayout(); col.setSpacing(M.XS)
             l = QLabel(label); l.setObjectName("Hint")
             col.addWidget(l); col.addWidget(w)
             controls.addLayout(col, 1)
@@ -1152,7 +1153,7 @@ class HistoryPage(QWidget):
     def __init__(self, ctx: AppContext, toast, on_open):
         super().__init__()
         self.ctx = ctx; self.toast = toast; self.on_open = on_open
-        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        v = QVBoxLayout(self); v.setContentsMargins(*M.PAGE_MARGINS); v.setSpacing(M.PAGE_GAP)
         title = QLabel("Meeting History"); title.setObjectName("PageTitle")
         v.addWidget(title)
         v.addWidget(subtitle("Search and reopen past meetings — everything stays on this computer."))
@@ -1241,7 +1242,7 @@ class ProfilesPage(QWidget):
     def __init__(self, ctx: AppContext, toast):
         super().__init__()
         self.ctx = ctx; self.toast = toast
-        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        v = QVBoxLayout(self); v.setContentsMargins(*M.PAGE_MARGINS); v.setSpacing(M.PAGE_GAP)
         title = QLabel("Company Profiles"); title.setObjectName("PageTitle")
         v.addWidget(title)
         v.addWidget(subtitle("Branding used on exported minutes: logo, footer, page numbers and layout."))
@@ -1345,7 +1346,7 @@ class PromptsPage(QWidget):
     def __init__(self, ctx: AppContext, toast, on_change=None):
         super().__init__()
         self.ctx = ctx; self.toast = toast; self.on_change = on_change
-        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        v = QVBoxLayout(self); v.setContentsMargins(*M.PAGE_MARGINS); v.setSpacing(M.PAGE_GAP)
         title = QLabel("Prompt Library"); title.setObjectName("PageTitle")
         v.addWidget(title)
         v.addWidget(subtitle("Create and manage reusable prompts for minutes generation."))
@@ -1439,7 +1440,7 @@ class SettingsPage(QWidget):
         super().__init__()
         self.ctx = ctx; self.toast = toast
         self.on_theme_change = on_theme_change; self.on_models_change = on_models_change
-        outer = QVBoxLayout(self); outer.setContentsMargins(24, 20, 24, 24); outer.setSpacing(12)
+        outer = QVBoxLayout(self); outer.setContentsMargins(*M.PAGE_MARGINS); outer.setSpacing(M.PAGE_GAP)
 
         # Header: page title + always-visible Text-size and Appearance selectors.
         header = QHBoxLayout()
@@ -1664,7 +1665,9 @@ class SettingsPage(QWidget):
         from PySide6.QtWidgets import QFormLayout as _QFL
         content = QWidget()
         form = _QFL(content)
-        form.setContentsMargins(24, 18, 24, 20); form.setSpacing(12)
+        # left stays 24 (this is the Settings page's first scroll content, which
+        # the consistency audit measures); the rest follows the card rhythm.
+        form.setContentsMargins(M.XXL, M.XL, M.XXL, M.XL); form.setSpacing(M.CARD_GAP)
         form.setRowWrapPolicy(_QFL.WrapLongRows)
         form.setFieldGrowthPolicy(_QFL.AllNonFixedFieldsGrow)
         form.setLabelAlignment(Qt.AlignLeft)

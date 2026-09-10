@@ -42,43 +42,76 @@ LIGHT = {
     "input_bg": "#FFFFFF",
 }
 
+# ---------------------------------------------------------------------------
+# Design tokens — one source of truth for the whole app so every page shares the
+# same type scale, corner radii, control padding and border weight. Change a
+# value here and it propagates everywhere via build_qss().
+# ---------------------------------------------------------------------------
+TOKENS = {
+    # Type scale (pt). Roles, not one-offs: micro < small < hint < body < sub
+    # < section-heading < brand < page-title.
+    "fs_micro":   "8pt",     # brand tagline, tiny captions
+    "fs_small":   "9pt",     # table headers, chips, status, progress text
+    "fs_hint":    "9.5pt",   # hints, muted secondary copy, empty-state body
+    "fs_base":    "10.5pt",  # body, nav, inputs, buttons
+    "fs_sub":     "10.5pt",  # page subtitle
+    "fs_section": "13pt",    # every section / card / step / drop / empty title
+    "fs_brand":   "16pt",    # sidebar brand wordmark (fallback)
+    "fs_title":   "20pt",    # page title
+
+    # Corner radii (px). Containers = lg, controls = md, small chips = sm.
+    "r_sm":   "8px",
+    "r_md":   "10px",
+    "r_lg":   "12px",
+    "r_pill": "999px",
+
+    # Control padding — every button shares one height (9px vertical).
+    "pad_btn":      "9px 16px",
+    "pad_btn_wide": "9px 18px",   # primary / danger get a touch more width
+    "pad_input":    "8px 12px",
+    "pad_nav":      "11px 14px",
+
+    # Borders
+    "bw": "1px",
+}
+
 _QSS = """
-* {{ font-family: "Segoe UI", "Segoe UI Variable", "Inter", Arial, sans-serif; font-size: 10.5pt; }}
+* {{ font-family: "Segoe UI", "Segoe UI Variable", "Inter", Arial, sans-serif; font-size: {fs_base}; }}
 QWidget {{ color: {text}; background: transparent; }}
 QMainWindow, #Root {{ background: {bg}; }}
 
 /* ---- Sidebar ------------------------------------------------------------ */
-#Sidebar {{ background: {surface}; border-right: 1px solid {border}; }}
-#Brand {{ font-size: 14pt; font-weight: 800; color: {text}; }}
-#BrandSub {{ color: {muted}; font-size: 8pt; font-weight: 700; }}
+#Sidebar {{ background: {surface}; border-right: {bw} solid {border}; }}
+#Brand {{ font-size: {fs_brand}; font-weight: 800; color: {text}; }}
+#BrandSub {{ color: {muted}; font-size: {fs_micro}; font-weight: 700; }}
 
 QPushButton#NavBtn {{
-    text-align: left; padding: 11px 14px; border: none; border-radius: 10px;
-    color: {muted}; background: transparent; font-size: 10.5pt; font-weight: 500;
+    text-align: left; padding: {pad_nav}; border: none; border-radius: {r_md};
+    color: {muted}; background: transparent; font-size: {fs_base}; font-weight: 500;
 }}
 QPushButton#NavBtn:hover {{ background: {surface2}; color: {text}; }}
 QPushButton#NavBtn:checked {{ background: {accent}; color: {accent_text}; font-weight: 600; }}
 QPushButton#NavBtn:checked:hover {{ background: {accent_hover}; }}
 
 /* ---- Typography / page header ------------------------------------------- */
-#PageTitle {{ font-size: 19pt; font-weight: 800; color: {text}; }}
-#PageSub {{ color: {muted}; font-size: 10.5pt; }}
-#SectionTitle {{ font-size: 12pt; font-weight: 700; color: {text}; }}
-QLabel#Muted, #Hint {{ color: {muted}; font-size: 9.5pt; }}
+#PageTitle {{ font-size: {fs_title}; font-weight: 800; color: {text}; }}
+#PageSub {{ color: {muted}; font-size: {fs_sub}; }}
+#SectionTitle {{ font-size: {fs_section}; font-weight: 700; color: {text}; }}
+QLabel#Muted, #Hint {{ color: {muted}; font-size: {fs_hint}; }}
 
 /* ---- Cards / collapsible sections --------------------------------------- */
-#Card {{ background: {surface}; border: 1px solid {border}; border-radius: 14px; }}
+#Card {{ background: {surface}; border: {bw} solid {border}; border-radius: {r_lg}; }}
 QToolButton#SectionHeader {{
     border: none; background: transparent; color: {text};
-    font-size: 12pt; font-weight: 700; text-align: left; padding: 12px 8px;
+    font-size: {fs_section}; font-weight: 700; text-align: left; padding: 12px 8px;
 }}
 QToolButton#SectionHeader:hover {{ color: {accent}; }}
-#SectionHeaderRow:hover {{ background: {surface2}; border-top-left-radius: 14px; border-top-right-radius: 14px; }}
+#SectionHeaderRow:hover {{ background: {surface2}; border-top-left-radius: {r_lg}; border-top-right-radius: {r_lg}; }}
 
 /* ---- Buttons ------------------------------------------------------------ */
 QPushButton {{
-    background: {surface2}; color: {text}; border: 1px solid {border};
-    border-radius: 10px; padding: 8px 15px; font-weight: 500;
+    background: {surface2}; color: {text}; border: {bw} solid {border};
+    border-radius: {r_md}; padding: {pad_btn}; font-weight: 500;
 }}
 QPushButton:hover {{ border-color: {accent}; background: {surface}; }}
 QPushButton:pressed {{ background: {surface2}; }}
@@ -86,62 +119,62 @@ QPushButton:disabled {{ color: {muted}; border-color: {border}; background: tran
 
 QPushButton#Primary {{
     background: {accent}; color: {accent_text}; border: none; font-weight: 600;
-    padding: 10px 20px; border-radius: 10px;
+    padding: {pad_btn_wide}; border-radius: {r_md};
 }}
 QPushButton#Primary:hover {{ background: {accent_hover}; }}
 QPushButton#Primary:pressed {{ background: {accent_hover}; }}
 QPushButton#Primary:disabled {{ background: {surface2}; color: {muted}; }}
 QPushButton#Danger {{
     color: {accent_text}; background: {danger}; border: none; font-weight: 600;
-    padding: 10px 18px; border-radius: 10px;
+    padding: {pad_btn_wide}; border-radius: {r_md};
 }}
 QPushButton#Danger:hover {{ background: {danger}; }}
-QPushButton#Ghost {{ background: transparent; border: 1px solid {border}; color: {text}; }}
+QPushButton#Ghost {{ background: transparent; border: {bw} solid {border}; color: {text}; }}
 QPushButton#Ghost:hover {{ background: {surface2}; border-color: {accent}; }}
 
 /* ---- Inputs ------------------------------------------------------------- */
 QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {{
-    background: {input_bg}; border: 1px solid {border}; border-radius: 10px;
-    padding: 8px 12px; selection-background-color: {accent}; selection-color: {accent_text};
+    background: {input_bg}; border: {bw} solid {border}; border-radius: {r_md};
+    padding: {pad_input}; selection-background-color: {accent}; selection-color: {accent_text};
 }}
 QPlainTextEdit, QTextEdit {{ padding: 11px; }}
 QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {{ border-color: {muted}; }}
 QLineEdit:focus, QPlainTextEdit:focus, QTextEdit:focus, QComboBox:focus,
-QSpinBox:focus, QDoubleSpinBox:focus {{ border: 1px solid {accent}; }}
+QSpinBox:focus, QDoubleSpinBox:focus {{ border: {bw} solid {accent}; }}
 QComboBox::drop-down {{ border: none; width: 24px; }}
 QComboBox QAbstractItemView {{
-    background: {surface}; border: 1px solid {border}; border-radius: 8px; padding: 4px;
+    background: {surface}; border: {bw} solid {border}; border-radius: {r_sm}; padding: 4px;
     selection-background-color: {accent}; selection-color: {accent_text}; outline: none;
 }}
 QCheckBox {{ spacing: 8px; }}
 
 /* ---- Drop area ---------------------------------------------------------- */
-#Drop {{ border: 2px dashed {border}; border-radius: 14px; background: {surface2}; }}
+#Drop {{ border: 2px dashed {border}; border-radius: {r_lg}; background: {surface2}; }}
 #Drop[hover="true"] {{ border-color: {accent}; background: {surface}; }}
-#DropTitle {{ font-size: 12pt; font-weight: 700; }}
+#DropTitle {{ font-size: {fs_section}; font-weight: 700; }}
 
 /* ---- Progress ----------------------------------------------------------- */
 QProgressBar {{
-    border: none; border-radius: 7px; background: {surface2};
-    text-align: center; height: 14px; color: {text}; font-size: 8.5pt;
+    border: none; border-radius: {r_sm}; background: {surface2};
+    text-align: center; height: 14px; color: {text}; font-size: {fs_small};
 }}
-QProgressBar::chunk {{ background: {accent}; border-radius: 7px; }}
+QProgressBar::chunk {{ background: {accent}; border-radius: {r_sm}; }}
 
 /* ---- Tables ------------------------------------------------------------- */
 QTableWidget {{
-    background: {surface}; border: 1px solid {border}; border-radius: 12px;
+    background: {surface}; border: {bw} solid {border}; border-radius: {r_lg};
     gridline-color: transparent;
 }}
 QHeaderView::section {{
     background: transparent; color: {muted}; border: none;
-    border-bottom: 1px solid {border}; padding: 10px 8px; font-weight: 700; font-size: 9pt;
+    border-bottom: {bw} solid {border}; padding: 10px 8px; font-weight: 700; font-size: {fs_small};
 }}
-QTableWidget::item {{ padding: 9px 6px; border-bottom: 1px solid {border}; }}
+QTableWidget::item {{ padding: 9px 6px; border-bottom: {bw} solid {border}; }}
 QTableWidget::item:selected {{ background: {accent}; color: {accent_text}; }}
 
 /* ---- Lists -------------------------------------------------------------- */
-QListWidget {{ background: {surface}; border: 1px solid {border}; border-radius: 12px; padding: 4px; }}
-QListWidget::item {{ padding: 10px 12px; border-radius: 8px; margin: 1px 2px; }}
+QListWidget {{ background: {surface}; border: {bw} solid {border}; border-radius: {r_lg}; padding: 4px; }}
+QListWidget::item {{ padding: 10px 12px; border-radius: {r_sm}; margin: 1px 2px; }}
 QListWidget::item:hover {{ background: {surface2}; }}
 QListWidget::item:selected {{ background: {accent}; color: {accent_text}; }}
 
@@ -155,8 +188,8 @@ QScrollBar::handle:horizontal {{ background: {border}; border-radius: 4px; min-w
 QScrollBar::handle:horizontal:hover {{ background: {muted}; }}
 
 /* ---- Tabs (underline style) --------------------------------------------- */
-#StatusChip {{ border-radius: 10px; padding: 4px 10px; font-size: 9pt; }}
-QTabWidget::pane {{ border: none; border-top: 1px solid {border}; top: -1px; }}
+#StatusChip {{ border-radius: {r_md}; padding: 4px 10px; font-size: {fs_small}; }}
+QTabWidget::pane {{ border: none; border-top: {bw} solid {border}; top: -1px; }}
 QTabBar::tab {{
     background: transparent; color: {muted}; padding: 9px 16px; margin-right: 2px;
     border: none; border-bottom: 2px solid transparent; font-weight: 500;
@@ -164,28 +197,28 @@ QTabBar::tab {{
 QTabBar::tab:hover {{ color: {text}; }}
 QTabBar::tab:selected {{ color: {accent}; border-bottom: 2px solid {accent}; font-weight: 700; }}
 
-QToolTip {{ background: {surface2}; color: {text}; border: 1px solid {border}; border-radius: 8px; padding: 7px 10px; }}
+QToolTip {{ background: {surface2}; color: {text}; border: {bw} solid {border}; border-radius: {r_sm}; padding: 7px 10px; }}
 QSplitter::handle {{ background: {border}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
 
 /* ---- Wizard stepper ----------------------------------------------------- */
-#StepChip {{ background: transparent; border: 1px solid transparent; border-radius: 999px;
+#StepChip {{ background: transparent; border: {bw} solid transparent; border-radius: {r_pill};
             padding: 6px 10px; color: {muted}; font-weight: 600; font-size: 10pt; }}
 #StepChip:hover {{ color: {text}; background: {surface2}; }}
 #StepChip:checked {{ background: {accent}; color: {accent_text}; }}
 #StepChip:disabled {{ color: {muted}; background: transparent; }}
 #StepChip[done="true"] {{ color: {accent}; background: {surface2}; }}
 #StepSep {{ color: {muted}; font-size: 10pt; }}
-#StepHeader {{ font-size: 13pt; font-weight: 700; color: {text}; }}
+#StepHeader {{ font-size: {fs_section}; font-weight: 700; color: {text}; }}
 #ReviewVal {{ color: {text}; font-weight: 600; }}
 
 /* ---- Empty states ------------------------------------------------------- */
 #EmptyIcon {{ font-size: 34pt; color: {muted}; }}
-#EmptyTitle {{ font-size: 13pt; font-weight: 700; color: {text}; }}
-#EmptyDesc {{ color: {muted}; font-size: 10pt; }}
+#EmptyTitle {{ font-size: {fs_section}; font-weight: 700; color: {text}; }}
+#EmptyDesc {{ color: {muted}; font-size: {fs_hint}; }}
 
 /* ---- Readiness banner (AI not ready) ------------------------------------ */
-#Banner {{ background: {warning_soft}; border: 1px solid {warning}; border-radius: 12px; }}
+#Banner {{ background: {warning_soft}; border: {bw} solid {warning}; border-radius: {r_lg}; }}
 #BannerIcon {{ color: {warning}; font-size: 15pt; }}
 #BannerText {{ color: {text}; font-size: 10pt; }}
 #BannerClose {{ background: transparent; border: none; color: {muted}; font-size: 11pt; font-weight: 700; padding: 0; }}
@@ -204,8 +237,9 @@ def palette(name: str) -> dict:
 
 def build_qss(name: str, scale: float = 1.0) -> str:
     """Build the stylesheet for a theme, scaling every point-size by `scale`
-    (the UI text-size / accessibility factor)."""
-    qss = _QSS.format(**palette(name))
+    (the UI text-size / accessibility factor). Palette + design tokens are the
+    single source of truth for colour and sizing."""
+    qss = _QSS.format(**palette(name), **TOKENS)
     if scale and abs(scale - 1.0) > 1e-6:
         qss = _PT_RE.sub(lambda m: f"{float(m.group(1)) * scale:.2f}pt", qss)
     return qss

@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 from .. import __app_name__, __version__
 from ..config import TMP_DIR
 from ..core import updater
+from . import metrics as M
 from .components import Card, EmptyState, section_title, subtitle, tip
 from .context import AppContext
 from .workers import UpdateCheckWorker, UpdateDownloadWorker
@@ -56,15 +57,15 @@ class UpdatesPage(QWidget):
 
         content = QWidget()
         self.v = QVBoxLayout(content)
-        self.v.setContentsMargins(24, 20, 24, 24)
-        self.v.setSpacing(14)
+        self.v.setContentsMargins(*M.PAGE_MARGINS)
+        self.v.setSpacing(M.PAGE_GAP)
 
         title = QLabel("Application Updates"); title.setObjectName("PageTitle")
         self.v.addWidget(title)
         self.v.addWidget(subtitle(f"{__app_name__} keeps your meetings private. Updates are optional and verified."))
 
         # current version + actions
-        head = Card(); hl = QHBoxLayout(head); hl.setContentsMargins(16, 14, 16, 14)
+        head = Card(); hl = QHBoxLayout(head); hl.setContentsMargins(M.LG, M.LG, M.LG, M.LG)
         col = QVBoxLayout(); col.setSpacing(2)
         col.addWidget(section_title(__app_name__))
         self.cur_lbl = QLabel(f"Current version: v{__version__}")
@@ -91,7 +92,7 @@ class UpdatesPage(QWidget):
         # details card
         self.detail = Card()
         self.dl_layout = QVBoxLayout(self.detail)
-        self.dl_layout.setContentsMargins(16, 14, 16, 14)
+        self.dl_layout.setContentsMargins(M.LG, M.LG, M.LG, M.LG)
         self.dl_layout.setSpacing(8)
         self.status_row = QLabel("Click “Check for updates” to see the latest version.")
         self.status_row.setWordWrap(True)
@@ -134,7 +135,7 @@ class UpdatesPage(QWidget):
     def _build_git_card(self):
         from ..core import git_update
         self._git_worker = None
-        card = Card(); gl = QVBoxLayout(card); gl.setContentsMargins(16, 14, 16, 14); gl.setSpacing(8)
+        card = Card(); gl = QVBoxLayout(card); gl.setContentsMargins(M.LG, M.LG, M.LG, M.LG); gl.setSpacing(8)
         row = QHBoxLayout()
         col = QVBoxLayout(); col.setSpacing(2)
         col.addWidget(section_title("Source update (Git)"))
@@ -410,7 +411,7 @@ class ActionItemsPage(QWidget):
         self.on_open_meeting = on_open_meeting
         self._items = []
 
-        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        v = QVBoxLayout(self); v.setContentsMargins(*M.PAGE_MARGINS); v.setSpacing(M.PAGE_GAP)
         title = QLabel("Action Items"); title.setObjectName("PageTitle")
         v.addWidget(title)
         v.addWidget(subtitle("Every action item from all your meetings in one place. "
@@ -526,7 +527,7 @@ class HelpPage(QWidget):
     def __init__(self, ctx: AppContext):
         super().__init__()
         self.ctx = ctx
-        v = QVBoxLayout(self); v.setContentsMargins(24, 20, 24, 24); v.setSpacing(12)
+        v = QVBoxLayout(self); v.setContentsMargins(*M.PAGE_MARGINS); v.setSpacing(M.PAGE_GAP)
         title = QLabel("Help & About"); title.setObjectName("PageTitle")
         v.addWidget(title)
         v.addWidget(subtitle("Getting started, contact, and legal information."))

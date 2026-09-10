@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.audio import MEDIA_EXTS
+from . import metrics as M
 
 
 class Card(QFrame):
@@ -59,8 +60,8 @@ class CollapsibleSection(QFrame):
 
         self._body = QWidget()
         self.content = QVBoxLayout(self._body)
-        self.content.setContentsMargins(16, 2, 16, 14)
-        self.content.setSpacing(10)
+        self.content.setContentsMargins(M.LG, 0, M.LG, M.MD)
+        self.content.setSpacing(M.SM)
         outer.addWidget(self._body)
         self._body.setVisible(expanded)
 
@@ -160,8 +161,8 @@ class DropArea(QFrame):
         self._accept = accept_exts or set(MEDIA_EXTS)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 26, 20, 26)
-        lay.setSpacing(6)
+        lay.setContentsMargins(M.XL, M.XXL, M.XL, M.XXL)
+        lay.setSpacing(M.SM)
         lay.setAlignment(Qt.AlignCenter)
 
         icon = QLabel("⬆")
