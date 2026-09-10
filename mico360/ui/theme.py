@@ -220,6 +220,14 @@ QSplitter::handle:horizontal {{ width: 1px; }}
 #ReviewGroup {{ color: {accent}; font-size: {fs_small}; font-weight: 700; }}
 #ReviewVal {{ color: {text}; font-weight: 600; }}
 
+/* ---- Tag pills (Built-in / Custom) & favourite star --------------------- */
+#Tag {{ background: {surface2}; border-radius: {r_sm}; padding: 2px 8px;
+        font-size: {fs_small}; font-weight: 700; color: {muted}; }}
+#Tag[kind="custom"] {{ color: {accent}; }}
+#FavBtn {{ background: transparent; border: none; font-size: 15pt; padding: 0 4px; color: {muted}; }}
+#FavBtn[on="true"] {{ color: {warning}; }}
+#FavBtn:hover {{ color: {warning}; }}
+
 /* ---- Empty states ------------------------------------------------------- */
 #EmptyIcon {{ font-size: 34pt; color: {muted}; }}
 #EmptyTitle {{ font-size: {fs_section}; font-weight: 700; color: {text}; }}

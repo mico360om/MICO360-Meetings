@@ -129,6 +129,7 @@ class SavedPrompt:
     text: str
     builtin: bool = False
     category: str = "General"
+    favorite: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -335,6 +336,21 @@ class PromptLibrary:
             f.unlink()
             return True
         return False
+
+    def set_favorite(self, prompt_id: str, favorite: bool) -> SavedPrompt | None:
+        p = self.get(prompt_id)
+        if not p:
+            return None
+        p.favorite = favorite
+        self._write(p)
+        return p
+
+    def duplicate(self, prompt_id: str) -> SavedPrompt | None:
+        """Copy a prompt into a new editable Custom prompt (never a built-in)."""
+        src = self.get(prompt_id)
+        if not src:
+            return None
+        return self.add(f"{src.name} (copy)", src.text, builtin=False, category=src.category)
 
     def _write(self, p: SavedPrompt) -> None:
         (self.dir / f"{p.id}.json").write_text(

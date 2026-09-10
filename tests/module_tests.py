@@ -222,7 +222,15 @@ def main():
         cats = {p.category for p in lib.list()}
         assert set(PROMPT_CATEGORIES).issubset(cats)
         sp = lib.add("QA", "x [TRANSCRIPT_HERE]", category="Summary")
-        assert lib.get(sp.id); lib.delete(sp.id)
+        assert lib.get(sp.id)
+        # favourite toggles + persists
+        lib.set_favorite(sp.id, True); assert lib.get(sp.id).favorite is True
+        lib.set_favorite(sp.id, False); assert lib.get(sp.id).favorite is False
+        # duplicate makes an editable Custom copy
+        dup = lib.duplicate(sp.id)
+        assert dup and dup.id != sp.id and dup.builtin is False and dup.name.endswith("(copy)")
+        assert dup.text == sp.text and dup.category == sp.category
+        lib.delete(sp.id); lib.delete(dup.id)
         pr = build_generation_prompt(BASE_TEMPLATE, "Formal Minutes", "hello")
         assert "hello" in pr
         return f"{len(lib.list())} prompts, {len(cats)} categories"
@@ -542,6 +550,28 @@ def main():
             ctx.action_items.all_items = orig; ap.reload()
         return "person/status/deadline/meeting filters + overdue"
     t("ui.action_filters", _action_filters)
+
+    def _prompt_library():
+        pp = win.prompts_page
+        pp.search.clear(); pp.cat_filter.setCurrentText("All categories"); pp.reload()
+        total = len(pp._prompts); assert total >= 20
+        pp.search.setText("action")                     # search narrows the list
+        assert 0 < len(pp._prompts) < total
+        pp.search.clear()
+        for r, idx in enumerate(pp._row_map):           # select first real prompt
+            if idx >= 0:
+                pp.list.setCurrentRow(r); break
+        cur = pp._current(); assert cur is not None
+        assert pp.pv_tag.text() in ("Built-in", "Custom")   # clear label in preview
+        try:
+            pp.ctx.prompts.set_favorite(cur.id, True); pp.reload()
+            pp.cat_filter.setCurrentText("★ Favourites")    # favourites filter
+            assert pp._prompts and all(p.favorite for p in pp._prompts)
+        finally:
+            pp.ctx.prompts.set_favorite(cur.id, False)
+            pp.cat_filter.setCurrentText("All categories"); pp.reload()
+        return "search + category + favourites filter + built-in/custom labels"
+    t("ui.prompt_library", _prompt_library)
 
     def _editable_title():
         np_ = win.new_page
