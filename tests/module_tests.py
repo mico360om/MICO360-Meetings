@@ -263,6 +263,32 @@ def main():
         return "New/History/ActionItems/Profiles/Prompts/Settings"
     t("ui.pages", _pages)
 
+    def _readiness_banner():
+        from types import SimpleNamespace as NS
+        np_ = win.new_page
+        orig_status, orig_prov = ctx.ai_status, ctx.provider
+        try:
+            ctx.provider = lambda: "local"
+            ctx.ai_status = lambda *a, **k: NS(running=True, models=["m"], error="")
+            np_.refresh_readiness(); assert np_.ready_banner.isHidden(), "ready should hide"
+            # no model installed -> banner with an Install action
+            ctx.ai_status = lambda *a, **k: NS(running=True, models=[], error="")
+            np_.refresh_readiness()
+            assert (not np_.ready_banner.isHidden()) and np_.banner_btn1.text() == "Install a model"
+            # dismissing keeps the same problem hidden
+            np_._dismiss_banner(); np_.refresh_readiness()
+            assert np_.ready_banner.isHidden(), "dismiss should suppress same problem"
+            # a different problem (cloud) still shows, with a Switch-to-Local action
+            ctx.provider = lambda: "cloud"
+            ctx.ai_status = lambda *a, **k: NS(running=False, models=[], error="no key")
+            np_.refresh_readiness()
+            assert (not np_.ready_banner.isHidden()) and np_.banner_btn1.text() == "Switch to Local"
+        finally:
+            ctx.ai_status, ctx.provider = orig_status, orig_prov
+            np_.refresh_readiness()
+        return "banner shows/hides + dismiss + per-mode actions"
+    t("ui.readiness_banner", _readiness_banner)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
         assert win.help_page.findChild(QTabWidget).count() == 4

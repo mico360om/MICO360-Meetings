@@ -20,6 +20,8 @@ DARK = {
     "accent_text": "#FFFFFF",
     "danger": "#E5484D",
     "success": "#3FB950",
+    "warning": "#E0A23A",
+    "warning_soft": "#352A18",
     "input_bg": "#1A181E",
 }
 
@@ -35,6 +37,8 @@ LIGHT = {
     "accent_text": "#FFFFFF",
     "danger": "#DC2626",
     "success": "#16A34A",
+    "warning": "#B8760F",
+    "warning_soft": "#FBF1E1",
     "input_bg": "#FFFFFF",
 }
 
@@ -163,6 +167,13 @@ QTabBar::tab:selected {{ color: {accent}; border-bottom: 2px solid {accent}; fon
 QToolTip {{ background: {surface2}; color: {text}; border: 1px solid {border}; border-radius: 8px; padding: 7px 10px; }}
 QSplitter::handle {{ background: {border}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
+
+/* ---- Readiness banner (AI not ready) ------------------------------------ */
+#Banner {{ background: {warning_soft}; border: 1px solid {warning}; border-radius: 12px; }}
+#BannerIcon {{ color: {warning}; font-size: 15pt; }}
+#BannerText {{ color: {text}; font-size: 10pt; }}
+#BannerClose {{ background: transparent; border: none; color: {muted}; font-size: 11pt; font-weight: 700; padding: 0; }}
+#BannerClose:hover {{ color: {text}; }}
 """
 
 

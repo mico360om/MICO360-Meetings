@@ -56,6 +56,10 @@ class NewMeetingPage(QWidget):
         self._worker = None
         self._current_id: int | None = None
         self._loaded_from_history = False       # True while editing a record opened from History
+        # Wired by MainWindow so the readiness banner's actions can navigate.
+        self.on_open_settings = None            # callable() -> open the Settings page
+        self.on_install_model = None            # callable() -> Settings + focus the installer
+        self.on_switch_local = None             # callable() -> switch AI mode to Local
         self._build()
         self.refresh_models()
         self.refresh_prompts()
@@ -114,7 +118,92 @@ class NewMeetingPage(QWidget):
         v.addWidget(self.progress)
         v.addStretch()
 
+        # Readiness banner sits just below the title, above everything else.
+        self.ready_banner = self._build_ready_banner()
+        v.insertWidget(2, self.ready_banner)
+
         outer.addWidget(_scroll(content))
+
+    # -- readiness banner ---------------------------------------------------
+    def _build_ready_banner(self) -> QWidget:
+        w = QWidget(); w.setObjectName("Banner"); w.setVisible(False)
+        row = QHBoxLayout(w); row.setContentsMargins(14, 10, 10, 10); row.setSpacing(10)
+        icon = QLabel("⚠"); icon.setObjectName("BannerIcon")
+        self.banner_text = QLabel(); self.banner_text.setObjectName("BannerText")
+        self.banner_text.setWordWrap(True)
+        self.banner_btn1 = QPushButton(); self.banner_btn1.setObjectName("Primary")
+        self.banner_btn1.clicked.connect(lambda: self._banner_act1 and self._banner_act1())
+        self.banner_btn2 = QPushButton(); self.banner_btn2.setObjectName("Ghost")
+        self.banner_btn2.clicked.connect(lambda: self._banner_act2 and self._banner_act2())
+        close = QPushButton("✕"); close.setObjectName("BannerClose")
+        close.setFixedSize(26, 26); close.setCursor(Qt.PointingHandCursor)
+        close.setToolTip("Dismiss until the status changes")
+        close.clicked.connect(self._dismiss_banner)
+        row.addWidget(icon); row.addWidget(self.banner_text, 1)
+        row.addWidget(self.banner_btn1); row.addWidget(self.banner_btn2); row.addWidget(close)
+        self._banner_act1 = None; self._banner_act2 = None
+        self._banner_sig = None; self._banner_dismissed_sig = None
+        return w
+
+    def refresh_readiness(self):
+        """Show a one-click 'AI not ready' banner when the active provider can't
+        generate minutes yet (Ollama down / no model / cloud unreachable)."""
+        st = self.ctx.ai_status()
+        if st.running and st.models:
+            self._set_banner(None)
+            return
+        if self.ctx.provider() == "cloud":
+            self._set_banner(
+                "cloud",
+                (st.error or "MICO360 Cloud is unreachable.") + " Minutes can't be generated.",
+                primary=("Switch to Local", self._act_switch_local),
+                secondary=("Open Settings", self._act_open_settings))
+        elif not st.running:
+            self._set_banner(
+                "ollama_down",
+                "Ollama isn't running, so minutes can't be generated. Start it "
+                "(open the Ollama app or run “ollama serve”), then Retry.",
+                primary=("Retry", self.refresh_models),
+                secondary=("Open Settings", self._act_open_settings))
+        else:  # running, but no models installed
+            self._set_banner(
+                "no_model",
+                "No AI model is installed yet — you need one to generate minutes.",
+                primary=("Install a model", self._act_install_model),
+                secondary=("Retry", self.refresh_models))
+
+    def _set_banner(self, sig, text="", primary=None, secondary=None):
+        if sig is None:                         # ready → clear (and un-dismiss)
+            self._banner_dismissed_sig = None
+            self.ready_banner.setVisible(False)
+            return
+        self._banner_sig = sig
+        if sig == self._banner_dismissed_sig:   # user dismissed this exact problem
+            self.ready_banner.setVisible(False)
+            return
+        self.banner_text.setText(text)
+        self._banner_act1 = primary[1] if primary else None
+        self._banner_act2 = secondary[1] if secondary else None
+        for btn, spec in ((self.banner_btn1, primary), (self.banner_btn2, secondary)):
+            btn.setVisible(bool(spec))
+            if spec:
+                btn.setText(spec[0])
+        self.ready_banner.setVisible(True)
+
+    def _dismiss_banner(self):
+        self._banner_dismissed_sig = self._banner_sig
+        self.ready_banner.setVisible(False)
+
+    def _act_open_settings(self):
+        if self.on_open_settings:
+            self.on_open_settings()
+
+    def _act_install_model(self):
+        (self.on_install_model or self.on_open_settings or (lambda: None))()
+
+    def _act_switch_local(self):
+        if self.on_switch_local:
+            self.on_switch_local()
 
     def _toggle_all(self):
         secs = (self.sec_source, self.sec_transcript, self.sec_generate, self.sec_minutes)
@@ -379,6 +468,7 @@ class NewMeetingPage(QWidget):
             self.model_box.addItem("⚠ MICO360 Cloud unavailable" if cloud
                                    else "⚠ Ollama not running")
             self.model_box.setEnabled(False)
+        self.refresh_readiness()
 
     def refresh_prompts(self):
         self.prompt_box.blockSignals(True)
@@ -1306,7 +1396,17 @@ class SettingsPage(QWidget):
             form.addRow(label, field)          # read-only field scrolls internally; no overflow
 
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
-        outer.addWidget(_scroll(content))
+        self._scroll_area = _scroll(content)
+        outer.addWidget(self._scroll_area)
+
+    def focus_install(self):
+        """Scroll to and highlight the model installer (used by the New Meeting
+        readiness banner's 'Install a model' action)."""
+        try:
+            self._scroll_area.ensureWidgetVisible(self.install_btn, 60, 120)
+            self.install_model_box.setFocus(Qt.OtherFocusReason)
+        except Exception:
+            pass
 
     def _reload_models(self):
         status = self.ctx.ollama_status()

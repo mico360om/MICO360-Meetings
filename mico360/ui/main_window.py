@@ -68,6 +68,12 @@ class MainWindow(QMainWindow):
             ctx, self.toast, on_theme_change=self.apply_theme,
             on_models_change=self._refresh_ai)
 
+        # Wire the New Meeting readiness banner's one-click actions.
+        self.new_page.on_open_settings = lambda: self._goto(self.settings_page)
+        self.new_page.on_install_model = self._install_model_flow
+        self.new_page.on_switch_local = self._switch_to_local
+        self.new_page.refresh_readiness()
+
         # order MUST match NAV
         for p in (self.new_page, self.history_page, self.actions_page, self.profiles_page,
                   self.prompts_page, self.updates_page, self.help_page, self.settings_page):
@@ -92,6 +98,20 @@ class MainWindow(QMainWindow):
         """Rebuild the model list and the status chip after an AI-mode/model change."""
         self.new_page.refresh_models()
         self._update_status()
+
+    def _install_model_flow(self):
+        """Banner action: jump to Settings and focus the model installer."""
+        self._goto(self.settings_page)
+        self.settings_page.focus_install()
+
+    def _switch_to_local(self):
+        """Banner action: switch the AI mode to Local (Ollama)."""
+        self.ctx.settings.set("ai_provider", "local")
+        keys = getattr(self.settings_page, "_provider_keys", [])
+        if "local" in keys:
+            self.settings_page.provider_box.setCurrentIndex(keys.index("local"))
+        self._refresh_ai()
+        self.toast.show_message("Switched to Local (Ollama) mode.", "success")
 
     def _setup_shortcuts(self):
         def add(seq, fn):
