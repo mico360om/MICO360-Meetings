@@ -10,9 +10,9 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QAbstractItemView, QFileDialog, QFrame, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea, QTabWidget,
-    QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget,
+    QAbstractItemView, QComboBox, QFileDialog, QFrame, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
+    QTabWidget, QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from .. import __app_name__, __version__
@@ -322,7 +322,7 @@ class ActionItemsPage(QWidget):
         title = QLabel("Action Items"); title.setObjectName("PageTitle")
         v.addWidget(title)
         v.addWidget(subtitle("Every action item from all your meetings in one place. "
-                             "Double-click the Status cell to update it."))
+                             "Set a task's status with the dropdown; double-click a meeting to open it."))
 
         bar = QHBoxLayout()
         self.search = QLineEdit(); self.search.setPlaceholderText("Search task, person, meeting or status…")
@@ -347,9 +347,9 @@ class ActionItemsPage(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.cellDoubleClicked.connect(self._on_double_click)
-        tip(self.table, "All action items found in your meetings' minutes. Double-click a Status "
-                        "cell to cycle Pending → In Progress → Done → Cancelled; double-click a "
-                        "Meeting cell to open that meeting")
+        tip(self.table, "All action items found in your meetings' minutes. Use the Status dropdown "
+                        "to set Pending / In Progress / Done / Cancelled; double-click a Meeting "
+                        "cell to open that meeting")
         v.addWidget(self.table, 1)
         self.empty = EmptyState("✔", "No action items yet",
                                 "Action items appear here when a meeting's minutes include an "
@@ -361,22 +361,31 @@ class ActionItemsPage(QWidget):
         v.addWidget(self.summary)
 
     def reload(self):
+        from ..core.tasks import STATUS_CYCLE
         self._items = self.ctx.action_items.all_items(self.search.text())
         self.table.setRowCount(len(self._items))
         for r, it in enumerate(self._items):
-            for c, val in enumerate((it.task, it.owner or "—", it.deadline or "—",
-                                     it.status, it.meeting_title, it.meeting_date)):
-                cell = QTableWidgetItem(val)
-                if c == 3:
-                    from PySide6.QtGui import QColor
-                    cell.setForeground(QColor(_STATUS_COLOR.get(it.status, "#9A9AA0")))
-                self.table.setItem(r, c, cell)
+            # text columns
+            for c, val in ((0, it.task), (1, it.owner or "—"), (2, it.deadline or "—"),
+                           (4, it.meeting_title), (5, it.meeting_date)):
+                self.table.setItem(r, c, QTableWidgetItem(val))
+            # Status: an inline dropdown (obvious, vs the old double-click-to-cycle)
+            combo = QComboBox()
+            combo.addItems(STATUS_CYCLE)
+            if it.status not in STATUS_CYCLE:
+                combo.addItem(it.status)
+            combo.setCurrentText(it.status)
+            combo.setStyleSheet(
+                f"color:{_STATUS_COLOR.get(it.status, '#9A9AA0')}; font-weight:600;")
+            combo.setToolTip("Change this task's status")
+            combo.activated.connect(lambda _i, row=r: self._change_status(row))
+            self.table.setCellWidget(r, 3, combo)
         done = sum(1 for i in self._items if i.status == "Done")
         cancelled = sum(1 for i in self._items if i.status == "Cancelled")
         open_ = len(self._items) - done - cancelled     # Cancelled is not "open"
         cancelled_txt = f" · {cancelled} cancelled" if cancelled else ""
         self.summary.setText(f"{len(self._items)} action item(s) · {done} done · "
-                             f"{open_} open{cancelled_txt}  ·  double-click Status to change")
+                             f"{open_} open{cancelled_txt}  ·  set status with the dropdown")
         # empty state: distinguish "none anywhere" from "no search matches"
         if self._items:
             self.table.setVisible(True); self.empty.setVisible(False); self.summary.setVisible(True)
@@ -390,15 +399,18 @@ class ActionItemsPage(QWidget):
                                "“Action Items” table. Generate minutes in New Meeting to populate this.", "✔")
             self.table.setVisible(False); self.empty.setVisible(True); self.summary.setVisible(False)
 
+    def _change_status(self, row: int):
+        if 0 <= row < len(self._items):
+            combo = self.table.cellWidget(row, 3)
+            if combo is not None:
+                self.ctx.action_items.set_status(self._items[row], combo.currentText())
+                self.reload()
+
     def _on_double_click(self, row, col):
         if not (0 <= row < len(self._items)):
             return
-        it = self._items[row]
-        if col == 3:                                    # Status → cycle
-            self.ctx.action_items.cycle_status(it)
-            self.reload()
-        elif col == 4 and self.on_open_meeting:         # Meeting → open it
-            m = self.ctx.history.get(it.meeting_id)
+        if col == 4 and self.on_open_meeting:           # Meeting → open it
+            m = self.ctx.history.get(self._items[row].meeting_id)
             if m:
                 self.on_open_meeting(m)
 

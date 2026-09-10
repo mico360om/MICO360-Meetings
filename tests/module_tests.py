@@ -371,6 +371,45 @@ def main():
         return "History + Action Items empty/populated toggle"
     t("ui.empty_states", _empty_states)
 
+    def _save_indicator():
+        np_ = win.new_page
+        np_.transcript.clear(); np_.minutes.clear()
+        np_._autosave_sig = ""; np_._last_saved_at = None; np_._current_id = None
+        np_.minutes.setPlainText("# Minutes\nbody")
+        np_._update_save_indicator(); assert "Unsaved" in np_.save_status.text()
+        np_._save_history(silent=True); assert "Saved" in np_.save_status.text()
+        np_.minutes.setPlainText("# Minutes\nbody 2"); assert "Unsaved" in np_.save_status.text()
+        if np_._current_id:
+            ctx.history.delete(np_._current_id)
+        np_.transcript.clear(); np_.minutes.clear()
+        np_._current_id = None; np_._autosave_sig = ""; np_._last_saved_at = None
+        np_._update_save_indicator()
+        return "unsaved → saved → unsaved"
+    t("ui.save_indicator", _save_indicator)
+
+    def _action_status_dropdown():
+        from PySide6.QtWidgets import QComboBox
+        from mico360.core.tasks import ActionItem
+        ap = win.actions_page
+        orig_all, orig_set = ctx.action_items.all_items, ctx.action_items.set_status
+        calls = []
+        try:
+            ctx.action_items.all_items = lambda *a, **k: [
+                ActionItem("T", "O", "D", "Pending", 1, "M", "2026-01-01")]
+            ctx.action_items.set_status = lambda item, status: calls.append(status)
+            ap.reload()
+            combo = ap.table.cellWidget(0, 3)
+            assert isinstance(combo, QComboBox) and combo.currentText() == "Pending"
+            assert [combo.itemText(i) for i in range(combo.count())] == \
+                ["Pending", "In Progress", "Done", "Cancelled"]
+            combo.setCurrentText("Done"); ap._change_status(0)
+            assert calls == ["Done"], calls
+        finally:
+            ctx.action_items.all_items, ctx.action_items.set_status = orig_all, orig_set
+            ap.reload()
+        return "inline status dropdown + change"
+    t("ui.action_status_dropdown", _action_status_dropdown)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
         assert win.help_page.findChild(QTabWidget).count() == 4
