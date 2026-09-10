@@ -27,8 +27,11 @@ log = logging.getLogger("mico360.pages_extra")
 SUPPORT_EMAIL = "info@mico360.com"
 
 
-def _scroll(inner: QWidget) -> QScrollArea:
+def _scroll(inner: QWidget, max_width: int = 1160) -> QScrollArea:
     sa = QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QScrollArea.NoFrame)
+    if max_width:
+        inner.setMaximumWidth(max_width)
+        sa.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
     sa.setWidget(inner)
     return sa
 

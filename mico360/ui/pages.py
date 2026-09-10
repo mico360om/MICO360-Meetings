@@ -30,10 +30,15 @@ log = logging.getLogger("mico360.pages")
 UPLOAD_EXTS = set(MEDIA_EXTS) | documents.DOC_EXTS | documents.IMAGE_EXTS
 
 
-def _scroll(inner: QWidget) -> QScrollArea:
+def _scroll(inner: QWidget, max_width: int = 1160) -> QScrollArea:
     sa = QScrollArea()
     sa.setWidgetResizable(True)
     sa.setFrameShape(QScrollArea.NoFrame)
+    # Cap the content measure and centre it, so forms/text don't stretch
+    # edge-to-edge on a wide window (a comfortable, professional line length).
+    if max_width:
+        inner.setMaximumWidth(max_width)
+        sa.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
     sa.setWidget(inner)
     sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
     return sa
