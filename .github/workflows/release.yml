@@ -46,14 +46,29 @@ jobs:
           & $signtool sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:CERT_PASSWORD /fd SHA256 `
             /tr http://timestamp.digicert.com /td SHA256 build\Output\MICO360Meetings-Setup.exe
 
+      # Publish the SHA256 AFTER any signing, so the hash matches the shipped binary.
+      # The in-app updater fetches this and verifies the download before running it.
+      - name: Compute SHA256 checksum
+        run: |
+          $setup = "build\Output\MICO360Meetings-Setup.exe"
+          $sha = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLower()
+          "$sha *MICO360Meetings-Setup.exe" | Out-File -Encoding ascii build\Output\SHA256SUMS.txt
+          $sha | Out-File -Encoding ascii "$setup.sha256"
+          Write-Host "SHA256: $sha"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: MICO360Meetings-Setup
-          path: build/Output/MICO360Meetings-Setup.exe
+          path: |
+            build/Output/MICO360Meetings-Setup.exe
+            build/Output/SHA256SUMS.txt
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/Output/MICO360Meetings-Setup.exe
+          files: |
+            build/Output/MICO360Meetings-Setup.exe
+            build/Output/MICO360Meetings-Setup.exe.sha256
+            build/Output/SHA256SUMS.txt
           generate_release_notes: true

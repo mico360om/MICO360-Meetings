@@ -43,6 +43,11 @@ Write-Host "==> Compiling installer with $iscc ..." -ForegroundColor Cyan
 $setup = "build\Output\MICO360Meetings-Setup.exe"
 if (Test-Path $setup) {
     Write-Host "==> Installer ready: $setup" -ForegroundColor Green
+    # Publish a SHA256 so the in-app updater can verify a download before running it.
+    $sha = (Get-FileHash -Algorithm SHA256 $setup).Hash.ToLower()
+    "$sha *$(Split-Path -Leaf $setup)" | Out-File -Encoding ascii "build\Output\SHA256SUMS.txt"
+    $sha | Out-File -Encoding ascii "$setup.sha256"
+    Write-Host "==> SHA256: $sha" -ForegroundColor Green
 } else {
     Write-Error "Installer compile failed: $setup not found"
 }

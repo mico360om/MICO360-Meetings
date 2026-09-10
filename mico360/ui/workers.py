@@ -4,6 +4,7 @@ so the UI never blocks. Progress and results are delivered via Qt signals.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
@@ -179,13 +180,17 @@ class UpdateCheckWorker(QThread):
 
 class UpdateDownloadWorker(QThread):
     progress = Signal(float, int, int)  # frac, read, total
-    finished_ok = Signal(str)           # downloaded path
+    finished_ok = Signal(str)           # downloaded path (only after verification)
     failed = Signal(str)
 
-    def __init__(self, url: str, dest: str):
+    def __init__(self, info, dest: str):
         super().__init__()
-        self.url = url
+        self.info = info                # updater.UpdateInfo (carries checksum metadata)
+        self.url = info.download_url
         self.dest = dest
+        self.verify_note = ""           # human-readable summary of what was checked
+        self.signature_status = ""      # Authenticode status
+        self.expected_sha256 = ""       # resolved expected hash ("" if none published)
         self._cancel = False
 
     def cancel(self):
@@ -197,9 +202,21 @@ class UpdateDownloadWorker(QThread):
                 self.url, self.dest,
                 progress=lambda f, r, t: self.progress.emit(f, r, t),
                 cancel=lambda: self._cancel)
+            self.progress.emit(1.0, 0, 0)
+            # verify integrity BEFORE the file is ever offered to run
+            self.expected_sha256 = updater.resolve_expected_sha256(self.info)
+            self.verify_note, self.signature_status = updater.verify_download(
+                path, self.expected_sha256)
             self.finished_ok.emit(path)
         except InterruptedError:
             self.failed.emit("Download cancelled.")
+        except updater.IntegrityError as exc:
+            # delete the bad file so it can never be executed
+            try:
+                Path(self.dest).unlink(missing_ok=True)
+            except Exception:
+                pass
+            self.failed.emit(str(exc))
         except Exception as exc:
             log.exception("update download failed")
             self.failed.emit(str(exc))

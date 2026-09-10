@@ -204,7 +204,7 @@ class UpdatesPage(QWidget):
         self.progress.setVisible(True); self.progress.setValue(0)
         self.download_btn.setEnabled(False)
         self._set_status(updater.DOWNLOADING, "Downloading update…")
-        self._dl = UpdateDownloadWorker(self._info.download_url, dest)
+        self._dl = UpdateDownloadWorker(self._info, dest)
         self._dl.progress.connect(self._on_dl_progress)
         self._dl.finished_ok.connect(self._on_dl_done)
         self._dl.failed.connect(self._on_dl_failed)
@@ -218,9 +218,13 @@ class UpdatesPage(QWidget):
 
     def _on_dl_done(self, path):
         self._downloaded = path
+        self._verify_note = getattr(self._dl, "verify_note", "")
+        self._verify_sha = getattr(self._dl, "expected_sha256", "")
         self.download_btn.setEnabled(True)
         self.progress.setValue(100)
-        self._set_status(updater.INSTALLING, "Download complete. Ready to install.")
+        msg = (f"Download verified ({self._verify_note}). Ready to install."
+               if self._verify_note else "Download complete. Ready to install.")
+        self._set_status(updater.INSTALLING, msg)
         self.download_btn.setVisible(False)
         self.install_btn.setVisible(True)
 
@@ -235,10 +239,35 @@ class UpdatesPage(QWidget):
         if not path or not Path(path).exists():
             return
         from PySide6.QtWidgets import QApplication, QMessageBox
+        # Final integrity guard: re-check the hash in case the file was altered on
+        # disk between download and this click.
+        expected = getattr(self, "_verify_sha", "")
+        if expected:
+            try:
+                if updater.sha256_file(path).lower() != expected.lower():
+                    try:
+                        Path(path).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                    self.install_btn.setVisible(False)
+                    self._set_status(updater.FAILED,
+                                     "Integrity check failed — the installer changed on disk.")
+                    QMessageBox.critical(
+                        self, "Update blocked",
+                        "The downloaded installer no longer matches the published checksum "
+                        "and has been removed. Please download it again.")
+                    return
+            except Exception:
+                log.warning("install-time hash re-check failed", exc_info=True)
+        note = getattr(self, "_verify_note", "")
+        caution = ""
+        if "no published checksum" in note or "unsigned" in note:
+            caution = ("\n\nNote: this release could not be fully verified "
+                       f"({note}). Only continue if you trust the source.")
         if QMessageBox.question(
                 self, "Install update",
                 f"{__app_name__} will close, install v"
-                f"{self._info.latest_version if self._info else ''}, then reopen.\n\nContinue?"
+                f"{self._info.latest_version if self._info else ''}, then reopen.{caution}\n\nContinue?"
         ) != QMessageBox.Yes:
             return
         try:

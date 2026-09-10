@@ -365,6 +365,38 @@ def main():
         return "SmtpConfig + guarded send + unicode encode"
     t("core.emailer", _emailer)
 
+    def _update_verify():
+        import hashlib as _h, tempfile, os as _os
+        from mico360.core import updater as up
+        # sha256_file matches the stdlib
+        fd, p = tempfile.mkstemp(suffix=".bin"); _os.close(fd)
+        data = b"MICO360 update payload \x00\x01\x02" * 1000
+        with open(p, "wb") as fh:
+            fh.write(data)
+        digest = _h.sha256(data).hexdigest()
+        assert up.sha256_file(p) == digest, "sha256_file mismatch"
+        # parse_checksum: SHA256SUMS-style line, filename match, and fallback
+        sums = f"{digest} *MICO360Meetings-Setup.exe\n<other>  decoy.zip\n"
+        assert up.parse_checksum(sums, "MICO360Meetings-Setup.exe") == digest
+        assert up.parse_checksum(f"Checksum: {digest}") == digest       # bare fallback
+        assert up.parse_checksum("no hash here", "x.exe") == ""
+        # resolve prefers an explicit expected hash
+        info = up.UpdateInfo(download_url="https://x/MICO360Meetings-Setup.exe",
+                             expected_sha256=digest)
+        assert up.resolve_expected_sha256(info) == digest
+        # verify_download passes on a match (unsigned temp file is allowed)…
+        note, status = up.verify_download(p, digest)
+        assert "SHA256 verified" in note
+        # …and refuses on a mismatch
+        try:
+            up.verify_download(p, "0" * 64)
+            raise AssertionError("should have rejected a bad checksum")
+        except up.IntegrityError:
+            pass
+        _os.unlink(p)
+        return "sha256+parse+resolve+verify(reject tamper)"
+    t("core.updater (verify)", _update_verify)
+
     # tally
     by_group = {}
     for g, m, ok, _ in results:
