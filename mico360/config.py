@@ -183,6 +183,18 @@ class Settings:
                 self._data.update({k: v for k, v in loaded.items()})
         except Exception:  # corrupt settings should never crash startup
             logging.getLogger(__name__).warning("settings load failed; using defaults", exc_info=True)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Heal settings written by older builds. Persist only if something changed."""
+        changed = False
+        # Older builds persisted a blank update repo, which silently turned auto-
+        # update off. Restore the default repo so update checks work again.
+        if not str(self._data.get("github_repo") or "").strip():
+            self._data["github_repo"] = DEFAULT_REPO
+            changed = True
+        if changed:
+            self.save()
 
     def save(self) -> None:
         try:

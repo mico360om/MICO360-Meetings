@@ -65,6 +65,27 @@ def main():
         return "settings+presets+paths"
     t("config", _config)
 
+    def _settings_migrate():
+        import json, tempfile, os
+        from pathlib import Path
+        from mico360 import config
+        # older build persisted a blank update repo -> should heal to DEFAULT_REPO
+        fd, name = tempfile.mkstemp(suffix=".json"); os.close(fd)
+        p = Path(name)
+        try:
+            p.write_text(json.dumps({"github_repo": "", "theme": "dark"}), encoding="utf-8")
+            s = config.Settings(p)
+            assert s.get("github_repo") == config.DEFAULT_REPO
+            assert s.get("theme") == "dark"                 # other keys untouched
+            assert json.loads(p.read_text(encoding="utf-8"))["github_repo"] == config.DEFAULT_REPO
+            # a real repo is preserved, not overwritten
+            p.write_text(json.dumps({"github_repo": "acme/app"}), encoding="utf-8")
+            assert config.Settings(p).get("github_repo") == "acme/app"
+        finally:
+            p.unlink(missing_ok=True)
+        return "blank github_repo healed; real repo kept"
+    t("config.migrate", _settings_migrate)
+
     def _single_inst():
         from mico360 import single_instance as si
         ok = si.acquire(); si.release()
