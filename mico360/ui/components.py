@@ -182,7 +182,7 @@ class DropArea(QFrame):
         lay.addWidget(self._sub)
         row = QHBoxLayout(); row.addStretch(); row.addWidget(browse); row.addStretch()
         lay.addLayout(row)
-        self.setMinimumHeight(170)
+        self.setMinimumHeight(140)
 
     def set_sub(self, text: str):
         self._sub.setText(text)

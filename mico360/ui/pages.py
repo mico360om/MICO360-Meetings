@@ -339,32 +339,28 @@ class NewMeetingPage(QWidget):
 
         # Upload tab
         up = QWidget(); upl = QVBoxLayout(up)
+        upl.setContentsMargins(0, 0, 0, 0); upl.setSpacing(8)
         self.drop = DropArea(
             accept_exts=UPLOAD_EXTS,
             caption="Drag & drop audio, video or documents",
             sub="MP3 · WAV · M4A · MP4 · MOV · MKV · PDF · DOCX · TXT · images — multiple files supported",
         )
         self.drop.fileChosen.connect(self._add_file)
-        self.files_list = QListWidget(); self.files_list.setMaximumHeight(120)
+        self.files_list = QListWidget(); self.files_list.setMaximumHeight(92)
         self.files_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.files_list.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.files_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.files_list.setDragDropMode(QAbstractItemView.InternalMove)  # drag to reorder
         self.files_list.setToolTip("Drag to reorder · select + Remove to delete")
 
-        # add / remove controls
-        list_bar = QHBoxLayout()
-        add_btn = QPushButton("➕ Add files…"); add_btn.clicked.connect(self.drop._browse)
+        # A single action row: add on the left, queue controls + the primary
+        # Transcribe on the right — so everything fits without scrolling.
+        add_btn = QPushButton("➕ Add"); add_btn.clicked.connect(self.drop._browse)
         tip(add_btn, "Browse for audio, video or document files to add to the queue")
-        self.remove_btn = QPushButton("Remove selected"); self.remove_btn.clicked.connect(self._remove_selected)
+        self.remove_btn = QPushButton("Remove"); self.remove_btn.clicked.connect(self._remove_selected)
         tip(self.remove_btn, "Remove the highlighted file(s) from the queue — the files on disk are not deleted")
-        self.clear_btn = QPushButton("Clear all"); self.clear_btn.clicked.connect(self._clear_files)
+        self.clear_btn = QPushButton("Clear"); self.clear_btn.clicked.connect(self._clear_files)
         tip(self.clear_btn, "Empty the whole queue (files on disk are not deleted)")
-        list_bar.addWidget(add_btn)
-        list_bar.addStretch()
-        list_bar.addWidget(self.remove_btn)
-        list_bar.addWidget(self.clear_btn)
-
         # Transcribe the queued media to text; then continue through the wizard
         # (review the transcript → Setup → Review → "Create meeting" generates).
         self.transcribe_btn = QPushButton("✨  Transcribe")
@@ -374,14 +370,18 @@ class NewMeetingPage(QWidget):
         tip(self.transcribe_btn, "Transcribe the queued media to text, so you can review and edit it "
                                  "before generating minutes. Offline Whisper — first run downloads "
                                  "the model (internet needed once). Then click Next to continue")
-        cta = QHBoxLayout(); cta.addStretch()
-        cta.addWidget(self.transcribe_btn)
+        list_bar = QHBoxLayout()
+        list_bar.addWidget(add_btn)
+        list_bar.addStretch()
+        list_bar.addWidget(self.remove_btn)
+        list_bar.addWidget(self.clear_btn)
+        list_bar.addSpacing(8)
+        list_bar.addWidget(self.transcribe_btn)
         upl.addWidget(self.drop)
         upl.addWidget(hint("Documents are read instantly into the transcript; audio/video are transcribed with Whisper. "
                            "Recordings also appear here."))
         upl.addWidget(self.files_list)
         upl.addLayout(list_bar)
-        upl.addLayout(cta)
         self.source_tabs.addTab(up, "Upload files")
 
         # Record tab — full audio/screen/camera recorder with live details
