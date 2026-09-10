@@ -56,6 +56,7 @@ class NewMeetingPage(QWidget):
         self._worker = None
         self._current_id: int | None = None
         self._loaded_from_history = False       # True while editing a record opened from History
+        self._auto_generate = False             # chain generation after a one-click transcription
         # Wired by MainWindow so the readiness banner's actions can navigate.
         self.on_open_settings = None            # callable() -> open the Settings page
         self.on_install_model = None            # callable() -> Settings + focus the installer
@@ -248,19 +249,29 @@ class NewMeetingPage(QWidget):
         list_bar.addWidget(self.remove_btn)
         list_bar.addWidget(self.clear_btn)
 
-        self.transcribe_btn = QPushButton("Transcribe queued media")
-        self.transcribe_btn.setObjectName("Primary")
+        # Secondary: transcribe only (for reviewing/editing the transcript first).
+        self.transcribe_btn = QPushButton("Transcribe only")
+        self.transcribe_btn.setObjectName("Ghost")
         self.transcribe_btn.clicked.connect(self._start_transcription)
         self.transcribe_btn.setEnabled(False)
-        tip(self.transcribe_btn, "Convert the queued audio/video to text with offline Whisper. "
-                                 "Runs in order — drag the list to reorder. The first run downloads "
-                                 "the Whisper model (internet needed once)")
+        tip(self.transcribe_btn, "Transcribe the queued media to text only, so you can review and "
+                                 "edit it before generating. Offline Whisper — first run downloads "
+                                 "the model (internet needed once)")
+        # Primary happy-path: transcribe, then generate minutes in one click.
+        self.tg_btn = QPushButton("✨  Transcribe & generate minutes")
+        self.tg_btn.setObjectName("Primary")
+        self.tg_btn.clicked.connect(self._transcribe_and_generate)
+        self.tg_btn.setEnabled(False)
+        tip(self.tg_btn, "One click: transcribe the queued media and then generate minutes using "
+                         "the model, style and prompt selected in Step 3 — the whole flow in one go")
+        cta = QHBoxLayout(); cta.addStretch()
+        cta.addWidget(self.transcribe_btn); cta.addWidget(self.tg_btn)
         upl.addWidget(self.drop)
         upl.addWidget(hint("Documents are read instantly into the transcript; audio/video are transcribed with Whisper. "
                            "Recordings also appear here."))
         upl.addWidget(self.files_list)
         upl.addLayout(list_bar)
-        upl.addWidget(self.transcribe_btn, 0, Qt.AlignRight)
+        upl.addLayout(cta)
         self.source_tabs.addTab(up, "Upload files")
 
         # Record tab — full audio/screen/camera recorder with live details
@@ -275,13 +286,18 @@ class NewMeetingPage(QWidget):
         return card
 
     # -- queue management ---------------------------------------------------
+    def _set_transcribe_enabled(self, on: bool):
+        """Enable/disable both source-action buttons together."""
+        self.transcribe_btn.setEnabled(on)
+        self.tg_btn.setEnabled(on)
+
     def _add_queue_item(self, path: str, label: str, is_media: bool):
         it = QListWidgetItem(label)
         it.setData(Qt.UserRole, path)
         it.setData(Qt.UserRole + 1, is_media)
         self.files_list.addItem(it)
         if is_media:
-            self.transcribe_btn.setEnabled(True)
+            self._set_transcribe_enabled(True)
         if self.files_list.count():
             self.sec_source.set_status(f"{self.files_list.count()} file(s)")
 
@@ -291,22 +307,22 @@ class NewMeetingPage(QWidget):
             if it.data(Qt.UserRole + 1) and path in self._media_queue:
                 self._media_queue.remove(path)
             self.files_list.takeItem(self.files_list.row(it))
-        self.transcribe_btn.setEnabled(bool(self._media_queue))
+        self._set_transcribe_enabled(bool(self._media_queue))
         n = self.files_list.count()
         self.sec_source.set_status(f"{n} file(s)" if n else "")
 
     def _clear_files(self):
         self.files_list.clear()
         self._media_queue.clear()
-        self.transcribe_btn.setEnabled(False)
+        self._set_transcribe_enabled(False)
         self.sec_source.set_status("")
 
     def _on_recording_ready(self, path: str):
         """A finished recording -> queue it for transcription (shown in Upload tab)."""
         self._media_queue.append(path)
         self._add_queue_item(path, f"⏺  {Path(path).name}  (recorded)", True)
-        self.source_tabs.setCurrentIndex(0)   # show the queue + Transcribe button
-        self.toast.show_message("Recording added to the queue — click 'Transcribe queued media'.",
+        self.source_tabs.setCurrentIndex(0)   # show the queue + action buttons
+        self.toast.show_message("Recording added — click ‘Transcribe & generate minutes’.",
                                 "success", 5000)
 
     def _step2_transcript(self) -> QWidget:
@@ -590,6 +606,20 @@ class NewMeetingPage(QWidget):
                 ordered.append(p)
         self._media_queue = ordered
 
+    def _transcribe_and_generate(self):
+        """One-click happy path: transcribe the queued media, then generate minutes.
+        Falls back to plain generation if a transcript is already present."""
+        if getattr(self, "_worker", None) and self._worker.isRunning():
+            return
+        self._sync_queue_from_list()
+        if self._media_queue:
+            self._auto_generate = True            # generation is chained on completion
+            self._start_transcription()
+        elif self.transcript.toPlainText().strip():
+            self._generate()
+        else:
+            self.toast.show_message("Add media or paste a transcript first.", "warn")
+
     def _start_transcription(self):
         if getattr(self, "_worker", None) and self._worker.isRunning():
             return                                    # already transcribing — ignore re-click
@@ -597,7 +627,7 @@ class NewMeetingPage(QWidget):
         if not self._media_queue:
             self.toast.show_message("No media files queued.", "warn")
             return
-        self.transcribe_btn.setEnabled(False)         # prevent a second, interleaved run
+        self._set_transcribe_enabled(False)           # prevent a second, interleaved run
         self._media_total = len(self._media_queue)
         self._media_done = 0
         self._busy(True, "Starting transcription…")
@@ -605,9 +635,13 @@ class NewMeetingPage(QWidget):
 
     def _transcribe_next(self):
         if not self._media_queue:
-            self._busy(False)
-            self.toast.show_message("Transcription complete.", "success")
-            self.transcribe_btn.setEnabled(False)
+            self._set_transcribe_enabled(False)
+            if self._auto_generate:                   # one-click flow → chain into generation
+                self._auto_generate = False
+                self._generate()
+            else:
+                self._busy(False)
+                self.toast.show_message("Transcription complete.", "success")
             return
         path = self._media_queue.pop(0)
         engine = self.ctx.transcription_engine()
@@ -634,11 +668,13 @@ class NewMeetingPage(QWidget):
     def _generate(self):
         transcript = self.transcript.toPlainText().strip()
         if not transcript:
+            self._busy(False)
             self.toast.show_message("Add or paste a transcript first.", "warn")
             return
         status = self.ctx.ai_status()
         cloud = self.ctx.provider() == "cloud"
         if not status.running:
+            self._busy(False)                         # clear a chained-transcription busy state
             if cloud:
                 QMessageBox.warning(self, "MICO360 Cloud unavailable",
                                     (status.error or "Could not reach the MICO360 Connect server.")
@@ -651,6 +687,7 @@ class NewMeetingPage(QWidget):
             return
         model = self.model_box.currentText()
         if not model or model.startswith("⚠"):
+            self._busy(False)
             if cloud:
                 self.toast.show_message("No MICO360 Cloud model is available right now.", "warn")
             elif status.running and not status.models:
@@ -688,6 +725,7 @@ class NewMeetingPage(QWidget):
         self.minutes.setPlainText(md)
         self._busy(False)
         self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
+        self._set_transcribe_enabled(bool(self._media_queue))   # reflect leftover queue
         # focus the output: open Minutes, fold the earlier steps
         self.sec_minutes.set_status("generated")
         self.sec_minutes.set_expanded(True)
@@ -886,9 +924,10 @@ class NewMeetingPage(QWidget):
 
     def _on_failed(self, msg: str):
         self._busy(False)
+        self._auto_generate = False               # don't chain generation after a failure
         self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
         # allow retrying the remaining transcription queue after a failure
-        self.transcribe_btn.setEnabled(bool(self._media_queue))
+        self._set_transcribe_enabled(bool(self._media_queue))
         if msg and "cancel" not in msg.lower():
             QMessageBox.critical(self, "Error", msg)
         self.toast.show_message(msg or "Failed.", "error", 5000)

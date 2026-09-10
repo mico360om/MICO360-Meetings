@@ -289,6 +289,32 @@ def main():
         return "banner shows/hides + dismiss + per-mode actions"
     t("ui.readiness_banner", _readiness_banner)
 
+    def _one_click():
+        np_ = win.new_page
+        np_._set_transcribe_enabled(True)
+        assert np_.tg_btn.isEnabled() and np_.transcribe_btn.isEnabled()
+        np_._set_transcribe_enabled(False)
+        assert not np_.tg_btn.isEnabled() and not np_.transcribe_btn.isEnabled()
+        called = {}
+        orig_start, orig_gen = np_._start_transcription, np_._generate
+        np_._start_transcription = lambda: called.setdefault("start", True)
+        np_._generate = lambda: called.setdefault("gen", True)
+        try:
+            # media queued -> set the chain flag and transcribe (generation chains later)
+            np_._media_queue = ["a.wav"]; np_.transcript.clear(); np_._auto_generate = False
+            np_._transcribe_and_generate()
+            assert np_._auto_generate and called.get("start") and "gen" not in called
+            # no media but a transcript present -> generate directly, no transcription
+            called.clear(); np_._media_queue = []
+            np_.transcript.setPlainText("some transcript"); np_._auto_generate = False
+            np_._transcribe_and_generate()
+            assert called.get("gen") and "start" not in called and not np_._auto_generate
+        finally:
+            np_._start_transcription, np_._generate = orig_start, orig_gen
+            np_._media_queue = []; np_.transcript.clear(); np_._auto_generate = False
+        return "one-click chain flag + transcript fallback"
+    t("ui.one_click_generate", _one_click)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
         assert win.help_page.findChild(QTabWidget).count() == 4
