@@ -122,18 +122,15 @@ class MainWindow(QMainWindow):
         side.setFixedWidth(216)
         v = QVBoxLayout(side); v.setContentsMargins(14, 18, 14, 14); v.setSpacing(6)
 
-        brand_row = QHBoxLayout()
-        logo = QLabel()
-        pm = QPixmap(str(resource_path("assets", "logo_256.png")))
-        if not pm.isNull():
-            logo.setPixmap(pm.scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        brand_text = QVBoxLayout(); brand_text.setSpacing(0)
-        b1 = QLabel("MICO360"); b1.setObjectName("Brand")
-        b2 = QLabel("Meetings"); b2.setObjectName("BrandSub")
-        brand_text.addWidget(b1); brand_text.addWidget(b2)
-        brand_row.addWidget(logo); brand_row.addLayout(brand_text); brand_row.addStretch()
-        v.addLayout(brand_row)
-        v.addSpacing(12)
+        brand_col = QVBoxLayout(); brand_col.setSpacing(4)
+        self._brand_logo_w = 170
+        self.brand_logo = QLabel(); self.brand_logo.setObjectName("BrandLogo")
+        self._apply_brand_logo(self.ctx.settings.get("theme"))
+        brand_col.addWidget(self.brand_logo, 0, Qt.AlignLeft)
+        cap = QLabel("MEETINGS"); cap.setObjectName("BrandSub")
+        brand_col.addWidget(cap)
+        v.addLayout(brand_col)
+        v.addSpacing(14)
 
         from .components import tip
         self.nav_group = QButtonGroup(self); self.nav_group.setExclusive(True)
@@ -191,9 +188,22 @@ class MainWindow(QMainWindow):
             self.status_chip.setText(offline)
             self.status_chip.setStyleSheet("color:#EF4444; font-size:9pt;")
 
+    def _apply_brand_logo(self, name: str):
+        """Show the brand lockup that suits the sidebar background: the white
+        logo on the dark theme, the full-colour logo on the light theme."""
+        fname = "logo.png" if name == "light" else "logo-w.png"
+        pm = QPixmap(str(resource_path("assets", fname)))
+        if pm.isNull():                                   # fall back to the mark
+            pm = QPixmap(str(resource_path("assets", "logo_256.png")))
+        if not pm.isNull():
+            self.brand_logo.setPixmap(pm.scaledToWidth(
+                self._brand_logo_w, Qt.SmoothTransformation))
+
     # -- theme --------------------------------------------------------------
     def apply_theme(self, name: str):
         self.setStyleSheet(theme.build_qss(name))
+        if hasattr(self, "brand_logo"):
+            self._apply_brand_logo(name)
 
     def resizeEvent(self, e):
         super().resizeEvent(e)

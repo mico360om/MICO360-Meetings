@@ -21,7 +21,7 @@ _ALIGN = {
 
 
 def _hex_rgb(color: str) -> RGBColor:
-    color = (color or "#2C7BE5").lstrip("#")
+    color = (color or "#8B1E1E").lstrip("#")
     try:
         return RGBColor(int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16))
     except Exception:
@@ -109,7 +109,7 @@ def export_docx(minutes_md: str, path: str | Path,
         if blk.kind == "h1":
             h = doc.add_heading(level=0)
             run = h.add_run(blk.text)
-            run.font.color.rgb = _hex_rgb(profile.accent_color if profile else "#2C7BE5")
+            run.font.color.rgb = _hex_rgb(profile.accent_color if profile else "#8B1E1E")
         elif blk.kind == "h2":
             doc.add_heading(blk.text, level=1)
         elif blk.kind == "kv":

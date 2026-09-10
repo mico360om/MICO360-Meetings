@@ -42,7 +42,7 @@ class PagePreview(QWidget):
         if not self.profile:
             return
         prof = self.profile
-        accent = QColor(prof.accent_color if prof.accent_color.startswith("#") else "#2C7BE5")
+        accent = QColor(prof.accent_color if prof.accent_color.startswith("#") else "#8B1E1E")
         pad = margin + 12
         top = margin + 16
 

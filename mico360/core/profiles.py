@@ -43,7 +43,7 @@ class CompanyProfile:
     show_page_numbers: bool = True
     page_number_position: str = "footer-right"
     page_number_format: str = "Page {n} of {total}"
-    accent_color: str = "#2C7BE5"
+    accent_color: str = "#8B1E1E"
 
     def to_dict(self) -> dict:
         return asdict(self)

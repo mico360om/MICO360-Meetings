@@ -6,30 +6,32 @@ the UI scales correctly under different DPI and zoom levels.
 """
 from __future__ import annotations
 
+# MICO360 brand palette: deep maroon (#8B1E1E) + charcoal/warm-neutral, matching
+# the logo. Accents use the brand-red family (#8B1E1E → #A83326 → #C7513F).
 DARK = {
-    "bg": "#0F1729",
-    "surface": "#16203A",
-    "surface2": "#1E2A47",
-    "border": "#2A3a5c",
-    "text": "#E6ECF5",
-    "muted": "#8FA0BD",
-    "accent": "#3B82F6",
-    "accent_hover": "#2C6FE0",
+    "bg": "#17151A",            # warm near-black
+    "surface": "#201E24",
+    "surface2": "#2A272F",
+    "border": "#39353F",
+    "text": "#ECEAEF",
+    "muted": "#A79FA9",
+    "accent": "#A83326",        # brand red, brightened for dark surfaces
+    "accent_hover": "#8B1E1E",
     "accent_text": "#FFFFFF",
-    "danger": "#EF4444",
-    "success": "#22C55E",
-    "input_bg": "#0E1626",
+    "danger": "#E5484D",
+    "success": "#3FB950",
+    "input_bg": "#1A181E",
 }
 
 LIGHT = {
-    "bg": "#F4F6FB",
+    "bg": "#F6F4F3",            # warm off-white
     "surface": "#FFFFFF",
-    "surface2": "#EEF2F9",
-    "border": "#D7DEEA",
-    "text": "#1A2333",
-    "muted": "#5B6B85",
-    "accent": "#2C7BE5",
-    "accent_hover": "#1F66C7",
+    "surface2": "#F1ECEB",
+    "border": "#E4DEDC",
+    "text": "#221D1D",         # warm near-black
+    "muted": "#6C6269",
+    "accent": "#8B1E1E",        # brand maroon
+    "accent_hover": "#6E1717",
     "accent_text": "#FFFFFF",
     "danger": "#DC2626",
     "success": "#16A34A",

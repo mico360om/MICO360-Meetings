@@ -18,7 +18,7 @@ def _inline(text: str) -> str:
     return "".join(out)
 
 
-def render_fragment(minutes_md: str, accent: str = "#2C7BE5") -> str:
+def render_fragment(minutes_md: str, accent: str = "#8B1E1E") -> str:
     """Return an HTML body fragment (for QTextBrowser preview)."""
     parts: list[str] = []
     for blk in md_blocks.parse(minutes_md):
@@ -50,7 +50,7 @@ def render_fragment(minutes_md: str, accent: str = "#2C7BE5") -> str:
 
 
 def render_document(minutes_md: str, profile: CompanyProfile | None = None) -> str:
-    accent = profile.accent_color if profile else "#2C7BE5"
+    accent = profile.accent_color if profile else "#8B1E1E"
     header = ""
     if profile:
         bits = " &nbsp;•&nbsp; ".join(

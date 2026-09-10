@@ -25,7 +25,7 @@ _ALIGN = {"left": TA_LEFT, "center": TA_CENTER, "right": TA_RIGHT}
 
 def _styles(accent: str):
     ss = getSampleStyleSheet()
-    accent_color = colors.HexColor(accent if accent.startswith("#") else "#2C7BE5")
+    accent_color = colors.HexColor(accent if accent.startswith("#") else "#8B1E1E")
     styles = {
         "title": ParagraphStyle("m_title", parent=ss["Title"], fontSize=18,
                                  textColor=accent_color, spaceAfter=10),
@@ -55,7 +55,7 @@ def _inline(text: str) -> str:
 def export_pdf(minutes_md: str, path: str | Path,
                profile: CompanyProfile | None = None) -> Path:
     path = Path(path)
-    accent = profile.accent_color if profile else "#2C7BE5"
+    accent = profile.accent_color if profile else "#8B1E1E"
     styles, accent_color = _styles(accent)
 
     # margins leave room for the letterhead/footer drawn by the canvas callback

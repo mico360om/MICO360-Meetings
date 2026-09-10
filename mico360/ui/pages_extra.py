@@ -416,15 +416,27 @@ class HelpPage(QWidget):
         v.addWidget(tabs, 1)
 
     def _tab(self, html: str) -> QWidget:
-        b = QTextBrowser(); b.setOpenExternalLinks(True); b.setHtml(html)
+        from PySide6.QtGui import QColor, QPalette
+        b = QTextBrowser(); b.setOpenExternalLinks(True)
+        # Brand-red links (readable on both themes) instead of default blue.
+        pal = b.palette(); pal.setColor(QPalette.Link, QColor("#C0392B")); b.setPalette(pal)
+        b.setHtml(html)
         return b
 
     def _wrap(self, inner: str) -> str:
         return f"<div style='font-family:Segoe UI; font-size:13.5px; line-height:1.5;'>{inner}</div>"
 
     def _about_html(self) -> str:
+        from PySide6.QtCore import QUrl
+        from ..config import resource_path
         repo = updater.repo_url(self.ctx.settings.get("github_repo", "")) or "(provided on release)"
+        logo_url = QUrl.fromLocalFile(str(resource_path("assets", "logo.png"))).toString()
+        # White chip so the full-colour brand lockup stays legible in either theme.
+        logo_html = (f"<table cellpadding='12' style='margin-bottom:4px;'><tr>"
+                     f"<td bgcolor='#FFFFFF'><img src='{logo_url}' width='210'></td>"
+                     f"</tr></table>")
         return self._wrap(f"""
+          {logo_html}
           <h2>{__app_name__}</h2>
           <p><b>Version:</b> v{__version__}</p>
           <p>{__app_name__} turns your meeting recordings and transcripts into
