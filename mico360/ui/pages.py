@@ -111,12 +111,8 @@ class NewMeetingPage(QWidget):
             self.wizard.addWidget(p)
         v.addWidget(self.wizard)
 
-        # Operation status + progress (transcription / generation).
-        self.status = QLabel(""); self.status.setObjectName("Hint")
-        self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0)
-        self.progress.setVisible(False)
-        v.addWidget(self.status)
-        v.addWidget(self.progress)
+        # Operation status: named stages, progress, message, inline errors.
+        v.addWidget(self._build_gen_status())
 
         # Back / Next / Create footer.
         v.addLayout(self._build_footer())
@@ -752,7 +748,9 @@ class NewMeetingPage(QWidget):
         self.cancel_btn.setVisible(True)              # keep Cancel prominent during the wait
         self._media_total = len(self._media_queue)
         self._media_done = 0
+        self._gen_active = False              # transcription has no generation stages
         self._busy(True, "Starting transcription…")
+        self.stage_row.setVisible(False)
         self._transcribe_next()
 
     def _transcribe_next(self):
@@ -832,7 +830,9 @@ class NewMeetingPage(QWidget):
         # prepend known meeting details (from .ics or the fields) so the header
         # isn't left as 'Not specified'
         transcript_in = self._meeting_preamble() + transcript
+        self._gen_active = True                        # show generation stages
         self._busy(True, "Generating minutes…")
+        self.stage_row.setVisible(True); self._update_gen_stage(0.0)
         self.cancel_btn.setVisible(True); self.generate_btn.setEnabled(False)
         self._worker = GenerateWorker(
             gen, transcript_in, template, style,
@@ -846,7 +846,11 @@ class NewMeetingPage(QWidget):
 
     def _on_generated(self, md: str):
         self.minutes.setPlainText(md)
+        self._gen_active = False
         self._busy(False)
+        self.gen_error.setVisible(False)
+        self.stage_row.setVisible(False)
+        self.status.setText("✓  Minutes generated and saved to History."); self._set_msg_state("ok")
         self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
         self._set_transcribe_enabled(bool(self._media_queue))   # reflect leftover queue
         # Auto-fill an editable title (from the Setup field or the minutes) so the
@@ -1082,25 +1086,99 @@ class NewMeetingPage(QWidget):
                                  "address is a validated Mailjet sender.")
 
     # -- shared -------------------------------------------------------------
+    # -- generation status panel -------------------------------------------
+    def _build_gen_status(self) -> QWidget:
+        w = QWidget(); lay = QVBoxLayout(w); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(M.SM)
+        # named stages: Prepare → Analyze → Compose
+        self._gen_stage_names = ["Prepare", "Analyze", "Compose"]
+        self._gen_stages: list[QLabel] = []
+        srow = QHBoxLayout(); srow.setSpacing(M.SM)
+        for i, nm in enumerate(self._gen_stage_names):
+            if i:
+                sep = QLabel("→"); sep.setObjectName("GenSep"); srow.addWidget(sep)
+            lbl = QLabel(nm); lbl.setObjectName("GenStage")
+            self._gen_stages.append(lbl); srow.addWidget(lbl)
+        srow.addStretch()
+        self.stage_row = QWidget(); self.stage_row.setLayout(srow); self.stage_row.setVisible(False)
+        lay.addWidget(self.stage_row)
+        # progress bar + percentage
+        prow = QHBoxLayout(); prow.setSpacing(M.SM)
+        self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0)
+        self.progress_pct = QLabel(""); self.progress_pct.setObjectName("Hint")
+        self.progress_pct.setFixedWidth(40); self.progress_pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        prow.addWidget(self.progress, 1); prow.addWidget(self.progress_pct)
+        self.progress_row = QWidget(); self.progress_row.setLayout(prow); self.progress_row.setVisible(False)
+        lay.addWidget(self.progress_row)
+        # message line (turns green on success, styled on state)
+        self.status = QLabel(""); self.status.setObjectName("GenMsg"); self.status.setWordWrap(True)
+        lay.addWidget(self.status)
+        # inline error card with a Retry (+ optional contextual action)
+        self.gen_error = self._build_error_card()
+        lay.addWidget(self.gen_error)
+        return w
+
+    def _build_error_card(self) -> QWidget:
+        w = QWidget(); w.setObjectName("ErrorCard"); w.setVisible(False)
+        row = QHBoxLayout(w); row.setContentsMargins(M.LG, M.MD, M.MD, M.MD); row.setSpacing(M.SM)
+        icon = QLabel("⚠"); icon.setObjectName("ErrorIcon")
+        self.gen_error_text = QLabel(""); self.gen_error_text.setObjectName("ErrorText")
+        self.gen_error_text.setWordWrap(True)
+        self._gen_err_action = None
+        self.gen_err_action_btn = QPushButton(""); self.gen_err_action_btn.setObjectName("Ghost")
+        self.gen_err_action_btn.setVisible(False)
+        self.gen_err_action_btn.clicked.connect(lambda: self._gen_err_action and self._gen_err_action())
+        self.gen_retry_btn = QPushButton("↻  Retry"); self.gen_retry_btn.setObjectName("Primary")
+        self.gen_retry_btn.clicked.connect(self._retry_generation)
+        tip(self.gen_retry_btn, "Try generating the minutes again")
+        row.addWidget(icon); row.addWidget(self.gen_error_text, 1)
+        row.addWidget(self.gen_err_action_btn); row.addWidget(self.gen_retry_btn)
+        return w
+
+    def _set_msg_state(self, state: str):
+        self.status.setProperty("state", state or "")
+        self.status.style().unpolish(self.status); self.status.style().polish(self.status)
+
+    def _update_gen_stage(self, frac: float):
+        # map the pipeline's fraction onto the three named stages
+        idx = 0 if frac < 0.12 else (1 if frac < 0.85 else 2)
+        for i, lbl in enumerate(self._gen_stages):
+            st = "done" if i < idx else ("active" if i == idx else "todo")
+            lbl.setProperty("state", st)
+            lbl.style().unpolish(lbl); lbl.style().polish(lbl)
+
+    def _retry_generation(self):
+        self.gen_error.setVisible(False)
+        self._create_meeting()
+
     def _on_progress(self, frac: float, msg: str):
-        self.progress.setValue(int(frac * 100))
-        self.status.setText(msg)
+        self.progress_row.setVisible(True)
+        pct = int(frac * 100)
+        self.progress.setValue(pct); self.progress_pct.setText(f"{pct}%")
+        self.status.setText(msg); self._set_msg_state("")
+        if getattr(self, "_gen_active", False):       # stages apply to generation only
+            self.stage_row.setVisible(True); self._update_gen_stage(frac)
 
     def _on_failed(self, msg: str):
         self._busy(False)
         self._auto_generate = False               # don't chain generation after a failure
         self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
-        # allow retrying the remaining transcription queue after a failure
         self._set_transcribe_enabled(bool(self._media_queue))
-        if msg and "cancel" not in msg.lower():
-            friendly = self._explain_ai_error(msg)
-            if friendly:
-                title, body, short = friendly
-                QMessageBox.warning(self, title, body)
-                self.toast.show_message(short, "error", 6000)
-                return
-            QMessageBox.critical(self, "Error", msg)
-        self.toast.show_message(msg or "Failed.", "error", 5000)
+        self.stage_row.setVisible(False); self.progress_row.setVisible(False)
+        if not msg or "cancel" in msg.lower():
+            self.status.setText("Cancelled — your transcript is kept."); self._set_msg_state("")
+            return
+        # Clear, inline error with a Retry (no blocking dialog).
+        friendly = self._explain_ai_error(msg)
+        short = friendly[2] if friendly else msg
+        self.status.setText(""); self._set_msg_state("")
+        self.gen_error_text.setText(short)
+        if friendly and self.on_open_settings:        # AI-model errors → offer Settings
+            self.gen_err_action_btn.setText("Open Settings"); self.gen_err_action_btn.setVisible(True)
+            self._gen_err_action = self.on_open_settings
+        else:
+            self.gen_err_action_btn.setVisible(False); self._gen_err_action = None
+        self.gen_error.setVisible(True)
+        self.toast.show_message(short, "error", 5000)
 
     def _explain_ai_error(self, msg: str):
         """Turn a raw Ollama/model failure into a clear, actionable message.
@@ -1122,12 +1200,14 @@ class NewMeetingPage(QWidget):
         return None
 
     def _busy(self, on: bool, msg: str = ""):
-        self.progress.setVisible(on)
+        self.progress_row.setVisible(on)
         if on:
-            self.progress.setValue(0)
-            self.status.setText(msg)
+            self.gen_error.setVisible(False)
+            self.progress.setValue(0); self.progress_pct.setText("0%")
+            self.status.setText(msg); self._set_msg_state("")
         else:
-            QTimer.singleShot(1200, lambda: (self.progress.setVisible(False), self.status.setText("")))
+            QTimer.singleShot(1200, lambda: (self.progress_row.setVisible(False),
+                                             self.stage_row.setVisible(False)))
 
     def load_meeting(self, m: Meeting):
         self._current_id = m.id

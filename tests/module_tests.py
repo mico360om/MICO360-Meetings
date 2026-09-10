@@ -573,6 +573,40 @@ def main():
         return "search + category + favourites filter + built-in/custom labels"
     t("ui.prompt_library", _prompt_library)
 
+    def _generation_status():
+        np_ = win.new_page
+        # progress drives named stages + percentage
+        np_._gen_active = True
+        np_._on_progress(0.05, "Cleaning transcript…")
+        assert np_._gen_stages[0].property("state") == "active"
+        np_._on_progress(0.5, "Analyzing part 2 of 5…")
+        assert np_._gen_stages[0].property("state") == "done"
+        assert np_._gen_stages[1].property("state") == "active"
+        assert np_.progress.value() == 50 and np_.progress_pct.text() == "50%"
+        # AI-model failure → inline error card + Retry + Open Settings (no dialog)
+        np_._on_failed("error loading model: unknown model architecture: 'mllama'")
+        assert not np_.gen_error.isHidden() and not np_.gen_retry_btn.isHidden()
+        assert np_.gen_err_action_btn.text() == "Open Settings"
+        assert np_.stage_row.isHidden() and np_.progress_row.isHidden()
+        # generic failure → error card, no contextual action
+        np_._on_failed("disk full")
+        assert not np_.gen_error.isHidden() and np_.gen_err_action_btn.isHidden()
+        # cancellation → message, not an error card
+        np_._on_failed("Generation cancelled.")
+        assert "kept" in np_.status.text()
+        # completion → green success state (mock the history write)
+        orig = np_._save_history
+        np_._save_history = lambda *a, **k: None
+        try:
+            np_._gen_active = True
+            np_._on_generated("# Minutes\nbody")
+            assert np_.status.property("state") == "ok" and np_.gen_error.isHidden()
+        finally:
+            np_._save_history = orig
+            np_._gen_active = False; np_._goto_step(0); np_.transcript.clear()
+        return "stages + inline error/retry + cancel + completion"
+    t("ui.generation_status", _generation_status)
+
     def _editable_title():
         np_ = win.new_page
         np_.transcript.clear(); np_.minutes.clear(); np_.meeting_title.clear()

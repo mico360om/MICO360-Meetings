@@ -19,6 +19,7 @@ DARK = {
     "accent_hover": "#8B1E1E",
     "accent_text": "#FFFFFF",
     "danger": "#E5484D",
+    "danger_soft": "#3A1E1E",
     "success": "#3FB950",
     "warning": "#E0A23A",
     "warning_soft": "#352A18",
@@ -36,6 +37,7 @@ LIGHT = {
     "accent_hover": "#6E1717",
     "accent_text": "#FFFFFF",
     "danger": "#DC2626",
+    "danger_soft": "#FCEBEA",
     "success": "#16A34A",
     "warning": "#B8760F",
     "warning_soft": "#FBF1E1",
@@ -239,6 +241,18 @@ QSplitter::handle:horizontal {{ width: 1px; }}
 #BannerText {{ color: {text}; font-size: 10pt; }}
 #BannerClose {{ background: transparent; border: none; color: {muted}; font-size: 11pt; font-weight: 700; padding: 0; }}
 #BannerClose:hover {{ color: {text}; }}
+
+/* ---- Generation status (stages · progress · errors) --------------------- */
+#GenStage {{ color: {muted}; font-weight: 700; font-size: {fs_small}; }}
+#GenStage[state="active"] {{ color: {accent}; }}
+#GenStage[state="done"] {{ color: {success}; }}
+#GenSep {{ color: {muted}; font-size: {fs_small}; }}
+#GenMsg {{ color: {text}; font-size: 10pt; }}
+#GenMsg[state="ok"] {{ color: {success}; font-weight: 600; }}
+#GenMsg[state="err"] {{ color: {danger}; }}
+#ErrorCard {{ background: {danger_soft}; border: {bw} solid {danger}; border-radius: {r_lg}; }}
+#ErrorIcon {{ color: {danger}; font-size: 15pt; }}
+#ErrorText {{ color: {text}; font-size: 10pt; }}
 """
 
 
