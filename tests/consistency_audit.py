@@ -156,4 +156,9 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    _rc = main()
+    # Flush, then os._exit to skip Python/Qt finalization — PySide6 on
+    # Python 3.14 intermittently crashes during interpreter teardown
+    # (0xC0000409) AFTER tests pass, which would mask a clean result.
+    sys.stdout.flush(); sys.stderr.flush()
+    os._exit(_rc)
