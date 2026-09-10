@@ -193,9 +193,19 @@ QSplitter::handle:horizontal {{ width: 1px; }}
 """
 
 
+import re
+
+_PT_RE = re.compile(r"(\d+(?:\.\d+)?)pt")
+
+
 def palette(name: str) -> dict:
     return LIGHT if name == "light" else DARK
 
 
-def build_qss(name: str) -> str:
-    return _QSS.format(**palette(name))
+def build_qss(name: str, scale: float = 1.0) -> str:
+    """Build the stylesheet for a theme, scaling every point-size by `scale`
+    (the UI text-size / accessibility factor)."""
+    qss = _QSS.format(**palette(name))
+    if scale and abs(scale - 1.0) > 1e-6:
+        qss = _PT_RE.sub(lambda m: f"{float(m.group(1)) * scale:.2f}pt", qss)
+    return qss

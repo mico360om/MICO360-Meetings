@@ -443,6 +443,21 @@ def main():
         return "5 tabs + every field preserved + focus_install + save"
     t("ui.settings_tabs", _settings_tabs)
 
+    def _text_scale():
+        import re
+        from mico360.ui import theme
+        base = float(re.search(r"font-size: ([\d.]+)pt", theme.build_qss("dark", 1.0)).group(1))
+        big = float(re.search(r"font-size: ([\d.]+)pt", theme.build_qss("dark", 1.3)).group(1))
+        assert abs(big - base * 1.3) < 0.01, (base, big)
+        sp = win.settings_page
+        assert sp.scale_box.count() == 4
+        sp.scale_box.setCurrentIndex(3); sp._scale_changed()          # Larger
+        assert abs(float(ctx.settings.get("ui_scale")) - 1.3) < 1e-6
+        sp.scale_box.setCurrentIndex(1); sp._scale_changed()          # back to Default
+        assert abs(float(ctx.settings.get("ui_scale")) - 1.0) < 1e-6
+        return "pt scaling + Settings control"
+    t("ui.text_scale", _text_scale)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
         assert win.help_page.findChild(QTabWidget).count() == 5     # incl. Shortcuts

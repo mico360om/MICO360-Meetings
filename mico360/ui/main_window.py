@@ -221,7 +221,8 @@ class MainWindow(QMainWindow):
 
     # -- theme --------------------------------------------------------------
     def apply_theme(self, name: str):
-        self.setStyleSheet(theme.build_qss(name))
+        scale = float(self.ctx.settings.get("ui_scale", 1.0) or 1.0)
+        self.setStyleSheet(theme.build_qss(name, scale))
         if hasattr(self, "brand_logo"):
             self._apply_brand_logo(name)
 

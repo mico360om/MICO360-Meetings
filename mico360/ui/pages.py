@@ -1413,10 +1413,26 @@ class SettingsPage(QWidget):
         self.on_theme_change = on_theme_change; self.on_models_change = on_models_change
         outer = QVBoxLayout(self); outer.setContentsMargins(24, 20, 24, 24); outer.setSpacing(12)
 
-        # Header: page title + an always-visible Appearance (theme) selector.
+        # Header: page title + always-visible Text-size and Appearance selectors.
         header = QHBoxLayout()
         title = QLabel("Settings"); title.setObjectName("PageTitle")
         header.addWidget(title); header.addStretch()
+
+        from ..config import UI_SCALES
+        sl = QLabel("Text size"); sl.setObjectName("Hint")
+        self.scale_box = QComboBox()
+        self._scale_values = [v for _, v in UI_SCALES]
+        for label, val in UI_SCALES:
+            self.scale_box.addItem(label, val)
+        _cur_scale = float(ctx.settings.get("ui_scale", 1.0) or 1.0)
+        self.scale_box.setCurrentIndex(
+            min(range(len(self._scale_values)),
+                key=lambda i: abs(self._scale_values[i] - _cur_scale)))
+        self.scale_box.activated.connect(self._scale_changed)
+        tip(self.scale_box, "Make all text larger or smaller across the whole app — applies "
+                            "immediately (accessibility)")
+        header.addWidget(sl); header.addWidget(self.scale_box)
+
         al = QLabel("Appearance"); al.setObjectName("Hint")
         self.theme = QComboBox(); self.theme.addItems(["dark", "light"])
         self.theme.setCurrentText(ctx.settings.get("theme"))
@@ -1745,6 +1761,10 @@ class SettingsPage(QWidget):
         self.ctx.settings.set("theme", name)
         self.on_theme_change(name)
 
+    def _scale_changed(self):
+        self.ctx.settings.set("ui_scale", float(self.scale_box.currentData()))
+        self.on_theme_change(self.theme.currentText())   # re-apply QSS at the new text size
+
     def _apply_preset(self):
         from ..config import apply_quality_preset, QUALITY_PRESETS
         name = self.preset.currentText()
@@ -1761,6 +1781,7 @@ class SettingsPage(QWidget):
 
     def _save(self):
         s = self.ctx.settings
+        s.set("ui_scale", float(self.scale_box.currentData()))
         s.set("ai_provider", self.provider_box.currentData())
         s.set("ollama_host", self.host.text().strip() or "http://127.0.0.1:11434")
         if not self.model.currentText().startswith("("):

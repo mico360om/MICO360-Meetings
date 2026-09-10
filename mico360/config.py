@@ -93,6 +93,12 @@ AI_PROVIDERS: dict[str, str] = {
     "cloud": "MICO360 Cloud",
 }
 
+# UI text-size presets (accessibility). The factor scales every point-size in the
+# theme's stylesheet, so all text grows/shrinks together.
+UI_SCALES: list[tuple[str, float]] = [
+    ("Small", 0.9), ("Default", 1.0), ("Large", 1.15), ("Larger", 1.3),
+]
+
 # MICO360 Connect AI platform — OpenAI-compatible surface. Hard-coded on purpose:
 # there is NO settings UI to change the endpoint; the user only picks the mode.
 MICO360_CONNECT_BASE_URL = "http://ai.mico360.com:5310/v1"
@@ -129,6 +135,7 @@ QUALITY_PRESETS: dict[str, dict[str, Any]] = {
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "theme": "dark",                    # "dark" | "light"
+    "ui_scale": 1.0,                    # text-size factor (see UI_SCALES)
     "ai_provider": "local",             # "local" (Ollama) | "cloud" (MICO360 Connect)
     "ollama_host": "http://127.0.0.1:11434",
     "ollama_model": "",                 # chosen at runtime from available models
