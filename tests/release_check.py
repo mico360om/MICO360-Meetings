@@ -64,6 +64,7 @@ def main() -> int:
     run_suite("Module tests", "tests/module_tests.py", r"\d+/\d+ module tests passed")
     run_suite("Integration QA", "tests/qa_check.py", r"\d+/\d+ checks passed")
     run_suite("Consistency audit", "tests/consistency_audit.py", r"\d+/\d+ consistency checks OK")
+    run_suite("Parser tests", "tests/test_parsers.py", r"PARSERS: \d+/\d+ passed")
     if not fast:
         run_suite("E2E workflow", "tests/e2e_workflow.py", r"E2E: \d+/\d+ passed", timeout=600)
     else:

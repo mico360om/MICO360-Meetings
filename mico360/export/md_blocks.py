@@ -59,12 +59,17 @@ def parse(markdown: str) -> list[Block]:
             i += 1
             continue
 
-        # Tables: a header row followed by a separator row.
-        if stripped.startswith("|") and i + 1 < n and _is_table_sep(lines[i + 1]):
+        # Tables: a header row followed by a separator row. The header may or may
+        # not have a leading pipe (small models often drop it); guard against
+        # headings/bullets that merely happen to contain a '|'.
+        if ("|" in stripped and i + 1 < n and _is_table_sep(lines[i + 1])
+                and not stripped.startswith(("#", "- ", "* ", "• "))):
             headers = _split_row(stripped)
             rows: list[list[str]] = []
             i += 2
-            while i < n and lines[i].strip().startswith("|"):
+            # Body rows contain a '|' (with or without a leading one) and are not
+            # themselves separator rows; a blank line ends the table.
+            while i < n and "|" in lines[i] and not _is_table_sep(lines[i]):
                 rows.append(_split_row(lines[i]))
                 i += 1
             blocks.append(Block("table", headers=headers, rows=rows))
@@ -93,13 +98,15 @@ def parse(markdown: str) -> list[Block]:
             blocks.append(Block("bullet", items=items))
             continue
 
-        # paragraph: gather consecutive non-empty, non-special lines
-        para: list[str] = []
+        # Paragraph: always consume the current line first so `i` advances even for
+        # a stray '|' line that wasn't a table (otherwise the loop would hang),
+        # then gather following non-special lines.
+        para: list[str] = [stripped]
+        i += 1
         while i < n and lines[i].strip() and not lines[i].strip().startswith(
             ("#", "- ", "* ", "• ", "|")
         ) and not _KV_RE.match(lines[i].strip()):
             para.append(lines[i].strip())
             i += 1
-        if para:
-            blocks.append(Block("para", text=" ".join(para)))
+        blocks.append(Block("para", text=" ".join(para)))
     return blocks
