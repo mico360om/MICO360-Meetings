@@ -29,6 +29,12 @@ for pkg in ("faster_whisper", "ctranslate2", "av", "tokenizers",
 
 hiddenimports += collect_submodules("reportlab") + ["docx", "openpyxl", "PIL"]
 
+# Build-time injected MICO360 Connect API key (gitignored). It is imported
+# conditionally at runtime, so name it explicitly when present or PyInstaller's
+# static analysis would miss it.
+if os.path.exists(os.path.join(ROOT, "mico360", "_build_key.py")):
+    hiddenimports += ["mico360._build_key"]
+
 block_cipher = None
 
 a = Analysis(

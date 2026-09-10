@@ -66,7 +66,7 @@ class MainWindow(QMainWindow):
         self.help_page = HelpPage(ctx)
         self.settings_page = SettingsPage(
             ctx, self.toast, on_theme_change=self.apply_theme,
-            on_models_change=self.new_page.refresh_models)
+            on_models_change=self._refresh_ai)
 
         # order MUST match NAV
         for p in (self.new_page, self.history_page, self.actions_page, self.profiles_page,
@@ -87,6 +87,11 @@ class MainWindow(QMainWindow):
     def _maybe_onboard(self):
         from .onboarding import maybe_show
         maybe_show(self.ctx, self)
+
+    def _refresh_ai(self):
+        """Rebuild the model list and the status chip after an AI-mode/model change."""
+        self.new_page.refresh_models()
+        self._update_status()
 
     def _setup_shortcuts(self):
         def add(seq, fn):
@@ -146,8 +151,8 @@ class MainWindow(QMainWindow):
         v.addStretch()
         self.status_chip = QLabel(); self.status_chip.setObjectName("Hint")
         self.status_chip.setWordWrap(True)
-        tip(self.status_chip, "Local Ollama AI server status. The app needs Ollama running "
-                              "to generate minutes — start it from the Ollama app or 'ollama serve'")
+        tip(self.status_chip, "Status of the active AI mode (Settings → AI mode). Local needs "
+                              "Ollama running; MICO360 Cloud needs a network connection")
         v.addWidget(self.status_chip)
         ver = QLabel(f"v{__version__}"); ver.setObjectName("Hint")
         tip(ver, "Installed app version — check Updates for newer releases")
@@ -173,13 +178,17 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(0)
 
     def _update_status(self):
-        st = self.ctx.ollama_status()
+        st = self.ctx.ai_status()
+        cloud = self.ctx.provider() == "cloud"
+        name = "MICO360 Cloud" if cloud else "Ollama"
         if st.running:
             n = len(st.models)
-            self.status_chip.setText(f"● Ollama online · {n} model{'s' if n != 1 else ''}")
+            self.status_chip.setText(f"● {name} online · {n} model{'s' if n != 1 else ''}")
             self.status_chip.setStyleSheet("color:#22C55E; font-size:9pt;")
         else:
-            self.status_chip.setText("● Ollama offline — run 'ollama serve'")
+            offline = (f"● {name} unavailable" if cloud
+                       else "● Ollama offline — run 'ollama serve'")
+            self.status_chip.setText(offline)
             self.status_chip.setStyleSheet("color:#EF4444; font-size:9pt;")
 
     # -- theme --------------------------------------------------------------

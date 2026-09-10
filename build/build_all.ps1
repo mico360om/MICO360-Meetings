@@ -17,6 +17,17 @@ python -m pip install -r requirements.txt | Out-Null
 Write-Host "==> Cleaning previous build..." -ForegroundColor Cyan
 Remove-Item -Recurse -Force "$root\build\dist","$root\build\work" -ErrorAction SilentlyContinue
 
+# Inject the MICO360 Connect API key at build time so end-users need no config.
+# The file is gitignored and only exists inside the bundle. Set the env var first:
+#   $env:MICO360_CONNECT_API_KEY = "mico_..."   (do NOT commit it)
+$keyFile = "$root\mico360\_build_key.py"
+if ($env:MICO360_CONNECT_API_KEY) {
+    "KEY = '$($env:MICO360_CONNECT_API_KEY)'" | Out-File -Encoding ascii $keyFile
+    Write-Host "==> Injected MICO360 Connect API key into the build." -ForegroundColor Green
+} else {
+    Write-Warning "MICO360_CONNECT_API_KEY not set — MICO360 Cloud mode will be inactive in this build (Local/Ollama still works)."
+}
+
 Write-Host "==> Building app with PyInstaller..." -ForegroundColor Cyan
 python -m PyInstaller "build\mico360.spec" --noconfirm --distpath "build\dist" --workpath "build\work"
 

@@ -278,8 +278,8 @@ class NewMeetingPage(QWidget):
         for b in (self.model_box, self.style_box, self.prompt_box):
             b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        tip(self.model_box, "Which local Ollama AI model writes the minutes. Larger models give "
-                            "richer minutes but are slower — install more in Settings")
+        tip(self.model_box, "Which AI model writes the minutes, from the active AI mode "
+                            "(Settings → AI mode). Larger models give richer minutes but are slower")
         tip(self.style_box, "Output format: Formal, Short Summary, Detailed, Action Item Report "
                             "or Executive Summary")
         tip(self.prompt_box, "The instruction template sent to the AI — manage templates in the "
@@ -356,22 +356,23 @@ class NewMeetingPage(QWidget):
 
     # -- data refresh -------------------------------------------------------
     def refresh_models(self):
-        status = self.ctx.ollama_status()
+        status = self.ctx.ai_status()
+        cloud = self.ctx.provider() == "cloud"
         self.model_box.clear()
         if status.running and status.models:
             self.model_box.setEnabled(True)
             self.model_box.addItems(status.models)
-            saved = self.ctx.settings.get("ollama_model")
+            saved = self.ctx.ai_model()
             if saved in status.models:
                 self.model_box.setCurrentText(saved)
             else:
-                self.ctx.settings.set("ollama_model", self.model_box.currentText())
+                self.ctx.set_ai_model(self.model_box.currentText())
         elif status.running:
-            # Ollama up but no models — guide the user to Settings
-            self.model_box.addItem("⚠ No models — install in Settings")
+            self.model_box.addItem("⚠ No models available")
             self.model_box.setEnabled(False)
         else:
-            self.model_box.addItem("⚠ Ollama not running")
+            self.model_box.addItem("⚠ MICO360 Cloud unavailable" if cloud
+                                   else "⚠ Ollama not running")
             self.model_box.setEnabled(False)
 
     def refresh_prompts(self):
@@ -540,24 +541,32 @@ class NewMeetingPage(QWidget):
         if not transcript:
             self.toast.show_message("Add or paste a transcript first.", "warn")
             return
-        status = self.ctx.ollama_status()
+        status = self.ctx.ai_status()
+        cloud = self.ctx.provider() == "cloud"
         if not status.running:
-            QMessageBox.warning(self, "Ollama not running",
-                                "Could not reach the local Ollama server.\n\n"
-                                "Start it with:  ollama serve\n"
-                                "and pull a model, e.g.:  ollama pull llama3.1")
+            if cloud:
+                QMessageBox.warning(self, "MICO360 Cloud unavailable",
+                                    (status.error or "Could not reach the MICO360 Connect server.")
+                                    + "\n\nYou can switch to Local (Ollama) in Settings → AI mode.")
+            else:
+                QMessageBox.warning(self, "Ollama not running",
+                                    "Could not reach the local Ollama server.\n\n"
+                                    "Start it with:  ollama serve\n"
+                                    "and pull a model, e.g.:  ollama pull llama3.1")
             return
         model = self.model_box.currentText()
         if not model or model.startswith("⚠"):
-            if status.running and not status.models:
+            if cloud:
+                self.toast.show_message("No MICO360 Cloud model is available right now.", "warn")
+            elif status.running and not status.models:
                 QMessageBox.warning(self, "No AI model installed",
                                     "Ollama is running but has no models.\n\n"
                                     "Go to Settings → “Install Required Model” to download one "
                                     "(e.g. Llama 3.1), then try again.")
             else:
-                self.toast.show_message("Select a valid Ollama model.", "warn")
+                self.toast.show_message("Select a valid model.", "warn")
             return
-        self.ctx.settings.set("ollama_model", model)
+        self.ctx.set_ai_model(model)
         style = self.style_box.currentText()
         self.ctx.settings.set("output_style", style)
         template = (self.prompt_edit.toPlainText() if self.toggle_prompt.isChecked()
@@ -1110,6 +1119,24 @@ class SettingsPage(QWidget):
         tip(self.theme, "Switch between dark and light themes — applies immediately")
         form.addRow("Appearance", self.theme)
 
+        # AI mode (provider) — the ONLY thing the user selects; the endpoint is
+        # fixed, there is no URL/key to configure here.
+        from ..config import AI_PROVIDERS
+        self.provider_box = QComboBox()
+        self._provider_keys = list(AI_PROVIDERS.keys())
+        for k in self._provider_keys:
+            self.provider_box.addItem(AI_PROVIDERS[k], k)
+        _cur_prov = ctx.settings.get("ai_provider", "local")
+        self.provider_box.setCurrentIndex(
+            self._provider_keys.index(_cur_prov) if _cur_prov in self._provider_keys else 0)
+        self.provider_box.activated.connect(self._provider_changed)
+        tip(self.provider_box, "Where meeting minutes are generated: Local (Ollama) runs fully "
+                               "offline on this PC; MICO360 Cloud uses the company AI server. "
+                               "Transcription always stays local on this PC.")
+        form.addRow("AI mode", self.provider_box)
+        form.addRow(hint("Minutes are written by the selected AI mode. Transcription always runs "
+                         "locally with Whisper — switching mode never sends your audio anywhere."))
+
         self.host = QLineEdit(ctx.settings.get("ollama_host"))
         tip(self.host, "Address of your local Ollama server. Leave the default "
                        "http://127.0.0.1:11434 unless you run Ollama elsewhere")
@@ -1287,10 +1314,32 @@ class SettingsPage(QWidget):
         else:
             self.model.addItem("(Ollama not running)")
 
+    def _provider_changed(self):
+        key = self.provider_box.currentData()
+        self.ctx.settings.set("ai_provider", key)
+        self._refresh_env()
+        self.on_models_change()          # rebuild the New Meeting model list
+        from ..config import AI_PROVIDERS
+        self.toast.show_message(f"AI mode: {AI_PROVIDERS.get(key, key)}.", "success")
+
     # -- environment + model installation -----------------------------------
     def _refresh_env(self):
         import sys
         py = f"Python {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        if self.ctx.provider() == "cloud":
+            from ..config import MICO360_CONNECT_BASE_URL
+            st = self.ctx.ai_status()
+            if st.running:
+                cloud_txt = "<span style='color:#22C55E'>MICO360 Cloud online</span>"
+                models_txt = (f"{len(st.models)} available ({', '.join(st.models[:4])})"
+                              if st.models else "none available")
+            else:
+                cloud_txt = "<span style='color:#EF4444'>MICO360 Cloud unavailable</span>"
+                models_txt = st.error or "—"
+            self.env_lbl.setText(
+                f"{py} &nbsp;•&nbsp; {cloud_txt} &nbsp;•&nbsp; {MICO360_CONNECT_BASE_URL} "
+                f"&nbsp;•&nbsp; Models: {models_txt}")
+            return
         st = self.ctx.ollama_status()
         if not st.running:
             ollama_txt = "<span style='color:#EF4444'>Ollama not running</span>"
@@ -1379,6 +1428,7 @@ class SettingsPage(QWidget):
 
     def _save(self):
         s = self.ctx.settings
+        s.set("ai_provider", self.provider_box.currentData())
         s.set("ollama_host", self.host.text().strip() or "http://127.0.0.1:11434")
         if not self.model.currentText().startswith("("):
             s.set("ollama_model", self.model.currentText())

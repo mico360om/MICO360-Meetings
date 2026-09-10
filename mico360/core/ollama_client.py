@@ -10,11 +10,10 @@ import logging
 from dataclasses import dataclass
 from typing import Callable
 
-from . import cleaning, prompts
+from . import prompts
+from .generation import ProgressCb, run_minutes_pipeline
 
 log = logging.getLogger("mico360.ollama")
-
-ProgressCb = Callable[[float, str], None]
 
 
 @dataclass
@@ -101,44 +100,7 @@ class OllamaGenerator:
         progress: ProgressCb | None = None,
         cancel: Callable[[], bool] | None = None,
     ) -> str:
-        if not self.model:
-            raise ValueError("No Ollama model selected.")
-
-        if progress:
-            progress(0.03, "Cleaning transcript…")
-        cleaned = cleaning.clean_transcript(transcript, remove_filler_words=remove_fillers)
-        if not cleaned.strip():
-            raise ValueError("Transcript is empty after cleaning.")
-
-        chunks = cleaning.chunk_text(cleaned, max_chars=chunk_chars)
-        log.info("generating minutes: style=%s chunks=%d model=%s", style, len(chunks), self.model)
-
-        # --- Single-pass for short transcripts ---
-        if len(chunks) <= 1:
-            if progress:
-                progress(0.15, f"Generating {style} with {self.model}…")
-            prompt = prompts.build_generation_prompt(template, style, cleaned)
-            result = self._chat(prompt, cancel)
-            if progress:
-                progress(1.0, "Minutes generated.")
-            return result
-
-        # --- Map: condense each chunk ---
-        notes: list[str] = []
-        n = len(chunks)
-        for i, ch in enumerate(chunks, start=1):
-            if progress:
-                progress(0.1 + 0.7 * (i - 1) / n, f"Analyzing part {i} of {n}…")
-            p = prompts.CHUNK_SUMMARY_PROMPT.format(idx=i, total=n).replace(
-                prompts.TRANSCRIPT_TOKEN, ch
-            )
-            notes.append(f"### Part {i}\n" + self._chat(p, cancel))
-
-        # --- Reduce: merge into final minutes ---
-        if progress:
-            progress(0.85, f"Composing {style}…")
-        reduce_prompt = prompts.build_reduce_prompt(template, style, "\n\n".join(notes))
-        result = self._chat(reduce_prompt, cancel)
-        if progress:
-            progress(1.0, "Minutes generated.")
-        return result
+        return run_minutes_pipeline(
+            self._chat, self.model, transcript, template, style,
+            remove_fillers=remove_fillers, chunk_chars=chunk_chars,
+            progress=progress, cancel=cancel)

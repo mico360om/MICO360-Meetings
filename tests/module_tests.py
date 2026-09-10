@@ -397,6 +397,63 @@ def main():
         return "sha256+parse+resolve+verify(reject tamper)"
     t("core.updater (verify)", _update_verify)
 
+    def _cloud():
+        import json as _j
+        import urllib.request as _u
+        from mico360.core import cloud_client as cc, prompts as _p
+
+        class _Resp:
+            def __init__(self, payload):
+                self._b = _j.dumps(payload).encode("utf-8")
+
+            def read(self):
+                return self._b
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_urlopen(req, timeout=0):
+            url = req.full_url
+            if url.endswith("/models"):
+                return _Resp({"object": "list",
+                              "data": [{"id": "llama3.1:latest"}, {"id": "qwen2.5:0.5b"}]})
+            if url.endswith("/chat/completions"):
+                return _Resp({"choices": [{"message": {"role": "assistant", "content": "Paris."}}]})
+            raise AssertionError("unexpected url " + url)
+
+        orig = _u.urlopen
+        _u.urlopen = fake_urlopen
+        try:
+            st = cc.check_cloud_status(key="mico_test")
+            assert st.running and st.models == ["llama3.1:latest", "qwen2.5:0.5b"], st
+            st2 = cc.check_cloud_status(key="")               # no key -> clear, not a crash
+            assert not st2.running and "key" in st2.error.lower(), st2
+            g = cc.CloudGenerator(key="mico_test", model="qwen2.5:0.5b")
+            assert g._chat("Say VERIFY", None) == "Paris."
+            out = g.generate_minutes("A short meeting transcript.", _p.BASE_TEMPLATE, "Formal Minutes")
+            assert isinstance(out, str) and out
+        finally:
+            _u.urlopen = orig
+        return "status+chat+pipeline (mocked, no network)"
+    t("core.cloud_client", _cloud)
+
+    def _providers():
+        from mico360.ui.context import AppContext
+        from mico360.config import AI_PROVIDERS
+        from mico360.core.ollama_client import OllamaGenerator
+        from mico360.core.cloud_client import CloudGenerator
+        assert set(AI_PROVIDERS) == {"local", "cloud"}
+        c = AppContext()
+        c.settings._data["ai_provider"] = "local"
+        assert isinstance(c.generator(), OllamaGenerator)
+        c.settings._data["ai_provider"] = "cloud"
+        assert isinstance(c.generator(), CloudGenerator)
+        return "provider-aware generator selection"
+    t("ui.context (providers)", _providers)
+
     # tally
     by_group = {}
     for g, m, ok, _ in results:

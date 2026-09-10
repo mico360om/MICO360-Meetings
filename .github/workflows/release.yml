@@ -24,6 +24,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      # Inject the MICO360 Connect API key (from a repo secret) so the shipped
+      # installer has Cloud mode working with no end-user configuration. Skipped
+      # if the secret is absent — Local/Ollama mode is unaffected.
+      - name: Inject MICO360 Connect key (optional)
+        if: ${{ env.MICO360_CONNECT_API_KEY != '' }}
+        env:
+          MICO360_CONNECT_API_KEY: ${{ secrets.MICO360_CONNECT_API_KEY }}
+        run: |
+          "KEY = '$env:MICO360_CONNECT_API_KEY'" | Out-File -Encoding ascii mico360\_build_key.py
+          Write-Host "Injected MICO360 Connect key into the build."
+
       - name: Build app (PyInstaller)
         run: pyinstaller build/mico360.spec --noconfirm --distpath build/dist --workpath build/work
 

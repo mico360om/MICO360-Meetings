@@ -428,9 +428,11 @@ class HelpPage(QWidget):
           <h2>{__app_name__}</h2>
           <p><b>Version:</b> v{__version__}</p>
           <p>{__app_name__} turns your meeting recordings and transcripts into
-          professional minutes — <b>entirely offline</b>. Audio is transcribed on
-          your computer with Whisper, and minutes are written by a local Ollama AI
-          model. Your meeting data never leaves your machine.</p>
+          professional minutes. Audio is transcribed on your computer with Whisper,
+          and minutes are written by a <b>local Ollama AI model by default</b>, so
+          your meeting data stays on your machine. You can optionally switch the AI
+          mode to <b>MICO360 Cloud</b> in Settings — see the Privacy Policy for what
+          that sends.</p>
           <h3>Contact</h3>
           <p>Email: <a href='mailto:{SUPPORT_EMAIL}'>{SUPPORT_EMAIL}</a><br>
              Website / Repository: {repo}</p>
@@ -489,9 +491,11 @@ class HelpPage(QWidget):
           <h2>Privacy Policy</h2>
           <p><b>Your data stays on your device.</b></p>
           <h3>What we collect</h3>
-          <p><b>Nothing.</b> {__app_name__} does not send your audio, video, transcripts
-             or minutes to any server. All transcription (Whisper) and summarization
-             (Ollama) run locally on your computer.</p>
+          <p><b>Nothing, in Local mode.</b> With the AI mode set to <b>Local (Ollama)</b>
+             — the default — {__app_name__} does not send your audio, video, transcripts
+             or minutes to any server: transcription (Whisper) and minutes generation
+             (Ollama) both run on your computer. See “AI mode” below for the one
+             exception you can opt into.</p>
           <h3>Local storage</h3>
           <p>Recordings, transcripts, minutes, company profiles and history are stored
              only in your local app-data folder. You can delete them at any time.</p>
@@ -503,7 +507,14 @@ class HelpPage(QWidget):
              pre-filled GitHub issue or email that you review and send yourself, and
              (4) the <b>Email minutes</b> feature — if you use it, the minutes you
              choose are sent through the SMTP/email server you configure in Settings
-             (e.g. Mailjet). Transcription and minutes generation remain fully local;
-             nothing is transmitted automatically.</p>
+             (e.g. Mailjet). Nothing is transmitted automatically.</p>
+          <h3>AI mode (local vs cloud)</h3>
+          <p>Minutes are written by the <b>AI mode</b> you select in Settings.
+             <b>Local (Ollama)</b>, the default, keeps everything on your computer.
+             If you switch to <b>MICO360 Cloud</b>, your transcript is sent to the
+             MICO360 Connect AI server to generate the minutes, and the result is
+             returned to you — choose Local if you need minutes generation to stay
+             on-device. <b>Transcription (Whisper) is always local in both modes</b>,
+             so your audio and video never leave your computer regardless of AI mode.</p>
           <h3>Contact</h3>
           <p>Privacy questions: <a href='mailto:{SUPPORT_EMAIL}'>{SUPPORT_EMAIL}</a></p>""")

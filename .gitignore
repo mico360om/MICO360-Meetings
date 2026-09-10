@@ -14,6 +14,9 @@ build/*.log
 dist/
 *.spec.bak
 
+# Secrets — build-time injected MICO360 Connect API key (never committed)
+mico360/_build_key.py
+
 # App-generated
 samples/out/
 samples/shots/

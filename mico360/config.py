@@ -84,6 +84,41 @@ def resource_path(*parts: str) -> Path:
 # Default GitHub repo (templated — change to your real repo when published).
 DEFAULT_REPO = "mico360om/MICO360-Meetings"
 
+# ---------------------------------------------------------------------------
+# AI provider ("mode") — where MINUTES are generated. Transcription is always
+# local (Whisper). Two modes are offered; the user only *selects* one.
+# ---------------------------------------------------------------------------
+AI_PROVIDERS: dict[str, str] = {
+    "local": "Local (Ollama)",
+    "cloud": "MICO360 Cloud",
+}
+
+# MICO360 Connect AI platform — OpenAI-compatible surface. Hard-coded on purpose:
+# there is NO settings UI to change the endpoint; the user only picks the mode.
+MICO360_CONNECT_BASE_URL = "http://ai.mico360.com:5310/v1"
+# A model the fleet is expected to have (per the API guide). It is only a default —
+# the real list comes live from GET /v1/models and the user picks from it.
+MICO360_CONNECT_DEFAULT_MODEL = "llama3.1:latest"
+
+
+def connect_api_key() -> str:
+    """The MICO360 Connect API key (a secret).
+
+    Resolution order, so end-users configure nothing and the key never lives in a
+    tracked source file (the repository is public):
+      1. MICO360_CONNECT_API_KEY environment variable (dev / server / CI), then
+      2. a build-time injected ``mico360/_build_key.py`` (gitignored; written by
+         the build script from the same env var and bundled into the installer).
+    """
+    env = (os.environ.get("MICO360_CONNECT_API_KEY", "") or "").strip()
+    if env:
+        return env
+    try:
+        from . import _build_key  # generated at build time; gitignored, bundled only
+        return (getattr(_build_key, "KEY", "") or "").strip()
+    except Exception:
+        return ""
+
 # Speed/Quality presets map to a Whisper model + compute. The Ollama model is
 # chosen separately, but presets hint a preferred tier (small/large).
 QUALITY_PRESETS: dict[str, dict[str, Any]] = {
@@ -94,8 +129,10 @@ QUALITY_PRESETS: dict[str, dict[str, Any]] = {
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "theme": "dark",                    # "dark" | "light"
+    "ai_provider": "local",             # "local" (Ollama) | "cloud" (MICO360 Connect)
     "ollama_host": "http://127.0.0.1:11434",
     "ollama_model": "",                 # chosen at runtime from available models
+    "cloud_model": "",                  # chosen at runtime from GET /v1/models
     "quality_preset": "Balanced",       # Fast | Balanced | Accurate | Custom
     "whisper_model": "base",            # tiny/base/small/medium/large-v3
     "whisper_compute": "int8",          # int8 is best for low-resource CPUs
