@@ -289,6 +289,66 @@ class PromptDialog(QDialog):
                 self.category.currentText().strip() or "General")
 
 
+class ActionItemDialog(QDialog):
+    """Edit one action item's fields directly (no reopening the meeting)."""
+    def __init__(self, item, parent=None):
+        super().__init__(parent)
+        from ..core.tasks import STATUS_CYCLE, PRIORITIES
+        self.setWindowTitle("Edit action item")
+        self.resize(560, 460)
+        lay = QVBoxLayout(self)
+        form = QFormLayout(); form.setSpacing(10)
+
+        self.task = QPlainTextEdit(item.task); self.task.setMaximumHeight(80)
+        tip(self.task, "What needs to be done")
+        form.addRow("Task", self.task)
+        self.owner = QLineEdit(item.owner)
+        tip(self.owner, "Responsible person")
+        form.addRow("Responsible", self.owner)
+        self.deadline = QLineEdit(item.deadline)
+        self.deadline.setPlaceholderText("e.g. 2026-09-30")
+        tip(self.deadline, "Deadline — a real date (YYYY-MM-DD) enables overdue detection")
+        form.addRow("Deadline", self.deadline)
+
+        self.priority = QComboBox(); self.priority.addItems(["—"] + PRIORITIES)
+        self.priority.setCurrentText(item.priority or "—")
+        tip(self.priority, "Priority: High, Medium or Low")
+        form.addRow("Priority", self.priority)
+        self.status = QComboBox(); self.status.addItems(STATUS_CYCLE)
+        if item.status not in STATUS_CYCLE:
+            self.status.addItem(item.status)
+        self.status.setCurrentText(item.status)
+        tip(self.status, "Workflow status")
+        form.addRow("Status", self.status)
+
+        self.notes = QPlainTextEdit(item.notes); self.notes.setMinimumHeight(90)
+        self.notes.setPlaceholderText("Optional notes — context, blockers, links…")
+        tip(self.notes, "Free-text notes kept with this action item")
+        form.addRow("Notes", self.notes)
+        lay.addLayout(form, 1)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
+        bb.accepted.connect(self._validate_accept); bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def _validate_accept(self):
+        if not self.task.toPlainText().strip():
+            QMessageBox.warning(self, "Task required", "The task cannot be empty.")
+            return
+        self.accept()
+
+    def values(self) -> dict:
+        prio = self.priority.currentText()
+        return {
+            "task": self.task.toPlainText().strip(),
+            "owner": self.owner.text().strip(),
+            "deadline": self.deadline.text().strip(),
+            "priority": "" if prio == "—" else prio,
+            "status": self.status.currentText().strip(),
+            "notes": self.notes.toPlainText().strip(),
+        }
+
+
 class EmailComposeDialog(QDialog):
     """Compose an email of the meeting minutes (optionally with attachments)."""
     def __init__(self, subject: str, body: str, to: str = "", parent=None):

@@ -407,9 +407,11 @@ _OVERDUE_TINT = "#FCEBEA"
 
 
 class ActionItemsPage(QWidget):
-    _COL_TASK, _COL_OWNER, _COL_DUE, _COL_STATUS, _COL_MEETING, _COL_DATE = range(6)
+    (_COL_TASK, _COL_OWNER, _COL_DUE, _COL_PRIO, _COL_STATUS,
+     _COL_MEETING, _COL_DATE) = range(7)
     _DEADLINE_FILTERS = ["Any deadline", "Overdue", "Due today", "Due this week",
                          "Has a date", "No date"]
+    _PRIO_COLOR = {"High": "#DC2626", "Medium": "#B8760F", "Low": "#6C6269"}
 
     def __init__(self, ctx: AppContext, toast, on_open_meeting=None):
         super().__init__()
@@ -462,20 +464,24 @@ class ActionItemsPage(QWidget):
         v.addLayout(fbar)
 
         # -- table / empty / loading ----------------------------------------
-        self.table = QTableWidget(0, 6)
+        self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(
-            ["Task", "Responsible", "Deadline", "Status", "Meeting", "Date"])
+            ["Task", "Responsible", "Deadline", "Priority", "Status", "Meeting", "Date"])
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(self._COL_TASK, QHeaderView.Stretch)
-        for c in (self._COL_OWNER, self._COL_DUE, self._COL_STATUS, self._COL_MEETING, self._COL_DATE):
+        for c in (self._COL_OWNER, self._COL_DUE, self._COL_PRIO, self._COL_STATUS,
+                  self._COL_MEETING, self._COL_DATE):
             hh.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
         self.table.cellDoubleClicked.connect(self._on_double_click)
-        tip(self.table, "Action items from your meetings' minutes. Set a status with the dropdown; "
-                        "overdue tasks are highlighted red; double-click a Meeting cell to open it.")
+        self.table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._context_menu)
+        tip(self.table, "Action items from your meetings. Set priority/status with the dropdowns; "
+                        "double-click a row to edit it; right-click for quick actions. Overdue "
+                        "tasks are highlighted; double-click a Meeting cell to open it.")
         self.empty = EmptyState("✔", "No action items yet",
                                 "Action items appear here when a meeting's minutes include an "
                                 "“Action Items” table. Generate minutes in New Meeting to populate this.")
@@ -564,7 +570,7 @@ class ActionItemsPage(QWidget):
     # -- table --------------------------------------------------------------
     def _populate(self):
         from ..core import tasks as T
-        from ..core.tasks import STATUS_CYCLE
+        from ..core.tasks import STATUS_CYCLE, PRIORITIES
         from datetime import date
         today = date.today()
         self.table.setRowCount(len(self._items))
@@ -572,18 +578,27 @@ class ActionItemsPage(QWidget):
         for r, it in enumerate(self._items):
             overdue = T.is_overdue(it, today)
             overdue_n += int(overdue)
-            due_txt = it.deadline or "—"
-            if overdue:
-                due_txt = "⚠ " + due_txt
-            for c, val in ((self._COL_TASK, it.task), (self._COL_OWNER, it.owner or "—"),
+            due_txt = ("⚠ " + it.deadline) if overdue else (it.deadline or "—")
+            task_txt = ("📝 " + it.task) if (it.notes or "").strip() else it.task
+            for c, val in ((self._COL_TASK, task_txt), (self._COL_OWNER, it.owner or "—"),
                            (self._COL_DUE, due_txt), (self._COL_MEETING, it.meeting_title),
                            (self._COL_DATE, it.meeting_date)):
                 item = QTableWidgetItem(val)
+                if c == self._COL_TASK and (it.notes or "").strip():
+                    item.setToolTip("Notes: " + it.notes)
                 if overdue:
                     item.setBackground(QColor(_OVERDUE_TINT))
                     if c == self._COL_DUE:
                         item.setForeground(QColor(_STATUS_COLOR["Overdue"]))
                 self.table.setItem(r, c, item)
+            # Priority dropdown (— / High / Medium / Low), colour-coded.
+            pcombo = QComboBox(); pcombo.addItems(["—"] + PRIORITIES)
+            pcombo.setCurrentText(it.priority or "—")
+            pcombo.setStyleSheet(
+                f"color:{self._PRIO_COLOR.get(it.priority, '#6C6269')}; font-weight:600;")
+            pcombo.setToolTip("Set this task's priority")
+            pcombo.activated.connect(lambda _i, row=r: self._change_priority(row))
+            self.table.setCellWidget(r, self._COL_PRIO, pcombo)
             # Status dropdown (settable statuses only; Overdue is derived).
             combo = QComboBox()
             combo.addItems(STATUS_CYCLE)
@@ -630,13 +645,75 @@ class ActionItemsPage(QWidget):
                 self.ctx.action_items.set_status(self._items[row], combo.currentText())
                 self.reload()
 
-    def _on_double_click(self, row, col):
+    def _change_priority(self, row: int):
+        if 0 <= row < len(self._items):
+            combo = self.table.cellWidget(row, self._COL_PRIO)
+            if combo is not None:
+                val = combo.currentText()
+                self.ctx.action_items.set_priority(self._items[row], "" if val == "—" else val)
+                self.reload()
+
+    def _edit_item(self, row: int):
         if not (0 <= row < len(self._items)):
             return
-        if col == self._COL_MEETING and self.on_open_meeting:    # Meeting → open it
+        from .dialogs import ActionItemDialog
+        it = self._items[row]
+        dlg = ActionItemDialog(it, self)
+        if dlg.exec():
+            self.ctx.action_items.update_item(it, **dlg.values())
+            self.reload()
+            self.toast.show_message("Action item updated.", "success")
+
+    def _open_meeting(self, row: int):
+        if 0 <= row < len(self._items) and self.on_open_meeting:
             m = self.ctx.history.get(self._items[row].meeting_id)
             if m:
                 self.on_open_meeting(m)
+
+    def _on_double_click(self, row, col):
+        if not (0 <= row < len(self._items)):
+            return
+        if col == self._COL_MEETING:          # Meeting cell → open the meeting
+            self._open_meeting(row)
+        elif col not in (self._COL_PRIO, self._COL_STATUS):   # dropdowns handle themselves
+            self._edit_item(row)              # any other cell → edit the item
+
+    def _context_menu(self, pos):
+        from PySide6.QtWidgets import QMenu
+        row = self.table.rowAt(pos.y())
+        if not (0 <= row < len(self._items)):
+            return
+        self.table.selectRow(row)
+        it = self._items[row]
+        menu = QMenu(self)
+        menu.addAction("Edit…", lambda: self._edit_item(row))
+        menu.addSeparator()
+        menu.addAction("Mark complete", lambda: self._quick_status(row, "Completed"))
+        menu.addAction("Mark in progress", lambda: self._quick_status(row, "In Progress"))
+        pm = menu.addMenu("Set priority")
+        for p in ("High", "Medium", "Low"):
+            pm.addAction(p, lambda _=False, pr=p: self._quick_priority(row, pr))
+        pm.addAction("Clear", lambda: self._quick_priority(row, ""))
+        menu.addSeparator()
+        if self.on_open_meeting:
+            menu.addAction("Open meeting", lambda: self._open_meeting(row))
+        menu.addAction("Reset to original", lambda: self._reset_item(row))
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _quick_status(self, row: int, status: str):
+        if 0 <= row < len(self._items):
+            self.ctx.action_items.set_status(self._items[row], status)
+            self.reload(); self.toast.show_message(f"Marked {status.lower()}.", "success")
+
+    def _quick_priority(self, row: int, priority: str):
+        if 0 <= row < len(self._items):
+            self.ctx.action_items.set_priority(self._items[row], priority)
+            self.reload()
+
+    def _reset_item(self, row: int):
+        if 0 <= row < len(self._items):
+            self.ctx.action_items.reset_item(self._items[row])
+            self.reload(); self.toast.show_message("Reverted to the meeting's original values.", "success")
 
     def _export(self):
         if not self._items:

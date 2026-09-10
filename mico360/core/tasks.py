@@ -84,6 +84,22 @@ def effective_status(item: "ActionItem", today: date | None = None) -> str:
     return OVERDUE if is_overdue(item, today) else normalize_status(item.status)
 
 
+PRIORITIES = ["High", "Medium", "Low"]
+_PRIORITY_SYNONYMS = {
+    "high": "High", "urgent": "High", "critical": "High", "h": "High", "p1": "High",
+    "medium": "Medium", "med": "Medium", "normal": "Medium", "m": "Medium", "p2": "Medium",
+    "low": "Low", "l": "Low", "minor": "Low", "p3": "Low",
+}
+
+
+def normalize_priority(value: str) -> str:
+    """Fold a free-text priority onto High/Medium/Low, or '' when unset."""
+    s = (value or "").strip()
+    if not s or s.lower() in _PLACEHOLDER:
+        return ""
+    return _PRIORITY_SYNONYMS.get(s.lower(), s)
+
+
 @dataclass
 class ActionItem:
     task: str
@@ -93,6 +109,9 @@ class ActionItem:
     meeting_id: int = 0
     meeting_title: str = ""
     meeting_date: str = ""
+    priority: str = ""
+    notes: str = ""
+    okey: str = ""          # stable override key (from the ORIGINAL task text)
 
     def key(self) -> str:
         h = hashlib.md5(self.task.strip().lower().encode("utf-8")).hexdigest()[:10]
@@ -123,6 +142,7 @@ def extract_action_items(minutes_md: str) -> list[ActionItem]:
         ci_owner = col(["responsible", "person", "owner", "assign", "who"])
         ci_due = col(["deadline", "due", "date", "by when", "when"])
         ci_status = col(["status", "state"])
+        ci_prio = col(["priority", "importance", "urgency"])
         for row in blk.rows:
             def get(ci):
                 return _clean(row[ci]) if 0 <= ci < len(row) else ""
@@ -131,7 +151,8 @@ def extract_action_items(minutes_md: str) -> list[ActionItem]:
                 continue
             items.append(ActionItem(
                 task=task, owner=get(ci_owner), deadline=get(ci_due),
-                status=get(ci_status) or "Pending"))
+                status=get(ci_status) or "Pending",
+                priority=normalize_priority(get(ci_prio))))
     return items
 
 
@@ -157,6 +178,22 @@ class ActionItemStore:
         except Exception:
             log.warning("could not save action status overrides", exc_info=True)
 
+    # Fields a user may override per action item (persisted in the overrides file).
+    _EDITABLE = ("task", "owner", "deadline", "priority", "status", "notes")
+
+    def _apply_override(self, item: ActionItem) -> None:
+        """Overlay any saved edits onto a freshly-extracted item. Supports the
+        legacy shape where an override was just a status string."""
+        ov = self._overrides.get(item.okey)
+        if not ov:
+            return
+        if isinstance(ov, str):          # legacy: status-only override
+            item.status = ov
+            return
+        for f in self._EDITABLE:
+            if f in ov and ov[f] is not None:
+                setattr(item, f, ov[f])
+
     def all_items(self, search: str = "") -> list[ActionItem]:
         import time
         out: list[ActionItem] = []
@@ -165,19 +202,61 @@ class ActionItemStore:
                 it.meeting_id = m.id
                 it.meeting_title = m.title
                 it.meeting_date = time.strftime("%Y-%m-%d", time.localtime(m.updated_at))
-                if it.key() in self._overrides:
-                    it.status = self._overrides[it.key()]
-                it.status = normalize_status(it.status)   # fold "Done" etc. -> canonical
+                it.okey = it.key()                    # stable key from the ORIGINAL task
+                self._apply_override(it)
+                it.status = normalize_status(it.status)     # fold "Done" etc. -> canonical
+                it.priority = normalize_priority(it.priority)
                 out.append(it)
         if search.strip():
             q = search.lower()
             out = [i for i in out if q in i.task.lower() or q in i.owner.lower()
-                   or q in i.meeting_title.lower() or q in i.status.lower()]
+                   or q in i.meeting_title.lower() or q in i.status.lower()
+                   or q in (i.notes or "").lower()]
         return out
 
+    def _override_dict(self, item: ActionItem) -> dict:
+        ov = self._overrides.get(item.okey or item.key())
+        if isinstance(ov, dict):
+            return dict(ov)
+        if isinstance(ov, str):
+            return {"status": ov}
+        return {}
+
     def set_status(self, item: ActionItem, status: str):
-        self._overrides[item.key()] = status
+        key = item.okey or item.key()
+        ov = self._override_dict(item)
+        ov["status"] = status
+        self._overrides[key] = ov
         item.status = status
+        self._save()
+
+    def update_item(self, item: ActionItem, *, task: str, owner: str, deadline: str,
+                    priority: str, status: str, notes: str) -> None:
+        """Persist a full set of edits for an action item (no minutes are touched)."""
+        key = item.okey or item.key()
+        self._overrides[key] = {
+            "task": task.strip(), "owner": owner.strip(), "deadline": deadline.strip(),
+            "priority": normalize_priority(priority), "status": status.strip(),
+            "notes": notes.strip(),
+        }
+        (item.task, item.owner, item.deadline, item.priority, item.status, item.notes) = (
+            task.strip(), owner.strip(), deadline.strip(),
+            normalize_priority(priority), status.strip(), notes.strip())
+        self._save()
+
+    def reset_item(self, item: ActionItem) -> None:
+        """Drop all saved edits for an item, reverting to the minutes' values."""
+        key = item.okey or item.key()
+        if key in self._overrides:
+            del self._overrides[key]
+            self._save()
+
+    def set_priority(self, item: ActionItem, priority: str):
+        key = item.okey or item.key()
+        ov = self._override_dict(item)
+        ov["priority"] = normalize_priority(priority)
+        self._overrides[key] = ov
+        item.priority = normalize_priority(priority)
         self._save()
 
     def drop_meeting(self, meeting_id: int) -> None:
@@ -199,7 +278,9 @@ class ActionItemStore:
         path = Path(path)
         with path.open("w", newline="", encoding="utf-8") as fh:
             w = csv.writer(fh)
-            w.writerow(["Task", "Responsible", "Deadline", "Status", "Meeting", "Meeting date"])
+            w.writerow(["Task", "Responsible", "Deadline", "Priority", "Status",
+                        "Notes", "Meeting", "Meeting date"])
             for i in items:
-                w.writerow([i.task, i.owner, i.deadline, i.status, i.meeting_title, i.meeting_date])
+                w.writerow([i.task, i.owner, i.deadline, i.priority, i.status,
+                            i.notes, i.meeting_title, i.meeting_date])
         return path

@@ -485,7 +485,7 @@ def main():
                 ActionItem("T", "O", "D", "Pending", 1, "M", "2026-01-01")]
             ctx.action_items.set_status = lambda item, status: calls.append(status)
             ap.reload()
-            combo = ap.table.cellWidget(0, 3)
+            combo = ap.table.cellWidget(0, ap._COL_STATUS)
             assert isinstance(combo, QComboBox) and combo.currentText() == "Pending"
             assert [combo.itemText(i) for i in range(combo.count())] == \
                 ["Pending", "In Progress", "Completed", "Cancelled"]
@@ -514,8 +514,46 @@ def main():
         assert not T.is_overdue(ActionItem("t", "o", future, "Pending"))
         assert T.effective_status(ActionItem("t", "o", past, "In Progress")) == "Overdue"
         assert T.effective_status(ActionItem("t", "o", future, "Pending")) == "Pending"
+        assert T.normalize_priority("urgent") == "High" and T.normalize_priority("") == ""
         return "normalize + deadline parse + overdue detection"
     t("core.action_logic", _action_logic)
+
+    def _action_editing():
+        import tempfile, os
+        from pathlib import Path
+        from mico360.core.tasks import ActionItemStore, ActionItem
+
+        class _H:   # minimal history stub with one meeting whose minutes have a task
+            def list(self):
+                class M: pass
+                m = M(); m.id = 7; m.title = "Sync"; m.updated_at = 0
+                m.minutes = ("## Action Items\n| Task | Responsible | Deadline | Priority | Status |\n"
+                             "| - | - | - | - | - |\n| Ship v2 | Bob | 2030-01-01 | High | Pending |")
+                return [m]
+        fd, name = tempfile.mkstemp(suffix=".json"); os.close(fd); p = Path(name)
+        p.unlink()          # start with no overrides file (empty file isn't valid JSON)
+        try:
+            store = ActionItemStore(_H(), status_file=p)
+            it = store.all_items()[0]
+            assert it.task == "Ship v2" and it.priority == "High" and it.owner == "Bob"
+            # full edit persists across re-list (task text can change; key is stable)
+            store.update_item(it, task="Ship v2.1", owner="Carol", deadline="2030-02-02",
+                              priority="Low", status="In Progress", notes="waiting on QA")
+            it2 = store.all_items()[0]
+            assert (it2.task, it2.owner, it2.priority, it2.status, it2.notes) == \
+                ("Ship v2.1", "Carol", "Low", "In Progress", "waiting on QA")
+            # quick priority + status setters
+            store.set_priority(it2, "High"); store.set_status(it2, "Completed")
+            it3 = store.all_items()[0]
+            assert it3.priority == "High" and it3.status == "Completed"
+            # reset reverts to the minutes' original values
+            store.reset_item(it3)
+            it4 = store.all_items()[0]
+            assert it4.task == "Ship v2" and it4.owner == "Bob" and it4.status == "Pending"
+        finally:
+            p.unlink(missing_ok=True)
+        return "edit persists + quick set + reset (stable key)"
+    t("core.action_editing", _action_editing)
 
     def _action_filters():
         from datetime import date, timedelta
@@ -707,13 +745,18 @@ def main():
     t("ui.components", _components)
 
     def _dialogs():
-        from mico360.ui.dialogs import ProfileDialog, PromptDialog, PagePreview
+        from mico360.ui.dialogs import ProfileDialog, PromptDialog, PagePreview, ActionItemDialog
         from mico360.core.profiles import CompanyProfile
+        from mico360.core.tasks import ActionItem
         pd = ProfileDialog(ctx.profiles, CompanyProfile(name="Z"), win)
         assert pd.preview is not None
         prd = PromptDialog("n", "t [TRANSCRIPT_HERE]", "Summary", win)
         name, text, cat = prd.values(); assert cat == "Summary"
-        return "Profile+Prompt+Preview"
+        aid = ActionItemDialog(ActionItem("Do X", "Bob", "2030-01-01", "Pending",
+                                          priority="High", notes="hi"), win)
+        vals = aid.values()
+        assert vals["task"] == "Do X" and vals["priority"] == "High" and vals["notes"] == "hi"
+        return "Profile+Prompt+Preview+ActionItem"
     t("ui.dialogs", _dialogs)
 
     def _recording_panel():
