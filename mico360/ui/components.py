@@ -83,6 +83,33 @@ class CollapsibleSection(QFrame):
         self.content.addLayout(layout)
 
 
+class EmptyState(QWidget):
+    """A centred placeholder shown when a list/table has nothing to display —
+    an icon, a title and an optional one-line description, updatable via set()."""
+
+    def __init__(self, icon: str = "📭", title: str = "", description: str = ""):
+        super().__init__()
+        v = QVBoxLayout(self); v.setSpacing(8); v.setAlignment(Qt.AlignCenter)
+        v.addStretch()
+        self._icon = QLabel(icon); self._icon.setObjectName("EmptyIcon")
+        self._icon.setAlignment(Qt.AlignCenter)
+        self._title = QLabel(title); self._title.setObjectName("EmptyTitle")
+        self._title.setAlignment(Qt.AlignCenter); self._title.setWordWrap(True)
+        self._desc = QLabel(description); self._desc.setObjectName("EmptyDesc")
+        self._desc.setAlignment(Qt.AlignCenter); self._desc.setWordWrap(True)
+        self._desc.setMaximumWidth(460); self._desc.setVisible(bool(description))
+        v.addWidget(self._icon); v.addWidget(self._title)
+        drow = QHBoxLayout(); drow.addStretch(); drow.addWidget(self._desc); drow.addStretch()
+        v.addLayout(drow)
+        v.addStretch()
+
+    def set(self, title: str, description: str = "", icon: str | None = None):
+        self._title.setText(title)
+        self._desc.setText(description); self._desc.setVisible(bool(description))
+        if icon is not None:
+            self._icon.setText(icon)
+
+
 def section_title(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setObjectName("SectionTitle")

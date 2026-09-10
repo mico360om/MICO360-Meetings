@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from .. import __app_name__, __version__
 from ..config import TMP_DIR
 from ..core import updater
-from .components import Card, section_title, subtitle, tip
+from .components import Card, EmptyState, section_title, subtitle, tip
 from .context import AppContext
 from .workers import UpdateCheckWorker, UpdateDownloadWorker
 
@@ -351,6 +351,11 @@ class ActionItemsPage(QWidget):
                         "cell to cycle Pending → In Progress → Done → Cancelled; double-click a "
                         "Meeting cell to open that meeting")
         v.addWidget(self.table, 1)
+        self.empty = EmptyState("✔", "No action items yet",
+                                "Action items appear here when a meeting's minutes include an "
+                                "“Action Items” table. Generate minutes in New Meeting to populate this.")
+        self.empty.setVisible(False)
+        v.addWidget(self.empty, 1)
 
         self.summary = QLabel(""); self.summary.setObjectName("Hint")
         v.addWidget(self.summary)
@@ -373,6 +378,18 @@ class ActionItemsPage(QWidget):
         cancelled_txt = f" · {cancelled} cancelled" if cancelled else ""
         self.summary.setText(f"{len(self._items)} action item(s) · {done} done · "
                              f"{open_} open{cancelled_txt}  ·  double-click Status to change")
+        # empty state: distinguish "none anywhere" from "no search matches"
+        if self._items:
+            self.table.setVisible(True); self.empty.setVisible(False); self.summary.setVisible(True)
+        else:
+            if self.search.text().strip():
+                self.empty.set(f"No action items match “{self.search.text().strip()}”",
+                               "Try a different search, or clear the box to see everything.", "🔍")
+            else:
+                self.empty.set("No action items yet",
+                               "Action items appear here when a meeting's minutes include an "
+                               "“Action Items” table. Generate minutes in New Meeting to populate this.", "✔")
+            self.table.setVisible(False); self.empty.setVisible(True); self.summary.setVisible(False)
 
     def _on_double_click(self, row, col):
         if not (0 <= row < len(self._items)):

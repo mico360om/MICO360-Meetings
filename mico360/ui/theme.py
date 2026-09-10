@@ -179,6 +179,11 @@ QSplitter::handle:horizontal {{ width: 1px; }}
 #StepHeader {{ font-size: 13pt; font-weight: 700; color: {text}; }}
 #ReviewVal {{ color: {text}; font-weight: 600; }}
 
+/* ---- Empty states ------------------------------------------------------- */
+#EmptyIcon {{ font-size: 34pt; color: {muted}; }}
+#EmptyTitle {{ font-size: 13pt; font-weight: 700; color: {text}; }}
+#EmptyDesc {{ color: {muted}; font-size: 10pt; }}
+
 /* ---- Readiness banner (AI not ready) ------------------------------------ */
 #Banner {{ background: {warning_soft}; border: 1px solid {warning}; border-radius: 12px; }}
 #BannerIcon {{ color: {warning}; font-size: 15pt; }}

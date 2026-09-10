@@ -351,6 +351,26 @@ def main():
         return "5 steps + validation + next/back + review"
     t("ui.wizard", _wizard)
 
+    def _empty_states():
+        from mico360.core.history import Meeting
+        hp, ap = win.history_page, win.actions_page
+        orig_h, orig_a = ctx.history.list, ctx.action_items.all_items
+        try:
+            ctx.history.list = lambda *a, **k: []
+            ctx.action_items.all_items = lambda *a, **k: []
+            hp.reload(); ap.reload()
+            assert not hp.empty.isHidden() and hp.table.isHidden(), "History empty shown"
+            assert not ap.empty.isHidden() and ap.table.isHidden(), "Action Items empty shown"
+            # with data -> table shown, empty hidden
+            ctx.history.list = lambda *a, **k: [Meeting(1, "X", 0, 0, minutes="m")]
+            hp.reload()
+            assert hp.empty.isHidden() and not hp.table.isHidden(), "History table restored"
+        finally:
+            ctx.history.list, ctx.action_items.all_items = orig_h, orig_a
+            hp.reload(); ap.reload()
+        return "History + Action Items empty/populated toggle"
+    t("ui.empty_states", _empty_states)
+
     def _pages_extra():
         from PySide6.QtWidgets import QTabWidget, QTextBrowser
         assert win.help_page.findChild(QTabWidget).count() == 4

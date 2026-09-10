@@ -19,7 +19,9 @@ from ..core.audio import MEDIA_EXTS
 from ..core.history import Meeting
 from ..core.prompts import OUTPUT_STYLES, SavedPrompt
 from ..core.transcription import WHISPER_MODELS
-from .components import Card, CollapsibleSection, DropArea, hint, section_title, subtitle, tip
+from .components import (
+    Card, CollapsibleSection, DropArea, EmptyState, hint, section_title, subtitle, tip,
+)
 from .context import AppContext
 from .dialogs import ProfileDialog, PromptDialog
 from .recording_panel import RecordingPanel
@@ -1091,6 +1093,11 @@ class HistoryPage(QWidget):
         self.table.doubleClicked.connect(self._open_selected)
         tip(self.table, "Your saved meetings — double-click a row to reopen it in New Meeting")
         v.addWidget(self.table, 1)
+        self.empty = EmptyState("🕑", "No meetings yet",
+                                "Meetings you save appear here. Start one in New Meeting to "
+                                "record, transcribe and generate minutes.")
+        self.empty.setVisible(False)
+        v.addWidget(self.empty, 1)
 
         actions = QHBoxLayout()
         open_btn = QPushButton("Open"); open_btn.setObjectName("Primary"); open_btn.clicked.connect(self._open_selected)
@@ -1109,6 +1116,19 @@ class HistoryPage(QWidget):
             updated = time.strftime("%Y-%m-%d %H:%M", time.localtime(m.updated_at))
             for j, val in enumerate((m.title, m.style, m.model, updated)):
                 self.table.setItem(i, j, QTableWidgetItem(val))
+        # empty state: distinguish "no meetings" from "no search matches"
+        q = self.search.text().strip()
+        if self._rows:
+            self.table.setVisible(True); self.empty.setVisible(False)
+        else:
+            if q:
+                self.empty.set(f"No meetings match “{q}”",
+                               "Try a different search, or clear the box to see everything.", "🔍")
+            else:
+                self.empty.set("No meetings yet",
+                               "Meetings you save appear here. Start one in New Meeting to "
+                               "record, transcribe and generate minutes.", "🕑")
+            self.table.setVisible(False); self.empty.setVisible(True)
 
     def _selected_meeting(self) -> Meeting | None:
         r = self.table.currentRow()
