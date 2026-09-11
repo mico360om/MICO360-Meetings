@@ -290,10 +290,10 @@ def main():
         app.processEvents()
 
     def _mainwin():
-        assert win.stack.count() == 8
+        assert win.stack.count() == 9
         from PySide6.QtGui import QShortcut
         assert len(win.findChildren(QShortcut)) >= 5
-        for i in range(7):
+        for i in range(win.stack.count()):
             win._navigate(i)
         return f"{win.stack.count()} pages + shortcuts + nav"
     t("ui.main_window", _mainwin)
@@ -517,6 +517,41 @@ def main():
         assert T.normalize_priority("urgent") == "High" and T.normalize_priority("") == ""
         return "normalize + deadline parse + overdue detection"
     t("core.action_logic", _action_logic)
+
+    def _insights():
+        from datetime import date, timedelta
+        from mico360.core.insights import compute_insights
+        from mico360.core.tasks import ActionItem
+        from mico360.core.history import Meeting
+        past = (date.today() - timedelta(days=3)).isoformat()
+        future = (date.today() + timedelta(days=5)).isoformat()
+
+        class _H:
+            def list(self):
+                import time
+                now = time.time()
+                return [Meeting(1, "Kickoff planning budget", now - 86400 * 2, now - 86400 * 2,
+                                minutes="Budget budget planning roadmap roadmap vendor"),
+                        Meeting(2, "Weekly sync", now - 86400 * 9, now - 86400 * 9,
+                                minutes="roadmap vendor pricing")]
+        class _A:
+            def all_items(self, q=""):
+                return [ActionItem("t1", "Bob", past, "Pending", 1),          # overdue
+                        ActionItem("t2", "Carol", future, "In Progress", 1),
+                        ActionItem("t3", "Bob", "", "Completed", 2),
+                        ActionItem("t4", "Bob", "", "Cancelled", 2)]
+        ins = compute_insights(_H(), _A(), weeks=4)
+        assert ins.total_meetings == 2 and ins.total_items == 4
+        assert ins.overdue_items == 1
+        assert ins.open_items == 2                       # Pending + In Progress (Bob t1, Carol t2)
+        assert ins.status_counts.get("Overdue") == 1 and ins.status_counts.get("Completed") == 1
+        assert round(ins.completion_rate * 100) == 33    # 1 completed / 3 non-cancelled
+        assert ins.by_owner and ins.by_owner[0][0] == "Bob" and ins.by_owner[0][1] == 1  # only open
+        assert len(ins.cadence) == 4                     # continuous last 4 weeks
+        assert any(w == "roadmap" for w, _ in ins.keywords)   # recurring theme mined
+        assert ins.has_data
+        return "status/owner/cadence/keyword aggregation"
+    t("core.insights", _insights)
 
     def _action_editing():
         import tempfile, os

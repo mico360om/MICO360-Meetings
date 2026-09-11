@@ -19,6 +19,7 @@ from .pages import (
     HistoryPage, NewMeetingPage, ProfilesPage, PromptsPage, SettingsPage,
 )
 from .pages_extra import ActionItemsPage, HelpPage, UpdatesPage
+from .insights_page import InsightsPage
 
 log = logging.getLogger("mico360.window")
 
@@ -26,6 +27,7 @@ NAV = [
     ("New Meeting", "✚", "Upload, record or paste a meeting and generate minutes"),
     ("History", "🕑", "Search and reopen past meetings (Ctrl+F to search)"),
     ("Action Items", "✔", "All tasks from every meeting — track status, export CSV"),
+    ("Insights", "📊", "Cross-meeting dashboard: action-item health, owners, cadence, themes"),
     ("Company Profiles", "🏢", "Branding for exported minutes: logo, footer, page numbers"),
     ("Prompt Library", "💬", "Create and manage the AI prompts used to write minutes"),
     ("Updates", "⬇", "Check for and install new versions of the app"),
@@ -33,7 +35,7 @@ NAV = [
     ("Settings", "⚙", "AI models, recording, email and app preferences"),
 ]
 # Group header shown above the nav item at this index (logical grouping).
-NAV_SECTIONS = {0: "Workspace", 3: "Library", 5: "System"}
+NAV_SECTIONS = {0: "Workspace", 4: "Library", 6: "System"}
 
 
 class MainWindow(QMainWindow):
@@ -62,6 +64,7 @@ class MainWindow(QMainWindow):
         self.new_page = NewMeetingPage(ctx, self.toast)
         self.history_page = HistoryPage(ctx, self.toast, self._open_meeting)
         self.actions_page = ActionItemsPage(ctx, self.toast, on_open_meeting=self._open_meeting)
+        self.insights_page = InsightsPage(ctx, self.toast)
         self.profiles_page = ProfilesPage(ctx, self.toast)
         self.prompts_page = PromptsPage(ctx, self.toast, on_change=self.new_page.refresh_prompts)
         self.updates_page = UpdatesPage(ctx, self.toast)
@@ -77,8 +80,9 @@ class MainWindow(QMainWindow):
         self.new_page.refresh_readiness()
 
         # order MUST match NAV
-        for p in (self.new_page, self.history_page, self.actions_page, self.profiles_page,
-                  self.prompts_page, self.updates_page, self.help_page, self.settings_page):
+        for p in (self.new_page, self.history_page, self.actions_page, self.insights_page,
+                  self.profiles_page, self.prompts_page, self.updates_page, self.help_page,
+                  self.settings_page):
             self.stack.addWidget(p)
         layout.addWidget(self.stack, 1)
 
@@ -211,6 +215,8 @@ class MainWindow(QMainWindow):
             self.history_page.reload()
         elif page is self.actions_page:
             self.actions_page.reload()
+        elif page is self.insights_page:
+            self.insights_page.reload()
         elif page is self.profiles_page:
             self.profiles_page.reload()
         elif page is self.new_page:

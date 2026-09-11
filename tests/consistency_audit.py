@@ -99,7 +99,7 @@ def main():
     print("\n=== Design consistency ===")
     pages = {
         "New Meeting": win.new_page, "History": win.history_page,
-        "Action Items": win.actions_page,
+        "Action Items": win.actions_page, "Insights": win.insights_page,
         "Company Profiles": win.profiles_page, "Prompt Library": win.prompts_page,
         "Updates": win.updates_page, "Help & About": win.help_page,
         "Settings": win.settings_page,
