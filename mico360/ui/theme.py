@@ -104,6 +104,8 @@ QPushButton#NavBtn:checked:hover {{ background: {accent_hover}; }}
 #PageSub {{ color: {muted}; font-size: {fs_sub}; }}
 #ContextBadge {{ color: {accent}; background: {surface2}; border: {bw} solid {border};
                 border-radius: {r_sm}; padding: 4px 10px; font-size: {fs_hint}; font-weight: 600; }}
+#SpeakerPanel {{ background: {surface2}; border: {bw} solid {border}; border-radius: {r_lg}; }}
+#SpeakerBadge {{ color: {accent}; font-weight: 700; font-size: {fs_small}; }}
 #SectionTitle {{ font-size: {fs_section}; font-weight: 700; color: {text}; }}
 QLabel#Muted, #Hint {{ color: {muted}; font-size: {fs_hint}; }}
 

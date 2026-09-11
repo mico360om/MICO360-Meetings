@@ -629,6 +629,29 @@ def main():
         return "active-state sync + groups + editing context"
     t("ui.navigation", _navigation)
 
+    def _speaker_naming():
+        np_ = win.new_page
+        np_._new_meeting()
+        np_.transcript.setPlainText(
+            "[Speaker 1] Hello everyone.\n[Speaker 2] Hi, let's start.\n"
+            "[Speaker 1] Bob will send the SOW by Friday.")
+        # panel appears with the two detected speakers
+        assert not np_.speaker_panel.isHidden()
+        assert list(np_._speaker_edits.keys()) == ["Speaker 1", "Speaker 2"]
+        np_._speaker_edits["Speaker 1"].setText("Alice")
+        np_._speaker_edits["Speaker 2"].setText("Bob")
+        np_.meet_attendees.clear()
+        np_._apply_speaker_names()
+        txt = np_.transcript.toPlainText()
+        assert "[Alice]" in txt and "[Bob]" in txt and "Speaker 1" not in txt
+        # attendees auto-filled; panel hides (no more Speaker N labels); roster remembered
+        assert "Alice" in np_.meet_attendees.text() and "Bob" in np_.meet_attendees.text()
+        assert np_.speaker_panel.isHidden()
+        assert "Alice" in (ctx.settings.get("speaker_names", []) or [])
+        np_._new_meeting()
+        return "detect + rename + apply + attendees + roster autocomplete"
+    t("ui.speaker_naming", _speaker_naming)
+
     def _prompt_library():
         pp = win.prompts_page
         pp.search.clear(); pp.cat_filter.setCurrentText("All categories"); pp.reload()

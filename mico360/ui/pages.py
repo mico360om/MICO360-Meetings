@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView, QCheckBox, QComboBox, QFileDialog, QFormLayout, QGridLayout,
-    QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
+    QAbstractItemView, QCheckBox, QComboBox, QCompleter, QFileDialog, QFormLayout,
+    QGridLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
     QScrollArea, QSizePolicy, QSpinBox, QSplitter, QStackedWidget, QTabWidget,
     QTableWidget, QTableWidgetItem, QTextBrowser, QVBoxLayout, QWidget,
@@ -438,10 +439,32 @@ class NewMeetingPage(QWidget):
     def _step2_transcript(self) -> QWidget:
         card, lay = self._card("Transcript")
         lay.addWidget(hint("Editable — paste a transcript here, or review the transcription result."))
+
+        # Speaker naming — shown when the transcript has diarised [Speaker N] labels.
+        self._speaker_edits: dict[str, QLineEdit] = {}
+        self.speaker_panel = QWidget(); self.speaker_panel.setObjectName("SpeakerPanel")
+        spv = QVBoxLayout(self.speaker_panel)
+        spv.setContentsMargins(M.LG, M.MD, M.LG, M.MD); spv.setSpacing(M.SM)
+        spv.addWidget(section_title("Name the speakers"))
+        spv.addWidget(hint("Diarisation labelled the voices below. Give each a real name and click "
+                           "“Apply names” — they flow into the transcript, minutes and action items."))
+        self.speaker_rows = QVBoxLayout(); self.speaker_rows.setSpacing(M.XS)
+        spv.addLayout(self.speaker_rows)
+        sbtn = QHBoxLayout(); sbtn.addStretch()
+        apply_btn = QPushButton("Apply names"); apply_btn.setObjectName("Primary")
+        apply_btn.clicked.connect(self._apply_speaker_names)
+        tip(apply_btn, "Replace [Speaker N] with the names you entered, throughout the transcript, "
+                       "and set the attendees")
+        sbtn.addWidget(apply_btn)
+        spv.addLayout(sbtn)
+        self.speaker_panel.setVisible(False)
+        lay.addWidget(self.speaker_panel)
+
         self.transcript = QPlainTextEdit()
         self.transcript.setPlaceholderText("Paste or edit the meeting transcript here…")
         self.transcript.setMinimumHeight(150)
         self.transcript.textChanged.connect(self._update_counts)
+        self.transcript.textChanged.connect(self._refresh_speakers)
         tip(self.transcript, "The meeting text the AI will summarise. Fully editable — "
                              "Ctrl+Z to undo. Autosaved to History every 20 seconds")
         self.transcript_count = QLabel("0 words"); self.transcript_count.setObjectName("Hint")
@@ -452,6 +475,70 @@ class NewMeetingPage(QWidget):
         lay.addWidget(self.transcript)
         lay.addLayout(row)
         return card
+
+    # -- speaker identification ---------------------------------------------
+    _SPEAKER_RE = re.compile(r"\[(Speaker \d+)\]")
+
+    def _detect_speakers(self) -> list[str]:
+        seen: list[str] = []
+        for m in self._SPEAKER_RE.finditer(self.transcript.toPlainText()):
+            if m.group(1) not in seen:
+                seen.append(m.group(1))
+        return seen
+
+    def _name_roster(self) -> list[str]:
+        return list(self.ctx.settings.get("speaker_names", []) or [])
+
+    def _refresh_speakers(self):
+        """Rebuild the naming rows when the set of diarised labels changes."""
+        labels = self._detect_speakers()
+        if list(self._speaker_edits.keys()) == labels:
+            return                                   # unchanged — don't disturb typing
+        while self.speaker_rows.count():
+            it = self.speaker_rows.takeAt(0)
+            w = it.widget()
+            if w:
+                w.deleteLater()
+        self._speaker_edits = {}
+        completer = QCompleter(self._name_roster(), self)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        for lab in labels:
+            r = QWidget(); rl = QHBoxLayout(r)
+            rl.setContentsMargins(0, 0, 0, 0); rl.setSpacing(M.SM)
+            badge = QLabel(lab); badge.setObjectName("SpeakerBadge"); badge.setFixedWidth(96)
+            edit = QLineEdit(); edit.setPlaceholderText("Real name…")
+            edit.setCompleter(completer); edit.returnPressed.connect(self._apply_speaker_names)
+            rl.addWidget(badge); rl.addWidget(edit, 1)
+            self.speaker_rows.addWidget(r)
+            self._speaker_edits[lab] = edit
+        self.speaker_panel.setVisible(bool(labels))
+
+    def _apply_speaker_names(self):
+        text = self.transcript.toPlainText()
+        names, used = [], 0
+        for lab, edit in self._speaker_edits.items():
+            name = edit.text().strip()
+            if not name:
+                continue
+            text = text.replace(f"[{lab}]", f"[{name}]")
+            names.append(name); used += 1
+        if not used:
+            self.toast.show_message("Enter at least one name to apply.", "warn")
+            return
+        self.transcript.setPlainText(text)           # triggers _refresh_speakers → panel updates
+        # remember names for future autocomplete
+        roster = self._name_roster()
+        for n in names:
+            if n not in roster:
+                roster.append(n)
+        self.ctx.settings.set("speaker_names", roster[-50:])
+        # attendees follow the named speakers (only if the field is empty)
+        if not self.meet_attendees.text().strip():
+            self.meet_attendees.setText(", ".join(names))
+            msg = f"Applied {used} name(s) — attendees set."
+        else:
+            msg = f"Applied {used} name(s)."
+        self.toast.show_message(msg, "success")
 
     def _step3_generate(self) -> QWidget:
         card, lay = self._card("Meeting details & AI setup")
