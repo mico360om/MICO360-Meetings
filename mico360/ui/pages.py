@@ -420,6 +420,10 @@ class NewMeetingPage(QWidget):
         self._media_queue.append(path)
         self._add_queue_item(path, f"⏺  {Path(path).name}  (recorded)", True)
         self.source_tabs.setCurrentIndex(0)   # show the queue + action buttons
+        if getattr(self, "_auto_generate_pending", False):     # auto-record → no clicks
+            self._auto_generate_pending = False
+            self._create_meeting()
+            return
         self.toast.show_message("Recording added — click ‘Transcribe’ to continue.",
                                 "success", 5000)
 
@@ -430,6 +434,11 @@ class NewMeetingPage(QWidget):
         self.transcript.setPlainText((cur + "\n\n" + text).strip() if cur else text)
         self._reached = max(self._reached, self.STEP_TRANSCRIPT)
         self._goto_step(self.STEP_TRANSCRIPT)
+        if getattr(self, "_auto_generate_pending", False):     # auto-record → straight to minutes
+            self._auto_generate_pending = False
+            self.toast.show_message("Meeting ended — generating minutes…", "info", 5000)
+            self._create_meeting()
+            return
         self.toast.show_message("Live transcript captured — review it, then continue. "
                                 "(Use the recording for a full re-transcribe if you want more accuracy.)",
                                 "success", 7000)

@@ -88,6 +88,70 @@ class LiveTranscribeWorker(QThread):
         self._stop.set()
 
 
+class MeetingWatchWorker(QThread):
+    """Background watcher for auto-record: polls for a live Teams/Meet/Zoom/Webex
+    window and for calendar meetings that are about to start. Inputs are
+    injectable (titles_fn / calendar_fn) so the transition logic is testable."""
+    meetingDetected = Signal(str, str)      # app, meeting title   (window appeared)
+    meetingEnded = Signal()                 # window gone
+    meetingDue = Signal(str, str)           # title, join_url      (calendar, once each)
+
+    def __init__(self, titles_fn=None, calendar_fn=None, poll_seconds: float = 8.0,
+                 calendar_seconds: float = 60.0, lead_minutes: float = 3.0):
+        super().__init__()
+        from ..core import meeting_watch as MW
+        self._MW = MW
+        self.titles_fn = titles_fn or MW.list_window_titles
+        self.calendar_fn = calendar_fn                  # () -> list[MeetingInfo]
+        self.poll_seconds = poll_seconds
+        self.calendar_seconds = calendar_seconds
+        self.lead_minutes = lead_minutes
+        import threading
+        self._stop = threading.Event()
+        self._live = None                               # (app, title) currently seen
+        self._misses = 0
+        self._prompted: set[str] = set()
+        self._last_cal = 0.0
+
+    def poll_once(self, now=None):
+        """One detection round; emits transitions. Returns the live meeting or None."""
+        hit = self._MW.detect_live_meeting(self.titles_fn())
+        if hit and not self._live:
+            self._live, self._misses = hit, 0
+            self.meetingDetected.emit(*hit)
+        elif hit:
+            self._misses = 0
+        elif self._live:
+            self._misses += 1
+            if self._misses >= 2:                       # debounce a flickering title
+                self._live = None
+                self.meetingEnded.emit()
+        # calendar (throttled)
+        if self.calendar_fn and (now or time.time()) - self._last_cal >= self.calendar_seconds:
+            self._last_cal = now or time.time()
+            try:
+                due = self._MW.next_due(self.calendar_fn(), lead_minutes=self.lead_minutes)
+            except Exception:
+                due = None
+            if due and due.key() not in self._prompted:
+                self._prompted.add(due.key())
+                self.meetingDue.emit(due.title, due.join_url)
+        return self._live
+
+    def run(self):
+        while not self._stop.is_set():
+            try:
+                self.poll_once()
+            except Exception:
+                log.debug("meeting watch poll failed", exc_info=True)
+            end = time.time() + self.poll_seconds
+            while time.time() < end and not self._stop.is_set():
+                self.msleep(200)
+
+    def stop(self):
+        self._stop.set()
+
+
 class TranscribeWorker(QThread):
     progress = Signal(float, str)
     finished_ok = Signal(object)        # TranscriptResult

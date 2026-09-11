@@ -74,6 +74,7 @@ class AudioVisualizer(QWidget):
 class RecordingPanel(QWidget):
     recordingReady = Signal(str)         # final media path -> queue for transcription
     liveTranscriptReady = Signal(str)    # full live transcript -> populate the transcript box
+    recordingStateChanged = Signal(bool) # True while recording (drives the global indicator)
 
     def __init__(self, toast=None, ctx=None):
         super().__init__()
@@ -337,6 +338,33 @@ class RecordingPanel(QWidget):
         return card
 
     # ----- lifecycle -------------------------------------------------------
+    # ----- programmatic control (auto-record) --------------------------------
+    def is_recording(self) -> bool:
+        return bool(self._rec) and self._rec.state in (R.RECORDING, R.PAUSED)
+
+    def start_auto(self, source: str = "both", live: bool = True) -> bool:
+        """Start an audio recording without user clicks (auto-record). Uses the
+        requested source if available (falls back to the microphone) and the
+        live transcript so minutes are ready the moment the meeting ends."""
+        if self.is_recording():
+            return True
+        self._type_btns["audio"].setChecked(True)
+        i = self.source_box.findData(source)
+        self.source_box.setCurrentIndex(i if i >= 0 else 0)
+        if hasattr(self, "live_check"):
+            self.live_check.setChecked(bool(live))
+        self._auto_mode = True
+        self._rec = None
+        self._start()
+        ok = self.stack.currentIndex() == 1 and self.is_recording()
+        if not ok:
+            self._auto_mode = False
+        return ok
+
+    def stop_auto(self) -> None:
+        if self.is_recording():
+            self._stop()
+
     def _start(self):
         kind = self._selected_type()
         source = self.source_box.currentData() or "mic"
@@ -381,6 +409,7 @@ class RecordingPanel(QWidget):
         self.stack.setCurrentIndex(1)
         self._timer.start()
         self._blink_timer.start()
+        self.recordingStateChanged.emit(True)
 
     def _on_live_partial(self, text: str):
         self._live_text = (self._live_text + " " + text).strip()
@@ -481,6 +510,12 @@ class RecordingPanel(QWidget):
             self._live_worker = None
             if self._live_text.strip():
                 self.liveTranscriptReady.emit(self._live_text.strip())
+        # Auto-record with no live text: hand the file straight to the queue so
+        # minutes still get generated without a click.
+        if getattr(self, "_auto_mode", False) and not self._live_text.strip() \
+                and self._result and Path(self._result.path).exists():
+            self.recordingReady.emit(self._result.path)
+        self._auto_mode = False
         self._teardown()
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("⏹ Stop & Save")
@@ -490,6 +525,8 @@ class RecordingPanel(QWidget):
         self._timer.stop()
         self._blink_timer.stop()
         self.viz.set_active(False)
+        self._auto_mode = False
+        self.recordingStateChanged.emit(False)
 
     def _show_summary(self, res: R.RecordingResult):
         # clear grid

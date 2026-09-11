@@ -159,6 +159,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "onboarded": False,                 # first-run guide shown
     "speaker_names": [],                # remembered names for speaker-naming autocomplete
     "live_transcription": False,        # transcribe from the mic while recording (beta)
+    "auto_record": False,               # offer to record detected / scheduled meetings
+    "auto_record_lead_minutes": 3,      # prompt this many minutes before a calendar start
+    "auto_record_ics": "",              # optional .ics calendar file to watch (Outlook is automatic)
+    "auto_record_consent_ack": False,   # consent notice shown once
     # Email (SMTP) — credentials are stored ONLY in the local settings file,
     # never in source. Defaults are blank; the user fills them in Settings.
     "smtp_host": "in-v3.mailjet.com",

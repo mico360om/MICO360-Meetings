@@ -182,6 +182,23 @@ class SettingsPage(QWidget):
         self.diarize.setToolTip("Labels the transcript as Speaker 1/2/3 using offline "
                                 "voice clustering. Approximate — best with a few clear speakers.")
         form.addRow("Speakers", self.diarize)
+
+        # Auto-record: detect a live Teams / Meet / Zoom / Webex window (or a
+        # calendar meeting starting) and offer to record it — no clicks needed.
+        self.auto_record = QCheckBox("Offer to record detected meetings")
+        self.auto_record.setChecked(bool(ctx.settings.get("auto_record", False)))
+        self.auto_record.setToolTip(
+            "When a meeting window opens (or one starts in your Outlook calendar), MICO360 "
+            "asks to record it — system audio + microphone with a live transcript — then "
+            "generates the minutes when it ends. Everything stays on this PC.")
+        self.auto_record.toggled.connect(self._auto_record_toggled)
+        form.addRow("Auto-record", self.auto_record)
+        self.auto_record_note = QLabel(
+            "Detects Teams, Google Meet, Zoom and Webex windows and Outlook calendar starts. "
+            "Recording a call may require every participant's consent — the window title shows "
+            "“● Recording” while capturing; tell people the meeting is being recorded.")
+        self.auto_record_note.setObjectName("Hint"); self.auto_record_note.setWordWrap(True)
+        form.addRow("", self.auto_record_note)
         self.chunk = QSpinBox(); self.chunk.setRange(1500, 20000); self.chunk.setSingleStep(500)
         self.chunk.setValue(int(ctx.settings.get("chunk_chars", 6000)))
         tip(self.chunk, "How much text the AI processes per part for long meetings. Lower = safer "
@@ -263,6 +280,17 @@ class SettingsPage(QWidget):
         tip(save, "Save all settings across every tab — model and appearance changes apply immediately")
         save_row.addWidget(save)
         outer.addLayout(save_row)
+
+    def _auto_record_toggled(self, on: bool):
+        """First-time consent notice when auto-record is switched on."""
+        if on and not self.ctx.settings.get("auto_record_consent_ack", False):
+            QMessageBox.information(
+                self, "Before you auto-record",
+                "MICO360 will offer to record meetings it detects on this PC.\n\n"
+                "Recording a conversation can require the consent of everyone in it "
+                "(laws and company policies vary). You are responsible for telling "
+                "participants. While capturing, the window title shows “● Recording”.")
+            self.ctx.settings.set("auto_record_consent_ack", True)
 
     def _tab_form(self):
         """A scrollable QFormLayout for one Settings tab; returns (scrollarea, form)."""
@@ -427,6 +455,10 @@ class SettingsPage(QWidget):
         s.set("language", self.lang.text().strip() or "auto")
         s.set("remove_fillers", self.fillers.isChecked())
         s.set("diarize", self.diarize.isChecked())
+        s.set("auto_record", self.auto_record.isChecked())
+        cb = getattr(self, "on_auto_record_change", None)
+        if cb:
+            cb(self.auto_record.isChecked())
         s.set("quality_preset", self.preset.currentText())
         s.set("chunk_chars", self.chunk.value())
         s.set("github_repo", self.repo.text().strip().strip("/"))

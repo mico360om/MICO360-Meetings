@@ -769,6 +769,102 @@ def main():
         return "live checkbox + preview append + transcript handoff"
     t("ui.live_transcription", _live_ui)
 
+    def _meeting_watch():
+        from datetime import datetime, timedelta
+        from mico360.core import meeting_watch as MW
+        from mico360.ui.workers import MeetingWatchWorker
+        c = MW.classify_window
+        assert c("Weekly Sync | Microsoft Teams") == ("Teams", "Weekly Sync")
+        assert c("Chat | Microsoft Teams") is None and c("Microsoft Teams") is None
+        assert c("Meet – abc-defg-hij") == ("Google Meet", "abc-defg-hij")
+        assert c("Zoom Meeting") == ("Zoom", "Zoom Meeting")
+        assert c("Meetings - OneNote") is None and c("MICO360 Meetings") is None
+        assert MW.detect_live_meeting(["Notepad", "Budget Review | Microsoft Teams"]) == ("Teams", "Budget Review")
+        assert MW.detect_live_meeting([]) is None
+        # join links (ICS-escaped commas, trailing punctuation)
+        u = MW.extract_join_url("Join: https://teams.microsoft.com/l/meetup-join/19%3ameeting_abc%40thread.v2/0?context=x\\, thanks.")
+        assert u.startswith("https://teams.microsoft.com/l/meetup-join/") and u.endswith("context=x")
+        assert MW.extract_join_url("see https://meet.google.com/abc-defg-hij now") == "https://meet.google.com/abc-defg-hij"
+        assert MW.extract_join_url("no links here") == ""
+        # calendar: multi-event ICS within horizon, next_due lead window
+        now = datetime(2026, 9, 11, 10, 0)
+        ics = ("BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:Soon\nDTSTART:20260911T100200\nDTEND:20260911T103000\n"
+               "DESCRIPTION:https://meet.google.com/abc-defg-hij\nEND:VEVENT\n"
+               "BEGIN:VEVENT\nSUMMARY:Later\nDTSTART:20260911T150000\nEND:VEVENT\n"
+               "BEGIN:VEVENT\nSUMMARY:Yesterday\nDTSTART:20260910T100000\nEND:VEVENT\nEND:VCALENDAR")
+        ups = MW.upcoming_from_ics_text(ics, now=now)
+        assert [m.title for m in ups] == ["Soon", "Later"] and ups[0].join_url.endswith("abc-defg-hij")
+        due = MW.next_due(ups, now=now, lead_minutes=3)
+        assert due and due.title == "Soon" and MW.next_due(ups, now=now, lead_minutes=1) is None
+        # worker transitions with injected titles (no thread): detect -> debounce -> ended
+        seen = []
+        state = {"t": ["Standup | Microsoft Teams"]}
+        w = MeetingWatchWorker(titles_fn=lambda: state["t"],
+                               calendar_fn=lambda: ups, calendar_seconds=0)
+        w.meetingDetected.connect(lambda a, t: seen.append(("det", a, t)))
+        w.meetingEnded.connect(lambda: seen.append(("end",)))
+        w.meetingDue.connect(lambda t, u: seen.append(("due", t)))
+        w.poll_once(now=1.0); state["t"] = []; w.poll_once(now=2.0); w.poll_once(now=3.0)
+        assert ("det", "Teams", "Standup") in seen and ("end",) in seen
+        assert seen.count(("end",)) == 1                    # one miss is debounced, second ends
+        assert not [s for s in seen if s[0] == "due"]         # 2026-09-11 10:00 isn't "now"
+        return "window classify + join links + ics/next_due + worker transitions"
+    t("core.meeting_watch", _meeting_watch)
+
+    def _auto_record_ui():
+        from PySide6.QtWidgets import QMessageBox
+        from mico360.core import recording as R
+        panel = win.new_page.recorder_panel
+        sp = win.settings_page
+        assert hasattr(sp, "auto_record") and hasattr(win, "apply_auto_record")
+        # a fake recorder so no device is touched
+        class _Fake:
+            def __init__(self, cfg):
+                self.cfg = cfg; self.state = R.RECORDING; self.output_path = str(TMP / "_auto.wav")
+                self.started_at = time.time(); self.resolution = ""; self.has_audio = True; self.error = ""
+            def start(self): pass
+            def enable_live(self): pass
+            def pull_live(self): return None, 16000     # live worker runs; no audio to transcribe
+            def elapsed(self): return 1.0
+            def level(self): return 0.0
+            def file_size(self): return 0
+            def stop(self):
+                self.state = R.STOPPED
+                return R.RecordingResult(self.output_path, "audio", 1.0, 0, "wav", self.started_at)
+            def cancel(self): self.state = R.CANCELLED
+        orig_make, orig_q = R.make_recorder, QMessageBox.question
+        orig_create = win.new_page._create_meeting
+        created = []
+        try:
+            R.make_recorder = lambda cfg: _Fake(cfg)
+            QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+            win.new_page._create_meeting = lambda: created.append(True)
+            win.setWindowTitle("MICO360 Meetings")
+            # detection prompt -> auto start (live transcript on, as in real use)
+            win._on_meeting_detected("Teams", "Weekly Sync")
+            assert panel.is_recording() and panel._auto_mode and panel.live_check.isChecked()
+            assert win.windowTitle().startswith("● Recording")          # unmissable indicator
+            assert win.new_page._auto_generate_pending
+            # meeting ends -> stop -> file queued -> minutes generated with no clicks
+            (TMP / "_auto.wav").write_bytes(b"RIFF")
+            win._on_meeting_ended()                       # -> _stop -> deferred _finish_stop
+            t0 = time.time()
+            while time.time() - t0 < 0.4:
+                app.processEvents()
+            assert not panel.is_recording() and created == [True]
+            assert not win.windowTitle().startswith("● Recording")
+            # setting toggle wires the watcher on/off
+            win.apply_auto_record(True); assert win._watch is not None
+            win.apply_auto_record(False); assert win._watch is None
+        finally:
+            R.make_recorder, QMessageBox.question = orig_make, orig_q
+            win.new_page._create_meeting = orig_create
+            win.new_page._auto_generate_pending = False
+            (TMP / "_auto.wav").unlink(missing_ok=True)
+            win.new_page._media_queue.clear(); win.new_page._clear_files(); win.new_page._new_meeting()
+        return "prompt -> auto start -> indicator -> auto stop -> auto minutes; watcher toggle"
+    t("ui.auto_record", _auto_record_ui)
+
     def _prompt_library():
         pp = win.prompts_page
         pp.search.clear(); pp.cat_filter.setCurrentText("All categories"); pp.reload()

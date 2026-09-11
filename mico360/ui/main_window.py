@@ -100,6 +100,91 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(400, self._maybe_onboard)
         # startup reminder: overdue / due-soon action items
         QTimer.singleShot(1600, self._show_task_digest)
+        # auto-record: watch for live meetings / calendar starts (opt-in)
+        self._watch = None
+        self.settings_page.on_auto_record_change = self.apply_auto_record
+        self.new_page.recorder_panel.recordingStateChanged.connect(self._on_recording_state)
+        QTimer.singleShot(2000, lambda: self.apply_auto_record(
+            bool(ctx.settings.get("auto_record", False))))
+
+    # -- auto-record --------------------------------------------------------
+    def apply_auto_record(self, on: bool):
+        """Start/stop the background meeting watcher to match the setting."""
+        if on and self._watch is None:
+            from .workers import MeetingWatchWorker
+            from ..core import meeting_watch as MW
+            lead = float(self.ctx.settings.get("auto_record_lead_minutes", 3) or 3)
+            ics = str(self.ctx.settings.get("auto_record_ics", "") or "").strip()
+
+            def calendar():
+                items = MW.upcoming_from_outlook()
+                if ics:
+                    items += MW.upcoming_from_ics(ics)
+                return items
+            self._watch = MeetingWatchWorker(calendar_fn=calendar, lead_minutes=lead)
+            self._watch.meetingDetected.connect(self._on_meeting_detected)
+            self._watch.meetingEnded.connect(self._on_meeting_ended)
+            self._watch.meetingDue.connect(self._on_meeting_due)
+            self._watch.start()
+        elif not on and self._watch is not None:
+            self._watch.stop(); self._watch.wait(3000); self._watch = None
+
+    def _begin_auto_record(self, label: str) -> bool:
+        panel = self.new_page.recorder_panel
+        if panel.is_recording():
+            return True
+        self._goto(self.new_page)
+        self.new_page.source_tabs.setCurrentIndex(1)           # Record tab
+        from ..core import recording as R
+        source = "both" if R.system_audio_supported() else "mic"
+        self.new_page._auto_generate_pending = True
+        ok = panel.start_auto(source, live=True)
+        if ok:
+            self.toast.show_message(f"● Recording {label} — remember to tell participants.", "warn", 8000)
+        else:
+            self.new_page._auto_generate_pending = False
+            self.toast.show_message("Couldn't start recording automatically — check the microphone.",
+                                    "error", 7000)
+        return ok
+
+    def _on_meeting_detected(self, app: str, title: str):
+        if self.new_page.recorder_panel.is_recording():
+            return
+        from PySide6.QtWidgets import QMessageBox
+        if QMessageBox.question(
+                self, "Meeting detected",
+                f"A {app} meeting looks like it's running:\n\n“{title}”\n\n"
+                "Record it now? (system audio + microphone, with a live transcript; "
+                "minutes are generated when it ends)\n\n"
+                "Make sure participants know the meeting is being recorded.",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) != QMessageBox.Yes:
+            return
+        self._begin_auto_record(f"{app}: {title}")
+
+    def _on_meeting_ended(self):
+        panel = self.new_page.recorder_panel
+        if panel.is_recording() and getattr(panel, "_auto_mode", False):
+            panel.stop_auto()
+            self.toast.show_message("Meeting ended — saving the recording…", "info", 5000)
+
+    def _on_meeting_due(self, title: str, join_url: str):
+        if self.new_page.recorder_panel.is_recording():
+            return
+        from PySide6.QtWidgets import QMessageBox
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        msg = f"“{title}” is starting now."
+        msg += "\n\nJoin it and start recording?" if join_url else "\n\nStart recording?"
+        if QMessageBox.question(self, "Meeting starting", msg,
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes) != QMessageBox.Yes:
+            return
+        if join_url:
+            QDesktopServices.openUrl(QUrl(join_url))
+        self._begin_auto_record(title)
+
+    def _on_recording_state(self, on: bool):
+        # Unmissable global indicator: the window/taskbar title itself.
+        self.setWindowTitle(f"● Recording — {__app_name__}" if on else __app_name__)
 
     def _git_auto_update(self):
         from ..core import git_update
@@ -292,6 +377,10 @@ class MainWindow(QMainWindow):
             pass
         try:
             self.new_page.recorder_panel.stop_if_active()
+        except Exception:
+            pass
+        try:
+            self.apply_auto_record(False)          # stop the meeting watcher thread
         except Exception:
             pass
         super().closeEvent(e)
