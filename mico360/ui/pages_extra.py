@@ -436,10 +436,17 @@ class ActionItemsPage(QWidget):
         tip(self.search, "Filter as you type — matches task text, responsible person and meeting title")
         refresh = QPushButton("↻  Refresh"); refresh.setObjectName("Ghost"); refresh.clicked.connect(self.reload)
         tip(refresh, "Re-scan all meetings in History for action items")
-        self.export_btn = QPushButton("Export CSV…"); self.export_btn.setObjectName("Primary")
-        self.export_btn.clicked.connect(self._export)
-        tip(self.export_btn, "Save the currently filtered list as a CSV file you can open in Excel")
-        bar.addWidget(self.search, 1); bar.addWidget(refresh); bar.addWidget(self.export_btn)
+        # Output actions grouped under one menu button (keeps the bar compact).
+        from PySide6.QtWidgets import QMenu
+        self.actions_btn = QPushButton("Actions  ▾"); self.actions_btn.setObjectName("Primary")
+        menu = QMenu(self.actions_btn)
+        menu.addAction("Export CSV…", self._export)
+        menu.addAction("Send follow-up emails…", self._followup)
+        menu.addAction("Add to calendar (.ics)…", self._to_calendar)
+        self.actions_btn.setMenu(menu)
+        tip(self.actions_btn, "Export CSV, draft per-person follow-up emails, or add deadlines to "
+                              "your calendar — all for the currently filtered list")
+        bar.addWidget(self.search, 1); bar.addWidget(refresh); bar.addWidget(self.actions_btn)
         v.addLayout(bar)
 
         # -- filters: person · status · deadline · meeting -------------------
@@ -731,6 +738,60 @@ class ActionItemsPage(QWidget):
                 self.toast.show_message(f"Exported {len(self._items)} items.", "success")
             except Exception as exc:
                 QMessageBox.critical(self, "Export failed", str(exc))
+
+    # -- follow-up emails ---------------------------------------------------
+    def _followup(self):
+        from ..core import followup
+        drafts = followup.build_all(self._items)
+        if not drafts:
+            self.toast.show_message("No open action items with an owner to follow up on.", "warn")
+            return
+        from .dialogs import FollowupDialog
+        dlg = FollowupDialog(drafts, self)
+        dlg.sendRequested.connect(self._send_followup_email)
+        dlg.exec()
+
+    def _send_followup_email(self, owner: str, subject: str, body: str):
+        from ..core.emailer import SmtpConfig
+        cfg = SmtpConfig.from_settings(self.ctx.settings)
+        if not cfg.configured:
+            QMessageBox.information(
+                self, "Email not set up",
+                "Add your email (SMTP) details in Settings → Email to send from the app.\n\n"
+                "In the meantime, use “Copy” in the follow-up window to paste this into your "
+                "own mail client.")
+            return
+        from .dialogs import EmailComposeDialog
+        dlg = EmailComposeDialog(subject, body, "", self, attachments=False)
+        if not dlg.exec():
+            return
+        v = dlg.values()
+        from .workers import EmailWorker
+        self._email_worker = EmailWorker(cfg, v["to"], v["subject"], v["body"], cc=v["cc"])
+        self._email_worker.finished_ok.connect(
+            lambda o=owner: self.toast.show_message(f"Follow-up sent to {o}.", "success", 5000))
+        self._email_worker.failed.connect(
+            lambda msg: self.toast.show_message(f"Send failed: {msg}", "error", 6000))
+        self._email_worker.start()
+
+    # -- calendar export ----------------------------------------------------
+    def _to_calendar(self):
+        from ..core import calendar_ics
+        from datetime import date
+        dated = calendar_ics.dated_items(self._items)
+        if not dated:
+            self.toast.show_message("No action items have a real date to add to a calendar.", "warn")
+            return
+        default = f"action-items-{date.today().isoformat()}.ics"
+        path, _ = QFileDialog.getSaveFileName(self, "Add to calendar", default, "Calendar (*.ics)")
+        if not path:
+            return
+        try:
+            n = calendar_ics.write_ics(path, dated)
+            self.toast.show_message(f"Added {n} deadline(s) — opening in your calendar…", "success", 5000)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(path))     # default calendar app
+        except Exception as exc:
+            QMessageBox.critical(self, "Calendar export failed", str(exc))
 
 
 # ===========================================================================

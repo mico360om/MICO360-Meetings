@@ -367,7 +367,7 @@ def main() -> int:
                               win.new_page.recorder_panel.source_box,
                               win.new_page.recorder_panel.mic_box],
         "history/actions": [win.history_page.search, win.actions_page.search,
-                            win.actions_page.export_btn],
+                            win.actions_page.actions_btn],
         "updates": [win.updates_page.check_btn, win.updates_page.repo_btn],
         "settings key fields": [win.settings_page.preset, win.settings_page.whisper,
                                 win.settings_page.install_btn, win.settings_page.smtp_password],

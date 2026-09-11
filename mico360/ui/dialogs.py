@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
+from PySide6.QtCore import Qt, QRectF, Signal
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
     QFileDialog, QFormLayout, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-    QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
+    QPlainTextEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from ..core.profiles import (
@@ -289,6 +289,51 @@ class PromptDialog(QDialog):
                 self.category.currentText().strip() or "General")
 
 
+class FollowupDialog(QDialog):
+    """Per-owner follow-up drafts: copy each, or open the email composer."""
+    sendRequested = Signal(str, str, str)      # owner, subject, body
+
+    def __init__(self, drafts, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Send follow-up emails")
+        self.resize(600, 480)
+        self._drafts = drafts
+        lay = QVBoxLayout(self)
+        info = QLabel("One draft per person, listing their open action items with deadlines. "
+                      "Email addresses aren't stored — you'll enter each recipient when sending.")
+        info.setObjectName("Hint"); info.setWordWrap(True)
+        lay.addWidget(info)
+
+        host = QWidget(); rows = QVBoxLayout(host); rows.setContentsMargins(0, 0, 0, 0); rows.setSpacing(8)
+        for owner, subject, body, count in drafts:
+            card = QWidget(); card.setObjectName("Card")
+            rl = QHBoxLayout(card); rl.setContentsMargins(14, 10, 12, 10); rl.setSpacing(8)
+            col = QVBoxLayout(); col.setSpacing(1)
+            name = QLabel(owner); name.setObjectName("ProfileName")
+            sub = QLabel(f"{count} open item{'s' if count != 1 else ''}"); sub.setObjectName("Hint")
+            col.addWidget(name); col.addWidget(sub)
+            rl.addLayout(col, 1)
+            copy = QPushButton("Copy"); copy.setObjectName("Ghost")
+            copy.clicked.connect(lambda _=False, b=f"Subject: {subject}\n\n{body}": self._copy(b))
+            tip(copy, "Copy this follow-up (subject + body) to the clipboard")
+            email = QPushButton("Email…"); email.setObjectName("Primary")
+            email.clicked.connect(lambda _=False, o=owner, s=subject, b=body: self.sendRequested.emit(o, s, b))
+            tip(email, "Open the email composer pre-filled with this person's follow-up")
+            rl.addWidget(copy); rl.addWidget(email)
+            rows.addWidget(card)
+        rows.addStretch()
+        sa = QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QScrollArea.NoFrame)
+        sa.setWidget(host)
+        lay.addWidget(sa, 1)
+
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.reject); bb.accepted.connect(self.reject)
+        lay.addWidget(bb)
+
+    def _copy(self, text: str):
+        QGuiApplication.clipboard().setText(text)
+
+
 class ActionItemDialog(QDialog):
     """Edit one action item's fields directly (no reopening the meeting)."""
     def __init__(self, item, parent=None):
@@ -350,10 +395,11 @@ class ActionItemDialog(QDialog):
 
 
 class EmailComposeDialog(QDialog):
-    """Compose an email of the meeting minutes (optionally with attachments)."""
-    def __init__(self, subject: str, body: str, to: str = "", parent=None):
+    """Compose an email (of the minutes, or a follow-up) — attachments optional."""
+    def __init__(self, subject: str, body: str, to: str = "", parent=None,
+                 attachments: bool = True):
         super().__init__(parent)
-        self.setWindowTitle("Email minutes")
+        self.setWindowTitle("Email minutes" if attachments else "Send follow-up")
         self.resize(620, 540)
         lay = QVBoxLayout(self)
         form = QFormLayout()
@@ -367,14 +413,17 @@ class EmailComposeDialog(QDialog):
         form.addRow("Subject", self.subject)
         lay.addLayout(form)
 
-        att = QHBoxLayout()
-        att.addWidget(QLabel("Attach:"))
         self.att_pdf = QCheckBox("PDF"); self.att_pdf.setChecked(True)
-        tip(self.att_pdf, "Attach the minutes as a PDF, branded with the active company profile")
         self.att_docx = QCheckBox("Word (.docx)")
-        tip(self.att_docx, "Attach the minutes as an editable Word document")
-        att.addWidget(self.att_pdf); att.addWidget(self.att_docx); att.addStretch()
-        lay.addLayout(att)
+        if attachments:
+            att = QHBoxLayout()
+            att.addWidget(QLabel("Attach:"))
+            tip(self.att_pdf, "Attach the minutes as a PDF, branded with the active company profile")
+            tip(self.att_docx, "Attach the minutes as an editable Word document")
+            att.addWidget(self.att_pdf); att.addWidget(self.att_docx); att.addStretch()
+            lay.addLayout(att)
+        else:                                   # follow-up: plain text, no attachments
+            self.att_pdf.setChecked(False)
 
         lay.addWidget(QLabel("Message"))
         self.body = QPlainTextEdit(body)

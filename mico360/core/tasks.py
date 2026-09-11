@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from ..config import DATA_DIR
@@ -82,6 +82,22 @@ def is_overdue(item: "ActionItem", today: date | None = None) -> bool:
 def effective_status(item: "ActionItem", today: date | None = None) -> str:
     """The status to display/filter on: OVERDUE overrides an open task."""
     return OVERDUE if is_overdue(item, today) else normalize_status(item.status)
+
+
+def reminder_counts(items, today: date | None = None, within_days: int = 7):
+    """(overdue, due_soon) counts across open items — for the startup digest."""
+    today = today or date.today()
+    overdue = due_soon = 0
+    for it in items:
+        if normalize_status(it.status) in _CLOSED:
+            continue
+        if is_overdue(it, today):
+            overdue += 1
+            continue
+        d = parse_deadline(it.deadline)
+        if d is not None and today <= d <= today + timedelta(days=within_days):
+            due_soon += 1
+    return overdue, due_soon
 
 
 PRIORITIES = ["High", "Medium", "Low"]

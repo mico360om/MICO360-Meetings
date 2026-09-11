@@ -590,6 +590,37 @@ def main():
         return "edit persists + quick set + reset (stable key)"
     t("core.action_editing", _action_editing)
 
+    def _followup_and_ics():
+        from datetime import date, timedelta
+        from mico360.core import followup, calendar_ics, tasks as T
+        from mico360.core.tasks import ActionItem
+        past = (date.today() - timedelta(days=2)).isoformat()
+        soon = (date.today() + timedelta(days=3)).isoformat()
+        items = [
+            ActionItem("Ship v2", "Bob", past, "Pending", 1, "Kickoff", priority="High"),
+            ActionItem("Review pricing", "Carol", soon, "In Progress", 1, "Kickoff"),
+            ActionItem("Old thing", "Bob", "", "Completed", 2, "Sync"),      # closed → excluded
+            ActionItem("No owner task", "", soon, "Pending", 2, "Sync"),     # no owner → excluded
+        ]
+        # startup reminder counts
+        overdue, due_soon = T.reminder_counts(items)
+        assert overdue == 1 and due_soon == 2                # Bob(past) overdue; Carol+No-owner due soon
+        # per-owner follow-up drafts (only open, owned items)
+        drafts = followup.build_all(items)
+        owners = {o for o, *_ in drafts}
+        assert owners == {"Bob", "Carol"}
+        bob = next(d for d in drafts if d[0] == "Bob")
+        assert bob[3] == 1 and "Ship v2" in bob[2] and "OVERDUE" in bob[2]
+        # .ics: an event only for dated items
+        dated = calendar_ics.dated_items(items)
+        assert len(dated) == 3                               # Ship v2, Review pricing, No owner task
+        ics = calendar_ics.build_ics(dated)
+        assert ics.startswith("BEGIN:VCALENDAR") and ics.count("BEGIN:VEVENT") == 3
+        assert "SUMMARY:[Bob] Ship v2" in ics and "BEGIN:VALARM" in ics
+        assert "DTSTART;VALUE=DATE:" in ics
+        return "reminders + per-owner drafts + .ics events"
+    t("core.followup_ics", _followup_and_ics)
+
     def _action_filters():
         from datetime import date, timedelta
         from mico360.core.tasks import ActionItem

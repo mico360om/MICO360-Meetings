@@ -98,6 +98,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(1800, self._git_auto_update)
         # first-run onboarding
         QTimer.singleShot(400, self._maybe_onboard)
+        # startup reminder: overdue / due-soon action items
+        QTimer.singleShot(1600, self._show_task_digest)
 
     def _git_auto_update(self):
         from ..core import git_update
@@ -117,6 +119,24 @@ class MainWindow(QMainWindow):
     def _maybe_onboard(self):
         from .onboarding import maybe_show
         maybe_show(self.ctx, self)
+
+    def _show_task_digest(self):
+        """A gentle startup nudge if action items are overdue or due this week."""
+        try:
+            from ..core import tasks as T
+            overdue, due_soon = T.reminder_counts(self.ctx.action_items.all_items())
+        except Exception:
+            return
+        if not (overdue or due_soon):
+            return
+        parts = []
+        if overdue:
+            parts.append(f"{overdue} overdue")
+        if due_soon:
+            parts.append(f"{due_soon} due this week")
+        self.toast.show_message(
+            "⏰ Action items: " + " · ".join(parts) + " — open Action Items to review.",
+            "warn", 8000)
 
     def _refresh_ai(self):
         """Rebuild the model list and the status chip after an AI-mode/model change."""
