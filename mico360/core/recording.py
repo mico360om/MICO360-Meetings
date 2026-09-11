@@ -326,6 +326,34 @@ class AudioRecorder(BaseRecorder):
         self._stop_flag = threading.Event()
         self._thread: threading.Thread | None = None
         self._frames_captured = 0
+        # live-transcription tap (opt-in): captured mic frames buffered for a
+        # separate worker to pull and transcribe as recording proceeds.
+        self._live_on = False
+        self._live_lock = threading.Lock()
+        self._live_buf: list = []
+        self._live_rate = cfg.samplerate
+
+    def enable_live(self) -> None:
+        self._live_on = True
+
+    def _live_push(self, mono_f32) -> None:
+        if not self._live_on:
+            return
+        try:
+            with self._live_lock:
+                self._live_buf.append(mono_f32)
+        except Exception:
+            pass
+
+    def pull_live(self):
+        """Return (new_samples, rate) captured since the last pull, then clear."""
+        import numpy as np
+        with self._live_lock:
+            if not self._live_buf:
+                return None, self._live_rate
+            arr = np.concatenate(self._live_buf).astype("float32")
+            self._live_buf = []
+        return arr, self._live_rate
 
     def start(self) -> None:
         # Capture runs in a background thread so opening the audio device can
@@ -412,6 +440,9 @@ class AudioRecorder(BaseRecorder):
                         else indata.mean(axis=1, keepdims=True)
                     self._frames_captured += frames
                     self._level = float(min(1.0, float(np.abs(data).max()) * 1.4))
+                    if self._live_on:
+                        self._live_rate = self.cfg.samplerate
+                        self._live_push(np.asarray(data).reshape(-1).copy())
                     writer.write(data.copy())
                 except Exception:
                     pass
@@ -554,6 +585,9 @@ class AudioRecorder(BaseRecorder):
             try:
                 self._frames_captured += frames
                 self._level = float(min(1.0, float(np.abs(indata).max()) * 1.4))
+                if self._live_on:
+                    self._live_rate = self._rate
+                    self._live_push(indata.reshape(-1).copy())
                 if self._av_stream is not None:
                     import av as _av
                     frame = _av.AudioFrame.from_ndarray(

@@ -158,6 +158,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "crash_reporter": True,             # show the opt-in crash dialog on errors
     "onboarded": False,                 # first-run guide shown
     "speaker_names": [],                # remembered names for speaker-naming autocomplete
+    "live_transcription": False,        # transcribe from the mic while recording (beta)
     # Email (SMTP) — credentials are stored ONLY in the local settings file,
     # never in source. Defaults are blank; the user fills them in Settings.
     "smtp_host": "in-v3.mailjet.com",

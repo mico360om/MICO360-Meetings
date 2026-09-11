@@ -394,8 +394,9 @@ class NewMeetingPage(QWidget):
         # Record tab — full audio/screen/camera recorder with live details
         rec = QWidget(); rl = QVBoxLayout(rec)
         rl.setContentsMargins(0, 0, 0, 0)
-        self.recorder_panel = RecordingPanel(self.toast)
+        self.recorder_panel = RecordingPanel(self.toast, self.ctx)
         self.recorder_panel.recordingReady.connect(self._on_recording_ready)
+        self.recorder_panel.liveTranscriptReady.connect(self._on_live_transcript)
         rl.addWidget(self.recorder_panel)
         self.source_tabs.addTab(rec, "Record")
 
@@ -435,6 +436,17 @@ class NewMeetingPage(QWidget):
         self.source_tabs.setCurrentIndex(0)   # show the queue + action buttons
         self.toast.show_message("Recording added — click ‘Transcribe’ to continue.",
                                 "success", 5000)
+
+    def _on_live_transcript(self, text: str):
+        """A live-transcribed recording -> the transcript is already written; drop
+        it into the editor and jump to the Transcript step so the user can review."""
+        cur = self.transcript.toPlainText().strip()
+        self.transcript.setPlainText((cur + "\n\n" + text).strip() if cur else text)
+        self._reached = max(self._reached, self.STEP_TRANSCRIPT)
+        self._goto_step(self.STEP_TRANSCRIPT)
+        self.toast.show_message("Live transcript captured — review it, then continue. "
+                                "(Use the recording for a full re-transcribe if you want more accuracy.)",
+                                "success", 7000)
 
     def _step2_transcript(self) -> QWidget:
         card, lay = self._card("Transcript")

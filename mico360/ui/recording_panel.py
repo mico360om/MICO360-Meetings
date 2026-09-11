@@ -16,10 +16,10 @@ from collections import deque
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QPainter
+from PySide6.QtGui import QColor, QPainter, QTextCursor
 from PySide6.QtWidgets import (
-    QButtonGroup, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
-    QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout, QLabel,
+    QPlainTextEdit, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from ..core import recording as R
@@ -73,13 +73,17 @@ class AudioVisualizer(QWidget):
 # ---------------------------------------------------------------------------
 class RecordingPanel(QWidget):
     recordingReady = Signal(str)         # final media path -> queue for transcription
+    liveTranscriptReady = Signal(str)    # full live transcript -> populate the transcript box
 
-    def __init__(self, toast=None):
+    def __init__(self, toast=None, ctx=None):
         super().__init__()
         self.toast = toast
+        self.ctx = ctx
         self._rec: R.BaseRecorder | None = None
         self._result: R.RecordingResult | None = None
         self._blink = False
+        self._live_worker = None
+        self._live_text = ""
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_config())   # 0
@@ -167,6 +171,17 @@ class RecordingPanel(QWidget):
         opt.addWidget(self.mic_status, 3, 0, 1, 2)
         v.addLayout(opt)
 
+        # Live transcription (beta) — transcribe from the mic as you record.
+        self.live_check = QCheckBox("Live transcript (beta) — transcribe as you record")
+        if self.ctx is not None:
+            self.live_check.setChecked(bool(self.ctx.settings.get("live_transcription", False)))
+            self.live_check.toggled.connect(
+                lambda on: self.ctx.settings.set("live_transcription", on))
+        tip(self.live_check, "Show a rough transcript on screen while you record (audio only), so "
+                             "the minutes are ready the moment you stop. Uses the microphone; for "
+                             "responsiveness pick the tiny or base Whisper model in Settings.")
+        v.addWidget(self.live_check)
+
         start_row = QHBoxLayout()
         refresh = QPushButton("↻ Refresh devices")
         refresh.setObjectName("Ghost")
@@ -236,6 +251,14 @@ class RecordingPanel(QWidget):
 
         self.viz = AudioVisualizer()
         v.addWidget(self.viz)
+
+        # live transcript preview (shown only when live transcription is on)
+        self.live_box = QPlainTextEdit(); self.live_box.setReadOnly(True)
+        self.live_box.setPlaceholderText("Live transcript will appear here as you speak…")
+        self.live_box.setMaximumHeight(120); self.live_box.setVisible(False)
+        tip(self.live_box, "A rough live transcript. It becomes your editable transcript when you "
+                           "stop — use “Use for transcription” to re-transcribe for higher accuracy.")
+        v.addWidget(self.live_box)
 
         # details grid
         self.detail_labels: dict[str, QLabel] = {}
@@ -333,11 +356,36 @@ class RecordingPanel(QWidget):
             if self.toast:
                 self.toast.show_message(f"Could not start recording: {exc}", "error", 6000)
             return
+        # Live transcription (audio recordings only, when enabled).
+        self._live_text = ""; self._live_worker = None
+        live_on = (getattr(self, "live_check", None) is not None and self.live_check.isChecked()
+                   and self.ctx is not None and kind == "audio")
+        if live_on:
+            try:
+                self._rec.enable_live()
+                from .workers import LiveTranscribeWorker
+                engine = self.ctx.transcription_engine()
+                self._live_worker = LiveTranscribeWorker(
+                    self._rec, engine, self.ctx.settings.get("language", "auto"))
+                self._live_worker.partial.connect(self._on_live_partial)
+                self._live_worker.start()
+                self.live_box.clear(); self.live_box.setVisible(True)
+            except Exception:
+                self._live_worker = None
+                self.live_box.setVisible(False)
+        else:
+            self.live_box.setVisible(False)
+
         self._fill_static_details(cfg)
         self.viz.set_active(True)
         self.stack.setCurrentIndex(1)
         self._timer.start()
         self._blink_timer.start()
+
+    def _on_live_partial(self, text: str):
+        self._live_text = (self._live_text + " " + text).strip()
+        self.live_box.setPlainText(self._live_text)
+        self.live_box.moveCursor(QTextCursor.End)
 
     def _fill_static_details(self, cfg: R.RecordingConfig):
         rec = self._rec
@@ -406,6 +454,8 @@ class RecordingPanel(QWidget):
             self.pause_btn.setText("⏸ Pause")
 
     def _cancel(self):
+        if self._live_worker is not None:
+            self._live_worker.stop(); self._live_worker.wait(4000); self._live_worker = None
         if self._rec:
             self._rec.cancel()
         self._teardown()
@@ -424,6 +474,13 @@ class RecordingPanel(QWidget):
     def _finish_stop(self):
         rec = self._rec
         self._result = rec.stop()
+        # flush + stop the live worker, then hand the transcript to New Meeting
+        if self._live_worker is not None:
+            self._live_worker.stop()
+            self._live_worker.wait(6000)
+            self._live_worker = None
+            if self._live_text.strip():
+                self.liveTranscriptReady.emit(self._live_text.strip())
         self._teardown()
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("⏹ Stop & Save")
@@ -487,6 +544,12 @@ class RecordingPanel(QWidget):
 
     def stop_if_active(self):
         """Called on app close to flush an in-progress recording."""
+        if self._live_worker is not None:
+            try:
+                self._live_worker.stop(); self._live_worker.wait(3000)
+            except Exception:
+                pass
+            self._live_worker = None
         if self._rec and self._rec.state in (R.RECORDING, R.PAUSED):
             try:
                 self._rec.stop()

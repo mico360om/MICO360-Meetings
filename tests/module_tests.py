@@ -143,6 +143,41 @@ def main():
         return "whisper first-run detection + cold-load messaging"
     t("core.reassurance", _reassurance)
 
+    def _live_transcription():
+        import soundfile as sf, numpy as np
+        from mico360.core.transcription import TranscriptionEngine
+        from mico360.core.recording import AudioRecorder, RecordingConfig
+        from mico360.ui.workers import resample_16k, LiveTranscribeWorker
+        data, sr = sf.read("samples/spoken_test.wav", dtype="float32", always_2d=False)
+        if getattr(data, "ndim", 1) > 1:
+            data = data.mean(axis=1)
+        audio16 = resample_16k(data, sr)
+        eng = TranscriptionEngine("tiny", "auto", "int8")
+        assert "meeting" in eng.transcribe_array(audio16).lower()
+        # recorder live tap: buffer + drain-and-clear
+        rec = AudioRecorder(RecordingConfig(source="mic"))
+        assert not rec._live_on
+        rec.enable_live(); assert rec._live_on
+        rec._live_rate = 16000
+        rec._live_push(np.ones(100, "float32")); rec._live_push(np.zeros(50, "float32"))
+        pulled, rate = rec.pull_live()
+        assert rate == 16000 and len(pulled) == 150 and rec.pull_live()[0] is None
+        # resample maths
+        assert len(resample_16k(np.zeros(32000, "float32"), 32000)) == 16000
+        # worker transcribes a chunk pulled from a (fake) recorder
+        class _Fake:
+            _served = False
+            def pull_live(self):
+                if self._served:
+                    return None, 16000
+                self._served = True; return audio16, 16000
+        w = LiveTranscribeWorker(_Fake(), eng)
+        got = []; w.partial.connect(lambda t: got.append(t))
+        w._flush(final=True)
+        assert got and "meeting" in got[0].lower()
+        return "array-transcribe + live tap + resample + worker flush"
+    t("core.live_transcription", _live_transcription)
+
     def _ollama():
         from mico360.core import ollama_client as oc
         st = oc.check_status()
@@ -717,6 +752,22 @@ def main():
         np_._new_meeting()
         return "detect + rename + apply + attendees + roster autocomplete"
     t("ui.speaker_naming", _speaker_naming)
+
+    def _live_ui():
+        np_ = win.new_page
+        rp = np_.recorder_panel
+        assert hasattr(rp, "live_check") and hasattr(rp, "live_box")
+        rp._live_text = ""
+        rp._on_live_partial("Hello there"); rp._on_live_partial("second part")
+        assert "Hello there" in rp.live_box.toPlainText() and "second part" in rp.live_box.toPlainText()
+        # live transcript hands off to the editor + jumps to the Transcript step
+        np_._new_meeting()
+        np_._on_live_transcript("Full live transcript text")
+        assert "Full live transcript text" in np_.transcript.toPlainText()
+        assert np_.wizard.currentIndex() == np_.STEP_TRANSCRIPT
+        np_._new_meeting()
+        return "live checkbox + preview append + transcript handoff"
+    t("ui.live_transcription", _live_ui)
 
     def _prompt_library():
         pp = win.prompts_page

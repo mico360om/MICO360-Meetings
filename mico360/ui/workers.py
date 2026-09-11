@@ -4,6 +4,7 @@ so the UI never blocks. Progress and results are delivered via Qt signals.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
@@ -13,6 +14,78 @@ from ..core.transcription import TranscriptionEngine, TranscriptResult
 from ..core import updater
 
 log = logging.getLogger("mico360.workers")
+
+
+def resample_16k(data, rate: int):
+    """Linear-resample a mono float32 array to 16 kHz (Whisper's rate)."""
+    import numpy as np
+    target = 16000
+    if rate == target or data is None or len(data) == 0:
+        return None if data is None else data.astype("float32")
+    n = int(len(data) * target / rate)
+    if n <= 0:
+        return data.astype("float32")
+    return np.interp(np.linspace(0, 1, n, endpoint=False),
+                     np.linspace(0, 1, len(data), endpoint=False), data).astype("float32")
+
+
+class LiveTranscribeWorker(QThread):
+    """Poll a recorder's live audio tap and emit rolling partial transcript text
+    while recording — so a draft transcript exists the moment recording stops."""
+    partial = Signal(str)               # newly transcribed text
+
+    def __init__(self, recorder, engine: TranscriptionEngine, language: str = "auto",
+                 interval: float = 6.0, min_seconds: float = 2.5):
+        super().__init__()
+        self.recorder = recorder
+        self.engine = engine
+        self.language = language
+        self.interval = interval
+        self.min_seconds = min_seconds
+        import threading
+        self._stop = threading.Event()
+        self._carry = None
+
+    def run(self):
+        try:
+            self.engine.load()
+        except Exception:
+            log.warning("live transcription: model load failed", exc_info=True)
+            return
+        while not self._stop.wait(0):          # loop until stopped
+            self._sleep(self.interval)
+            if self._stop.is_set():
+                break
+            self._flush(final=False)
+        self._flush(final=True)                # transcribe any tail audio
+
+    def _sleep(self, secs: float):
+        end = time.time() + secs
+        while time.time() < end and not self._stop.is_set():
+            self.msleep(120)
+
+    def _flush(self, final: bool):
+        import numpy as np
+        new, rate = self.recorder.pull_live()
+        if self._carry is not None:
+            new = self._carry if new is None else np.concatenate([self._carry, new])
+        self._carry = None
+        if new is None or len(new) == 0:
+            return
+        if not final and len(new) < rate * self.min_seconds:
+            self._carry = new                  # not enough yet — keep for next round
+            return
+        audio16 = resample_16k(new, rate)
+        try:
+            text = self.engine.transcribe_array(audio16, self.language)
+        except Exception:
+            log.warning("live transcription chunk failed", exc_info=True)
+            return
+        if text:
+            self.partial.emit(text)
+
+    def stop(self):
+        self._stop.set()
 
 
 class TranscribeWorker(QThread):

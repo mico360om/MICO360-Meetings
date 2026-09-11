@@ -194,6 +194,15 @@ class TranscriptionEngine:
                 log.warning("diarization failed", exc_info=True)
         return result
 
+    def transcribe_array(self, audio_f32, language: str | None = None) -> str:
+        """Transcribe a mono 16 kHz float32 numpy array to text — for live capture
+        (fast: greedy decoding, VAD-filtered, no progress/diarisation)."""
+        self.load()
+        lang = None if (not language or language == "auto") else language
+        segments, _info = self._model.transcribe(  # type: ignore[union-attr]
+            audio_f32, language=lang, vad_filter=True, beam_size=1)
+        return "".join(seg.text for seg in segments).strip()
+
     def _run(self, usable, lang, duration, progress, cancel) -> TranscriptResult:
         segments_iter, info = self._model.transcribe(  # type: ignore[union-attr]
             str(usable),
