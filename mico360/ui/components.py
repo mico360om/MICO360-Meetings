@@ -6,7 +6,7 @@ from typing import Callable
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+    QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
     QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -213,6 +213,24 @@ def tip(widget, text: str):
     except Exception:
         pass
     return widget
+
+
+def scroll_area(inner: QWidget, max_width: int = 1440) -> QScrollArea:
+    """Wrap page content in a frameless, resizable scroll area.
+
+    Caps the content measure and centres it, so forms/text don't stretch
+    edge-to-edge on a wide window (a comfortable, professional line length).
+    Single shared implementation — was duplicated in three page modules.
+    """
+    sa = QScrollArea()
+    sa.setWidgetResizable(True)
+    sa.setFrameShape(QScrollArea.NoFrame)
+    if max_width:
+        inner.setMaximumWidth(max_width)
+        sa.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
+    sa.setWidget(inner)
+    sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+    return sa
 
 
 class DropArea(QFrame):

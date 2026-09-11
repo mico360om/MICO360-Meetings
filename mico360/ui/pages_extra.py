@@ -20,22 +20,16 @@ from .. import __app_name__, __version__
 from ..config import TMP_DIR
 from ..core import updater
 from . import metrics as M
-from .components import Card, EmptyState, section_title, subtitle, tip
+from . import theme
+from .components import (
+    Card, EmptyState, scroll_area as _scroll, section_title, subtitle, tip,
+)
 from .context import AppContext
 from .workers import UpdateCheckWorker, UpdateDownloadWorker
 
 log = logging.getLogger("mico360.pages_extra")
 
 SUPPORT_EMAIL = "info@mico360.com"
-
-
-def _scroll(inner: QWidget, max_width: int = 1440) -> QScrollArea:
-    sa = QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QScrollArea.NoFrame)
-    if max_width:
-        inner.setMaximumWidth(max_width)
-        sa.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-    sa.setWidget(inner)
-    return sa
 
 
 _STATUS_COLORS = {
@@ -399,11 +393,8 @@ class UpdatesPage(QWidget):
 # ===========================================================================
 # Action Items — tasks across all meetings
 # ===========================================================================
-_STATUS_COLOR = {"Pending": "#B8760F", "In Progress": "#A83326",
-                 "Completed": "#16A34A", "Cancelled": "#9A9AA0",
-                 "Overdue": "#DC2626"}
-# subtle row tint for overdue tasks (light / dark)
-_OVERDUE_TINT = "#FCEBEA"
+_STATUS_COLOR = theme.SEMANTIC["status"]          # one source of truth (theme.py)
+_OVERDUE_TINT = theme.SEMANTIC["overdue_tint"]     # subtle row tint for overdue tasks
 
 
 class ActionItemsPage(QWidget):
@@ -411,7 +402,7 @@ class ActionItemsPage(QWidget):
      _COL_MEETING, _COL_DATE) = range(7)
     _DEADLINE_FILTERS = ["Any deadline", "Overdue", "Due today", "Due this week",
                          "Has a date", "No date"]
-    _PRIO_COLOR = {"High": "#DC2626", "Medium": "#B8760F", "Low": "#6C6269"}
+    _PRIO_COLOR = theme.SEMANTIC["priority"]
 
     def __init__(self, ctx: AppContext, toast, on_open_meeting=None):
         super().__init__()

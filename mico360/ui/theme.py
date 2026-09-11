@@ -77,6 +77,16 @@ TOKENS = {
     "bw": "1px",
 }
 
+# Semantic colours shared by pages regardless of theme (status / priority
+# badges must read the same in light and dark). Single source of truth —
+# previously duplicated across pages_extra.py and insights_page.py.
+SEMANTIC = {
+    "status": {"Pending": "#B8760F", "In Progress": "#A83326",
+               "Completed": "#16A34A", "Cancelled": "#9A9AA0", "Overdue": "#DC2626"},
+    "priority": {"High": "#DC2626", "Medium": "#B8760F", "Low": "#6C6269"},
+    "overdue_tint": "#FCEBEA",
+}
+
 _QSS = """
 * {{ font-family: "Segoe UI", "Segoe UI Variable", "Inter", Arial, sans-serif; font-size: {fs_base}; }}
 QWidget {{ color: {text}; background: transparent; }}

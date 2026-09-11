@@ -13,22 +13,13 @@ from PySide6.QtWidgets import (
 
 from . import metrics as M
 from . import theme
-from .components import EmptyState, section_title, subtitle, tip
+from .components import (
+    EmptyState, scroll_area as _scroll, section_title, subtitle, tip,
+)
 from .context import AppContext
 
-# Fixed semantic status colours (match the Action Items page).
-STATUS_COLORS = {
-    "Overdue": "#DC2626", "Pending": "#B8760F", "In Progress": "#A83326",
-    "Completed": "#16A34A", "Cancelled": "#9A9AA0",
-}
-
-
-def _scroll(inner: QWidget) -> QScrollArea:
-    sa = QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QScrollArea.NoFrame)
-    inner.setMaximumWidth(1440)
-    sa.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-    sa.setWidget(inner)
-    return sa
+# Semantic status colours — shared with the Action Items page via theme.py.
+STATUS_COLORS = theme.SEMANTIC["status"]
 
 
 # ---------------------------------------------------------------------------

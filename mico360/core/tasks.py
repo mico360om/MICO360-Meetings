@@ -284,12 +284,6 @@ class ActionItemStore:
         if removed:
             self._save()
 
-    def cycle_status(self, item: ActionItem) -> str:
-        cur = item.status if item.status in STATUS_CYCLE else "Pending"
-        nxt = STATUS_CYCLE[(STATUS_CYCLE.index(cur) + 1) % len(STATUS_CYCLE)]
-        self.set_status(item, nxt)
-        return nxt
-
     def export_csv(self, path: str | Path, items: list[ActionItem]) -> Path:
         path = Path(path)
         with path.open("w", newline="", encoding="utf-8") as fh:
