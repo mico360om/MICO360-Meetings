@@ -25,6 +25,13 @@ import sys
 import time
 from pathlib import Path
 
+# The gate prints arrows/dashes; never let a legacy code page (cp1252) crash it.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
 ENV = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "PYTHONUTF8": "1",
