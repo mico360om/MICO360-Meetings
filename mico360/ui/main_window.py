@@ -361,9 +361,12 @@ class MainWindow(QMainWindow):
     # -- theme --------------------------------------------------------------
     def apply_theme(self, name: str):
         scale = float(self.ctx.settings.get("ui_scale", 1.0) or 1.0)
+        theme.CURRENT = name
         self.setStyleSheet(theme.build_qss(name, scale))
         if hasattr(self, "brand_logo"):
             self._apply_brand_logo(name)
+        if hasattr(self, "insights_page"):          # painted charts pick up the new palette
+            self.insights_page.reload()
 
     def resizeEvent(self, e):
         super().resizeEvent(e)

@@ -84,8 +84,8 @@ class HistoryPage(QWidget):
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(self._COL_TITLE, QHeaderView.Stretch)  # Title absorbs slack
         hh.setMinimumSectionSize(56)
-        for c, w in ((self._COL_STATUS, 104), (self._COL_STYLE, 96),
-                     (self._COL_MODEL, 108), (self._COL_UPDATED, 124)):
+        for c, w in ((self._COL_STATUS, 100), (self._COL_STYLE, 126),
+                     (self._COL_MODEL, 92), (self._COL_UPDATED, 138)):    # "Formal Minutes" / "YYYY-MM-DD HH:MM" fit
             hh.setSectionResizeMode(c, QHeaderView.Interactive)
             self.table.setColumnWidth(c, w)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -96,6 +96,7 @@ class HistoryPage(QWidget):
         self.table.setAlternatingRowColors(True)
         self.table.setTextElideMode(Qt.ElideRight)               # long titles elide, never scroll
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(theme.TABLE_ROW_H)
         self.table.doubleClicked.connect(self._open_selected)    # double-click opens
         self.table.itemSelectionChanged.connect(self._update_preview)  # single-click previews
         tip(self.table, "Your saved meetings — click a row to preview, double-click to reopen. "

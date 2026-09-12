@@ -196,7 +196,9 @@ QHeaderView::section {{
     background: transparent; color: {muted}; border: none;
     border-bottom: {bw} solid {border}; padding: 10px 8px; font-weight: 700; font-size: {fs_small};
 }}
-QTableWidget::item {{ padding: 9px 6px; border-bottom: {bw} solid {border}; }}
+/* No vertical item padding: Qt shrinks cell widgets (status/priority dropdowns)
+   by the item padding, so row height comes from the vertical header instead. */
+QTableWidget::item {{ padding: 0 6px; border-bottom: {bw} solid {border}; }}
 QTableWidget::item:selected {{ background: {accent}; color: {accent_text}; }}
 
 /* ---- Lists -------------------------------------------------------------- */
@@ -279,6 +281,10 @@ QSplitter::handle:horizontal {{ width: 1px; }}
 import re
 
 _PT_RE = re.compile(r"(\d+(?:\.\d+)?)pt")
+
+
+CURRENT = ""            # theme name last applied to the main window (set by MainWindow)
+TABLE_ROW_H = 36        # comfortable row height now that items carry no vertical padding
 
 
 def palette(name: str) -> dict:

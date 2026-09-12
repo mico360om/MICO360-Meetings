@@ -43,7 +43,7 @@ class _HBars(QWidget):
             return
         p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
         W, H = self.width(), self.height()
-        n = len(self._rows); rowh = H / n
+        n = len(self._rows); rowh = min(34.0, H / n)     # top-aligned; never spread out
         maxv = max((v for _, v in self._rows), default=1) or 1
         label_w, val_w, gap = 132, 34, 8
         bar_x = label_w + gap
@@ -222,7 +222,8 @@ class InsightsPage(QWidget):
 
     def reload(self):
         from ..core.insights import compute_insights
-        pal = theme.palette(self.ctx.settings.get("theme", "light"))
+        # colour charts for the theme actually on screen (not just the saved one)
+        pal = theme.palette(theme.CURRENT or self.ctx.settings.get("theme", "light"))
         ins = compute_insights(self.ctx.history, self.ctx.action_items)
 
         self.grid_host.setVisible(ins.has_data)

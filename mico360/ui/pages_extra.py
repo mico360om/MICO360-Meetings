@@ -468,7 +468,7 @@ class ActionItemsPage(QWidget):
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(self._COL_TASK, QHeaderView.Stretch)   # Task fills spare width
         hh.setStretchLastSection(False); hh.setMinimumSectionSize(60)
-        for c, w in ((self._COL_OWNER, 120), (self._COL_DUE, 112), (self._COL_PRIO, 104),
+        for c, w in ((self._COL_OWNER, 120), (self._COL_DUE, 126), (self._COL_PRIO, 104),
                      (self._COL_STATUS, 132), (self._COL_MEETING, 170), (self._COL_DATE, 104)):
             hh.setSectionResizeMode(c, QHeaderView.Interactive)
             self.table.setColumnWidth(c, w)
@@ -477,6 +477,7 @@ class ActionItemsPage(QWidget):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(theme.TABLE_ROW_H)
         self.table.cellDoubleClicked.connect(self._on_double_click)
         self.table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._context_menu)
@@ -598,7 +599,8 @@ class ActionItemsPage(QWidget):
             pcombo = QComboBox(); pcombo.addItems(["—"] + PRIORITIES)
             pcombo.setCurrentText(it.priority or "—")
             pcombo.setStyleSheet(
-                f"color:{self._PRIO_COLOR.get(it.priority, '#6C6269')}; font-weight:600;")
+                f"color:{self._PRIO_COLOR.get(it.priority, '#6C6269')}; font-weight:600; "
+                "padding:2px 8px;")                   # fits the table row
             pcombo.setToolTip("Set this task's priority")
             pcombo.activated.connect(lambda _i, row=r: self._change_priority(row))
             self.table.setCellWidget(r, self._COL_PRIO, pcombo)
@@ -610,7 +612,7 @@ class ActionItemsPage(QWidget):
             combo.setCurrentText(it.status)
             shown = "Overdue" if overdue else it.status
             combo.setStyleSheet(
-                f"color:{_STATUS_COLOR.get(shown, '#9A9AA0')}; font-weight:600;")
+                f"color:{_STATUS_COLOR.get(shown, '#9A9AA0')}; font-weight:600; padding:2px 8px;")
             combo.setToolTip("Overdue — past its deadline. Change this task's status here."
                              if overdue else "Change this task's status")
             combo.activated.connect(lambda _i, row=r: self._change_status(row))

@@ -865,6 +865,25 @@ def main():
         return "prompt -> auto start -> indicator -> auto stop -> auto minutes; watcher toggle"
     t("ui.auto_record", _auto_record_ui)
 
+    def _table_cell_widgets():
+        """Regression: QSS item padding used to shrink the status/priority dropdowns
+        to a 10px strip (text invisible). Cell widgets must fill the row."""
+        from mico360.core.tasks import ActionItem
+        from mico360.ui import theme
+        ap = win.actions_page
+        win._navigate(2); app.processEvents()             # page must be shown for cell geometry
+        ap._items = [ActionItem("Row fit", "Zed", "2026-01-01", "Pending", 1, "M")]
+        ap._populate(); app.processEvents()
+        assert ap.table.rowCount() >= 1
+        for col in (ap._COL_STATUS, ap._COL_PRIO):
+            w = ap.table.cellWidget(0, col)
+            assert w is not None and w.height() >= 24, (col, w.geometry())
+        assert ap.table.rowHeight(0) >= 30
+        win.apply_theme("dark"); assert theme.CURRENT == "dark"
+        win.apply_theme(ctx.settings.get("theme", "light"))
+        return "cell widgets fill rows; theme.CURRENT tracks the applied theme"
+    t("ui.table_cell_widgets", _table_cell_widgets)
+
     def _prompt_library():
         pp = win.prompts_page
         pp.search.clear(); pp.cat_filter.setCurrentText("All categories"); pp.reload()
