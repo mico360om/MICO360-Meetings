@@ -337,6 +337,10 @@ class Toast(QLabel):
         self._timer.start(msec)
 
     def _reposition(self):
-        if self.parent():
-            pw = self.parent().width()
-            self.move(int((pw - self.width()) / 2), 18)
+        # Bottom-centre (snackbar style): clear of each page's own header row and
+        # the top-right controls, which a top-anchored toast used to cover.
+        p = self.parent()
+        if p:
+            x = int((p.width() - self.width()) / 2)
+            y = max(18, p.height() - self.height() - 24)
+            self.move(x, y)

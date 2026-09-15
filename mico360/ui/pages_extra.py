@@ -468,8 +468,10 @@ class ActionItemsPage(QWidget):
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(self._COL_TASK, QHeaderView.Stretch)   # Task fills spare width
         hh.setStretchLastSection(False); hh.setMinimumSectionSize(60)
-        for c, w in ((self._COL_OWNER, 120), (self._COL_DUE, 126), (self._COL_PRIO, 104),
-                     (self._COL_STATUS, 132), (self._COL_MEETING, 170), (self._COL_DATE, 104)):
+        # Keep the fixed columns lean so the stretchy Task column (the hero) keeps
+        # a usable width even at the 1080px minimum window size.
+        for c, w in ((self._COL_OWNER, 100), (self._COL_DUE, 116), (self._COL_PRIO, 88),
+                     (self._COL_STATUS, 124), (self._COL_MEETING, 148), (self._COL_DATE, 92)):
             hh.setSectionResizeMode(c, QHeaderView.Interactive)
             self.table.setColumnWidth(c, w)
         self.table.setTextElideMode(Qt.ElideRight)     # long text elides, never scrolls
