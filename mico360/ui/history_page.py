@@ -235,11 +235,14 @@ class HistoryPage(QWidget):
         self.pv_meta.setText("  ·  ".join(bits))
         if (m.minutes or "").strip():
             self.pv_body.setMarkdown(m.minutes[:8000])
-        elif (m.transcript or "").strip():
-            excerpt = m.transcript.strip()[:2000]
-            self.pv_body.setPlainText("Draft — no minutes generated yet.\n\nTranscript preview:\n\n" + excerpt)
         else:
-            self.pv_body.setPlainText("This meeting has no transcript or minutes yet.")
+            # list rows omit the transcript; fetch just this one, only when needed
+            excerpt = self.ctx.history.get_transcript(m.id).strip()[:2000]
+            if excerpt:
+                self.pv_body.setPlainText(
+                    "Draft — no minutes generated yet.\n\nTranscript preview:\n\n" + excerpt)
+            else:
+                self.pv_body.setPlainText("This meeting has no transcript or minutes yet.")
 
     def _clear_preview(self):
         self.pv_title.setText("Select a meeting")
@@ -257,7 +260,7 @@ class HistoryPage(QWidget):
     def _open_selected(self):
         m = self._selected_meeting()
         if m:
-            self.on_open(m)
+            self.on_open(self.ctx.history.get(m.id) or m)   # full row (with transcript)
 
     def _delete_selected(self):
         m = self._selected_meeting()

@@ -570,12 +570,20 @@ class ActionItemsPage(QWidget):
         self._populate()
 
     # -- table --------------------------------------------------------------
+    # Above this many visible rows, drop the per-row Priority/Status dropdowns
+    # (two live QComboBoxes each) in favour of plain coloured text. Keeps the
+    # table light on low-memory machines; editing still works via double-click
+    # and the right-click menu.
+    _MAX_INLINE_ROWS = 150
+
     def _populate(self):
         from ..core import tasks as T
         from ..core.tasks import STATUS_CYCLE, PRIORITIES
         from datetime import date
         today = date.today()
+        self.table.setRowCount(0)          # drop any prior cell widgets (widget→text switch)
         self.table.setRowCount(len(self._items))
+        self._lite = len(self._items) > self._MAX_INLINE_ROWS
         overdue_n = 0
         for r, it in enumerate(self._items):
             overdue = T.is_overdue(it, today)
@@ -595,6 +603,21 @@ class ActionItemsPage(QWidget):
                     if c == self._COL_DUE:
                         item.setForeground(QColor(_STATUS_COLOR["Overdue"]))
                 self.table.setItem(r, c, item)
+            shown = "Overdue" if overdue else it.status
+            if self._lite:
+                # Lightweight: coloured text cells, no per-row widgets.
+                pitem = QTableWidgetItem(it.priority or "—")
+                pitem.setForeground(QColor(self._PRIO_COLOR.get(it.priority, "#6C6269")))
+                sitem = QTableWidgetItem(shown)
+                sitem.setForeground(QColor(_STATUS_COLOR.get(shown, "#9A9AA0")))
+                for cell, tip_ in ((pitem, "Double-click or right-click to set priority"),
+                                   (sitem, "Double-click or right-click to change status")):
+                    cell.setToolTip(tip_)
+                    if overdue:
+                        cell.setBackground(QColor(_OVERDUE_TINT))
+                self.table.setItem(r, self._COL_PRIO, pitem)
+                self.table.setItem(r, self._COL_STATUS, sitem)
+                continue
             # Priority dropdown (— / High / Medium / Low), colour-coded.
             pcombo = QComboBox(); pcombo.addItems(["—"] + PRIORITIES)
             pcombo.setCurrentText(it.priority or "—")
@@ -610,7 +633,6 @@ class ActionItemsPage(QWidget):
             if it.status not in STATUS_CYCLE:
                 combo.addItem(it.status)
             combo.setCurrentText(it.status)
-            shown = "Overdue" if overdue else it.status
             combo.setStyleSheet(
                 f"color:{_STATUS_COLOR.get(shown, '#9A9AA0')}; font-weight:600; padding:2px 8px;")
             combo.setToolTip("Overdue — past its deadline. Change this task's status here."
@@ -628,6 +650,8 @@ class ActionItemsPage(QWidget):
             parts.append(f"{overdue_n} overdue")
         total = len(self._all)
         suffix = f" (of {total})" if n != total else ""
+        if self._lite:
+            suffix += "  ·  large list — double-click or right-click a row to edit"
         self.summary.setText("  ·  ".join(parts) + suffix)
 
         if self._items:
@@ -680,7 +704,10 @@ class ActionItemsPage(QWidget):
             return
         if col == self._COL_MEETING:          # Meeting cell → open the meeting
             self._open_meeting(row)
-        elif col not in (self._COL_PRIO, self._COL_STATUS):   # dropdowns handle themselves
+        elif col in (self._COL_PRIO, self._COL_STATUS):
+            if getattr(self, "_lite", False):   # no inline dropdown → edit via dialog
+                self._edit_item(row)
+        else:
             self._edit_item(row)              # any other cell → edit the item
 
     def _context_menu(self, pos):

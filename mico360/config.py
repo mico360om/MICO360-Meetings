@@ -159,6 +159,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "onboarded": False,                 # first-run guide shown
     "speaker_names": [],                # remembered names for speaker-naming autocomplete
     "live_transcription": False,        # transcribe from the mic while recording (beta)
+    "tmp_retention_days": 7,            # purge recorder temp files older than this at startup (0 = keep)
     "auto_record": False,               # offer to record detected / scheduled meetings
     "auto_record_lead_minutes": 3,      # prompt this many minutes before a calendar start
     "auto_record_ics": "",              # optional .ics calendar file to watch (Outlook is automatic)

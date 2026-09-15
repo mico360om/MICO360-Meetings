@@ -29,6 +29,10 @@ CREATE TABLE IF NOT EXISTS meetings (
 );
 """
 
+# Columns returned by list views — every column EXCEPT the heavy `transcript`.
+_LIST_COLS = ("id, title, created_at, updated_at, source_type, source_path, "
+              "style, model, profile_id, minutes")
+
 
 @dataclass
 class Meeting:
@@ -55,6 +59,7 @@ class History:
         self._conn.commit()
 
     def _row(self, r: sqlite3.Row) -> Meeting:
+        # transcript defaults to "" when the row was fetched without it (list views)
         return Meeting(**{k: r[k] for k in r.keys()})
 
     def save(self, m: Meeting) -> int:
@@ -87,19 +92,32 @@ class History:
         self._conn.commit()
 
     def list(self, search: str = "", limit: int = 500) -> list[Meeting]:
+        """Meeting rows for list views — WITHOUT the (potentially large) verbatim
+        transcript. Loading up to `limit` full transcripts into memory just to
+        show a table or scan minutes is the biggest avoidable cost on machines
+        with little RAM; the transcript is fetched lazily (get / get_transcript)
+        only for the one meeting a user actually opens. Search still matches
+        transcript text (WHERE), it just isn't returned."""
         if search.strip():
             like = f"%{search.strip()}%"
             rows = self._conn.execute(
-                """SELECT * FROM meetings
-                   WHERE title LIKE ? OR transcript LIKE ? OR minutes LIKE ?
-                   ORDER BY updated_at DESC LIMIT ?""",
+                f"""SELECT {_LIST_COLS} FROM meetings
+                    WHERE title LIKE ? OR transcript LIKE ? OR minutes LIKE ?
+                    ORDER BY updated_at DESC LIMIT ?""",
                 (like, like, like, limit),
             ).fetchall()
         else:
             rows = self._conn.execute(
-                "SELECT * FROM meetings ORDER BY updated_at DESC LIMIT ?", (limit,)
+                f"SELECT {_LIST_COLS} FROM meetings ORDER BY updated_at DESC LIMIT ?",
+                (limit,),
             ).fetchall()
         return [self._row(r) for r in rows]
+
+    def get_transcript(self, meeting_id: int) -> str:
+        """Lazily fetch just one meeting's transcript (list rows omit it)."""
+        r = self._conn.execute(
+            "SELECT transcript FROM meetings WHERE id=?", (meeting_id,)).fetchone()
+        return ((r["transcript"] if r else "") or "")
 
     def close(self) -> None:
         try:

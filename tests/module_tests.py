@@ -230,10 +230,15 @@ def main():
         h = History(TMP / "_qa_hist.db")
         mid = h.save(Meeting(0, "Sprint Review", 0, 0, transcript="login bug", minutes="# M"))
         assert h.get(mid).title == "Sprint Review"
-        assert any(m.id == mid for m in h.list("login"))
+        assert any(m.id == mid for m in h.list("login"))        # search still matches transcript
+        # low-resource: list() must NOT carry the heavy transcript; it's lazy
+        row = next(m for m in h.list() if m.id == mid)
+        assert row.transcript == "" and row.minutes == "# M"
+        assert h.get_transcript(mid) == "login bug"             # fetched only on demand
+        assert h.get(mid).transcript == "login bug"             # full get still complete
         h.delete(mid); h.close()
         (TMP / "_qa_hist.db").unlink(missing_ok=True)
-        return "CRUD+search"
+        return "CRUD+search; list() omits transcript, lazy get_transcript"
     t("core.history", _history)
 
     def _profiles():
@@ -879,10 +884,38 @@ def main():
             w = ap.table.cellWidget(0, col)
             assert w is not None and w.height() >= 24, (col, w.geometry())
         assert ap.table.rowHeight(0) >= 30
+        assert not ap._lite                               # small list keeps rich dropdowns
+        # low-resource: a large list drops per-row widgets for plain coloured text
+        big = [ActionItem(f"Task {i}", "Zed", "", "Pending", i, "M")
+               for i in range(ap._MAX_INLINE_ROWS + 5)]
+        ap._items = big; ap._populate(); app.processEvents()
+        assert ap._lite
+        assert ap.table.cellWidget(0, ap._COL_STATUS) is None      # no live widgets
+        assert ap.table.item(0, ap._COL_STATUS).text() == "Pending"
+        assert ap.table.item(0, ap._COL_PRIO) is not None
+        ap._items = ap._items[:1]; ap._populate(); app.processEvents()   # back under cap
+        assert not ap._lite and ap.table.cellWidget(0, ap._COL_STATUS) is not None
         win.apply_theme("dark"); assert theme.CURRENT == "dark"
         win.apply_theme(ctx.settings.get("theme", "light"))
-        return "cell widgets fill rows; theme.CURRENT tracks the applied theme"
+        return "cell widgets fill rows; lite fallback over cap; theme.CURRENT tracks theme"
     t("ui.table_cell_widgets", _table_cell_widgets)
+
+    def _maintenance():
+        from mico360.core.maintenance import purge_tmp
+        d = TMP / "_purge_test"; d.mkdir(exist_ok=True)
+        old = d / "recording_1.wav"; old.write_bytes(b"x" * 100)
+        new = d / "recording_2.wav"; new.write_bytes(b"y" * 50)
+        keep = d / "meeting_notes.txt"; keep.write_bytes(b"z")     # not a temp pattern
+        import os as _os
+        _os.utime(old, (time.time() - 10 * 86400,) * 2)            # 10 days old
+        removed, freed = purge_tmp(older_than_days=7, tmp_dir=d)
+        assert removed == 1 and freed == 100
+        assert not old.exists() and new.exists() and keep.exists()
+        assert purge_tmp(older_than_days=0, tmp_dir=d) == (0, 0)   # disabled
+        for f in d.glob("*"): f.unlink()
+        d.rmdir()
+        return "age-based temp purge: removes old recordings, spares recent + non-temp"
+    t("core.maintenance", _maintenance)
 
     def _prompt_library():
         pp = win.prompts_page

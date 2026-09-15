@@ -45,6 +45,8 @@ def main() -> int:
         from . import crash_reporter
         ctx = AppContext()
         crash_reporter.install(ctx.settings)        # opt-in crash reporting
+        from .core.maintenance import purge_tmp      # free stale recorder temp files
+        purge_tmp(float(ctx.settings.get("tmp_retention_days", 7) or 0))
         from .ui.main_window import MainWindow
         win = MainWindow(ctx)
         win.show()
