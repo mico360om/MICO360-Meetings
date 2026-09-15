@@ -1,5 +1,5 @@
 """MICO360 Meetings — offline AI meeting-minutes desktop app."""
 
 __app_name__ = "MICO360 Meetings"
-__version__ = "1.2.2"
+__version__ = "1.2.3"
 __author__ = "MICO360"
