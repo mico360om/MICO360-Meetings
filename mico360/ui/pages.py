@@ -377,6 +377,27 @@ class NewMeetingPage(QWidget):
         upl.addLayout(list_bar)
         self.source_tabs.addTab(up, "Upload files")
 
+        # Paste text tab — use existing notes / a transcript / chat log as the source
+        pt = QWidget(); ptl = QVBoxLayout(pt)
+        ptl.setContentsMargins(0, 0, 0, 0); ptl.setSpacing(8)
+        ptl.addWidget(hint("Already have the words? Paste meeting notes, an existing transcript, "
+                           "or a chat log here and the AI will turn it straight into minutes — "
+                           "no upload or recording needed."))
+        self.paste_box = QPlainTextEdit()
+        self.paste_box.setPlaceholderText("Paste your meeting notes, transcript or chat log here…")
+        self.paste_box.setMinimumHeight(220)
+        tip(self.paste_box, "Any meeting text works — notes, an exported transcript, or a chat log")
+        ptl.addWidget(self.paste_box, 1)
+        paste_bar = QHBoxLayout()
+        pc = QPushButton("Clear"); pc.clicked.connect(self.paste_box.clear)
+        tip(pc, "Empty this box")
+        self.use_text_btn = QPushButton("✔  Use this text  →"); self.use_text_btn.setObjectName("Primary")
+        self.use_text_btn.clicked.connect(self._use_pasted_text)
+        tip(self.use_text_btn, "Load this text as the transcript and continue to review it")
+        paste_bar.addWidget(pc); paste_bar.addStretch(); paste_bar.addWidget(self.use_text_btn)
+        ptl.addLayout(paste_bar)
+        self.source_tabs.addTab(pt, "Paste text")
+
         # Record tab — full audio/screen/camera recorder with live details
         rec = QWidget(); rl = QVBoxLayout(rec)
         rl.setContentsMargins(0, 0, 0, 0)
@@ -384,10 +405,27 @@ class NewMeetingPage(QWidget):
         self.recorder_panel.recordingReady.connect(self._on_recording_ready)
         self.recorder_panel.liveTranscriptReady.connect(self._on_live_transcript)
         rl.addWidget(self.recorder_panel)
+        self._record_tab = rec                        # referenced by widget, not index
         self.source_tabs.addTab(rec, "Record")
 
         lay.addWidget(self.source_tabs)
         return card
+
+    def select_record_tab(self):
+        """Bring the Record tab to the front (used by auto-record)."""
+        self.source_tabs.setCurrentWidget(self._record_tab)
+
+    def _use_pasted_text(self):
+        """Load the pasted content as the transcript and move to the review step."""
+        text = self.paste_box.toPlainText().strip()
+        if not text:
+            self.toast.show_message("Paste some text first.", "warn")
+            return
+        self.transcript.setPlainText(text)
+        self.paste_box.clear()
+        self._reached = max(self._reached, self.STEP_TRANSCRIPT)
+        self._goto_step(self.STEP_TRANSCRIPT)
+        self.toast.show_message("Text loaded — review it, then continue.", "success", 5000)
 
     # -- queue management ---------------------------------------------------
     def _set_transcribe_enabled(self, on: bool):
@@ -1082,6 +1120,8 @@ class NewMeetingPage(QWidget):
         self.transcript.clear()
         self.minutes.clear()
         self.meeting_title.clear()
+        if hasattr(self, "paste_box"):
+            self.paste_box.clear()
         self._clear_files()
         self.meet_title.clear(); self.meet_date.clear(); self.meet_attendees.clear()
         self._reached = 0

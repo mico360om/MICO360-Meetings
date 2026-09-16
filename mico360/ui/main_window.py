@@ -134,7 +134,7 @@ class MainWindow(QMainWindow):
         if panel.is_recording():
             return True
         self._goto(self.new_page)
-        self.new_page.source_tabs.setCurrentIndex(1)           # Record tab
+        self.new_page.select_record_tab()                      # Record tab (by widget, not index)
         from ..core import recording as R
         source = "both" if R.system_audio_supported() else "mic"
         self.new_page._auto_generate_pending = True

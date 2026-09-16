@@ -430,7 +430,19 @@ def main():
         assert np_.stepper._badges[np_.STEP_MINUTES].property("state") == "todo"
         np_._back(); assert np_.wizard.currentIndex() == np_.STEP_SETUP
         np_.transcript.clear(); np_._reached = 0; np_._goto_step(0)
-        return "5 steps + validation + next/back + review"
+        # Paste-text source: three source tabs; pasted content becomes the transcript
+        assert np_.source_tabs.count() == 3
+        np_.paste_box.setPlainText("Pasted meeting notes: agreed to ship Friday.")
+        np_._use_pasted_text()
+        assert np_.wizard.currentIndex() == np_.STEP_TRANSCRIPT
+        assert "ship Friday" in np_.transcript.toPlainText() and not np_.paste_box.toPlainText()
+        # select_record_tab targets the Record tab by widget regardless of tab order
+        np_.select_record_tab()
+        assert np_.source_tabs.currentWidget() is np_._record_tab
+        np_._new_meeting()                          # clears paste box + transcript
+        assert not np_.paste_box.toPlainText() and not np_.transcript.toPlainText()
+        np_._reached = 0; np_._goto_step(0)
+        return "5 steps + validation + next/back + review + paste-text source"
     t("ui.wizard", _wizard)
 
     def _preview_default():
