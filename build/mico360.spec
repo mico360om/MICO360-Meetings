@@ -27,7 +27,8 @@ for pkg in ("faster_whisper", "ctranslate2", "av", "tokenizers",
     except Exception:
         pass
 
-hiddenimports += collect_submodules("reportlab") + ["docx", "openpyxl", "PIL"]
+hiddenimports += collect_submodules("reportlab") + [
+    "docx", "openpyxl", "PIL", "arabic_reshaper", "bidi", "bidi.algorithm"]
 
 # Build-time injected MICO360 Connect API key (gitignored). It is imported
 # conditionally at runtime, so name it explicitly when present or PyInstaller's

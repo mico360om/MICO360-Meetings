@@ -322,6 +322,35 @@ def main():
         return f"5 formats {sizes}"
     t("export.service (+txt/docx/pdf/html)", _exports)
 
+    def _exports_arabic():
+        import zipfile
+        from mico360.export import service, rtl
+        assert rtl.has_arabic("محضر") and not rtl.has_arabic("minutes")
+        assert rtl.shape("محضر") != "محضر"          # reshaped + reordered
+        md = ("# محضر الاجتماع\n**التاريخ:** ٢٢ سبتمبر\n## القرارات\n"
+              "- الموافقة على الميزانية\n\n| المهمة | المسؤول |\n| - | - |\n| تقرير | أحمد |")
+        paths = {ext: service.export(md, str(TMP / f"_qa_ar{ext}"))
+                 for ext in (".txt", ".md", ".html", ".docx", ".pdf")}
+        # text formats keep Arabic verbatim
+        for ext in (".txt", ".md", ".html"):
+            assert "القرارات" in Path(paths[ext]).read_text(encoding="utf-8")
+        assert "dir='auto'" in Path(paths[".html"]).read_text(encoding="utf-8")
+        # DOCX is marked right-to-left so Word renders it natively
+        dx = zipfile.ZipFile(paths[".docx"]).read("word/document.xml").decode("utf-8")
+        assert "w:bidi" in dx and "w:rtl" in dx and "القرارات" in dx
+        # PDF must actually carry Arabic glyphs (the pre-1.2.3 bug dropped them)
+        try:
+            from pypdf import PdfReader
+            txt = "".join((pg.extract_text() or "") for pg in PdfReader(paths[".pdf"]).pages)
+            assert any(0x0600 <= ord(c) <= 0x06FF or 0xFB50 <= ord(c) <= 0xFEFF for c in txt), \
+                "no Arabic glyphs in PDF"
+        except ImportError:
+            pass
+        for p in paths.values():
+            Path(p).unlink(missing_ok=True)
+        return "Arabic exports OK (RTL docx/html, shaped pdf)"
+    t("export.arabic (RTL + shaping)", _exports_arabic)
+
     # =====================================================================
     group("UI — shell & pages")
     from mico360.ui.main_window import MainWindow

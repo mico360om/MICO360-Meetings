@@ -18,7 +18,7 @@ from reportlab.platypus import (
 from reportlab.pdfgen import canvas as _canvas
 
 from ..core.profiles import CompanyProfile
-from . import md_blocks
+from . import md_blocks, rtl
 
 _ALIGN = {"left": TA_LEFT, "center": TA_CENTER, "right": TA_RIGHT}
 
@@ -43,13 +43,52 @@ def _styles(accent: str):
     return styles, accent_color
 
 
+def _esc(s: str) -> str:
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _inline(text: str) -> str:
-    """Convert **bold** runs to reportlab <b> markup, escaping the rest."""
+    """Convert **bold** runs to reportlab markup, escaping the rest.
+
+    Arabic runs are reshaped + bidi-reordered (reportlab does not shape) and
+    drawn with a registered Arabic font, since the Helvetica default has no
+    Arabic glyphs.
+    """
+    reg, bold_font = rtl.pdf_arabic_font()
     out = []
     for txt, bold in md_blocks.runs(text):
-        safe = (txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-        out.append(f"<b>{safe}</b>" if bold else safe)
+        if reg and rtl.has_arabic(txt):
+            safe = _esc(rtl.shape(txt))
+            out.append(f'<font name="{bold_font if bold else reg}">{safe}</font>')
+        else:
+            safe = _esc(txt)
+            out.append(f"<b>{safe}</b>" if bold else safe)
     return "".join(out)
+
+
+def _rtl_style(style, text: str):
+    """Right-align a paragraph style when its text is Arabic (else unchanged)."""
+    if rtl.has_arabic(text):
+        return ParagraphStyle(style.name + "_rtl", parent=style, alignment=TA_RIGHT)
+    return style
+
+
+def _draw(canvas, text: str, x: float, y: float, *, font: str, size: float,
+          align: str = "left") -> None:
+    """Draw a canvas string, switching to the Arabic font + shaping when needed."""
+    s = text
+    if text and rtl.has_arabic(text):
+        reg, bold_font = rtl.pdf_arabic_font()
+        if reg:
+            font = bold_font if font.endswith("Bold") else reg
+        s = rtl.shape(text)
+    canvas.setFont(font, size)
+    if align == "right":
+        canvas.drawRightString(x, y, s)
+    elif align == "center":
+        canvas.drawCentredString(x, y, s)
+    else:
+        canvas.drawString(x, y, s)
 
 
 def export_pdf(minutes_md: str, path: str | Path,
@@ -65,16 +104,19 @@ def export_pdf(minutes_md: str, path: str | Path,
     flow = []
     for blk in md_blocks.parse(minutes_md):
         if blk.kind == "h1":
-            flow.append(Paragraph(_inline(blk.text), styles["title"]))
+            flow.append(Paragraph(_inline(blk.text), _rtl_style(styles["title"], blk.text)))
         elif blk.kind == "h2":
-            flow.append(Paragraph(_inline(blk.text), styles["h2"]))
+            flow.append(Paragraph(_inline(blk.text), _rtl_style(styles["h2"], blk.text)))
         elif blk.kind == "kv":
-            flow.append(Paragraph(f"<b>{blk.key}:</b> {_inline(blk.text)}", styles["kv"]))
+            kv = f"{blk.key}: {blk.text}"
+            flow.append(Paragraph(f'{_inline("**" + blk.key + ":**")} {_inline(blk.text)}',
+                                  _rtl_style(styles["kv"], kv)))
         elif blk.kind == "bullet":
             for it in blk.items:
-                flow.append(Paragraph(_inline(it), styles["bullet"], bulletText="•"))
+                flow.append(Paragraph(_inline(it), _rtl_style(styles["bullet"], it),
+                                      bulletText="•"))
         elif blk.kind == "para":
-            flow.append(Paragraph(_inline(blk.text), styles["body"]))
+            flow.append(Paragraph(_inline(blk.text), _rtl_style(styles["body"], blk.text)))
         elif blk.kind == "table":
             data = [[Paragraph(_inline(h), styles["cellh"]) for h in blk.headers]]
             for row in blk.rows:
@@ -142,23 +184,17 @@ def _draw_letterhead(canvas, doc, profile, accent_color):
 
     # company name + contact line (top-right when logo is left, else left)
     canvas.saveState()
-    canvas.setFillColor(accent_color)
-    canvas.setFont("Helvetica-Bold", 12)
     text_right = profile.logo_position != "right"
     tx = page_w - 18 * mm if text_right else 18 * mm
-    if text_right:
-        canvas.drawRightString(tx, page_h - 16 * mm, profile.name)
-    else:
-        canvas.drawString(tx, page_h - 16 * mm, profile.name)
+    align = "right" if text_right else "left"
+    canvas.setFillColor(accent_color)
+    _draw(canvas, profile.name, tx, page_h - 16 * mm,
+          font="Helvetica-Bold", size=12, align=align)
     canvas.setFillColor(colors.HexColor("#666666"))
-    canvas.setFont("Helvetica", 7.5)
     bits = [b for b in (profile.address, profile.phone, profile.email, profile.website) if b]
     line = "   ".join(bits)
     if line:
-        if text_right:
-            canvas.drawRightString(tx, page_h - 20 * mm, line)
-        else:
-            canvas.drawString(tx, page_h - 20 * mm, line)
+        _draw(canvas, line, tx, page_h - 20 * mm, font="Helvetica", size=7.5, align=align)
     # divider rule
     canvas.setStrokeColor(accent_color)
     canvas.setLineWidth(0.8)
@@ -193,24 +229,17 @@ class _NumberedCanvas(_canvas.Canvas):
     def _draw_footer(self, total):
         profile = self._profile
         page_w, page_h = A4
-        self.setFont("Helvetica", 8)
         self.setFillColor(colors.HexColor("#888888"))
         if profile and profile.footer_text:
-            align = profile.footer_alignment
-            if align == "left":
-                self.drawString(18 * mm, 12 * mm, profile.footer_text)
-            elif align == "right":
-                self.drawRightString(page_w - 18 * mm, 12 * mm, profile.footer_text)
-            else:
-                self.drawCentredString(page_w / 2, 12 * mm, profile.footer_text)
+            fa = profile.footer_alignment
+            align = "left" if fa == "left" else "right" if fa == "right" else "center"
+            fx = 18 * mm if fa == "left" else (page_w - 18 * mm if fa == "right" else page_w / 2)
+            _draw(self, profile.footer_text, fx, 12 * mm, font="Helvetica", size=8, align=align)
         if not profile or profile.show_page_numbers:
             fmt = (profile.page_number_format if profile else "Page {n} of {total}")
             label = fmt.replace("{n}", str(self._pageNumber)).replace("{total}", str(total))
             pos = profile.page_number_position if profile else "footer-right"
             y = 8 * mm if "footer" in pos else page_h - 8 * mm
-            if pos.endswith("left"):
-                self.drawString(18 * mm, y, label)
-            elif pos.endswith("center"):
-                self.drawCentredString(page_w / 2, y, label)
-            else:
-                self.drawRightString(page_w - 18 * mm, y, label)
+            align = "left" if pos.endswith("left") else "center" if pos.endswith("center") else "right"
+            lx = 18 * mm if pos.endswith("left") else (page_w / 2 if pos.endswith("center") else page_w - 18 * mm)
+            _draw(self, label, lx, y, font="Helvetica", size=8, align=align)

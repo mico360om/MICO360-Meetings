@@ -26,5 +26,7 @@ soundcard>=0.4.3    # true WASAPI loopback (system-audio capture, no Stereo Mix 
 # --- Export & profiles ---
 python-docx>=1.1    # .docx export
 reportlab>=4.0      # .pdf export
+arabic-reshaper>=3.0  # shape Arabic for PDF (reportlab does not shape)
+python-bidi>=0.4    # right-to-left reordering for Arabic PDF text
 openpyxl>=3.1       # .xlsx import/export of company profiles
 Pillow>=10.0        # logo handling / resizing

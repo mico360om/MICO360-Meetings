@@ -12,12 +12,27 @@ from docx.shared import Mm, Pt, RGBColor
 
 from ..core.profiles import CompanyProfile
 from . import md_blocks
+from .rtl import has_arabic
 
 _ALIGN = {
     "left": WD_ALIGN_PARAGRAPH.LEFT,
     "center": WD_ALIGN_PARAGRAPH.CENTER,
     "right": WD_ALIGN_PARAGRAPH.RIGHT,
 }
+
+
+def _rtl_paragraph(p, text: str) -> None:
+    """If the text is Arabic, mark the paragraph RTL (bidi + right-aligned) and
+    flag every run rtl so Word shapes and orders it as native Arabic."""
+    if not has_arabic(text):
+        return
+    pPr = p._p.get_or_add_pPr()
+    pPr.append(OxmlElement("w:bidi"))
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    for run in p.runs:
+        rPr = run._r.get_or_add_rPr()
+        rtl = OxmlElement("w:rtl"); rtl.set(qn("w:val"), "1")
+        rPr.append(rtl)
 
 
 def _hex_rgb(color: str) -> RGBColor:
@@ -110,17 +125,20 @@ def export_docx(minutes_md: str, path: str | Path,
             h = doc.add_heading(level=0)
             run = h.add_run(blk.text)
             run.font.color.rgb = _hex_rgb(profile.accent_color if profile else "#8B1E1E")
+            _rtl_paragraph(h, blk.text)
         elif blk.kind == "h2":
-            doc.add_heading(blk.text, level=1)
+            _rtl_paragraph(doc.add_heading(blk.text, level=1), blk.text)
         elif blk.kind == "kv":
             p = doc.add_paragraph()
             p.add_run(f"{blk.key}: ").bold = True
             p.add_run(blk.text)
+            _rtl_paragraph(p, f"{blk.key} {blk.text}")
         elif blk.kind == "bullet":
             for it in blk.items:
                 p = doc.add_paragraph(style="List Bullet")
                 for txt, bold in md_blocks.runs(it):
                     p.add_run(txt).bold = bold
+                _rtl_paragraph(p, it)
         elif blk.kind == "table":
             cols = len(blk.headers)
             table = doc.add_table(rows=1, cols=cols)
@@ -128,14 +146,18 @@ def export_docx(minutes_md: str, path: str | Path,
             for j, htext in enumerate(blk.headers):
                 cell = table.rows[0].cells[j]
                 cell.paragraphs[0].add_run(htext).bold = True
+                _rtl_paragraph(cell.paragraphs[0], htext)
             for row in blk.rows:
                 cells = table.add_row().cells
                 for j in range(cols):
-                    cells[j].text = row[j] if j < len(row) else ""
+                    val = row[j] if j < len(row) else ""
+                    cells[j].text = val
+                    _rtl_paragraph(cells[j].paragraphs[0], val)
         elif blk.kind == "para":
             p = doc.add_paragraph()
             for txt, bold in md_blocks.runs(blk.text):
                 p.add_run(txt).bold = bold
+            _rtl_paragraph(p, blk.text)
 
     doc.save(str(path))
     return path
