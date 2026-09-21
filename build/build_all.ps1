@@ -25,7 +25,7 @@ if ($env:MICO360_CONNECT_API_KEY) {
     "KEY = '$($env:MICO360_CONNECT_API_KEY)'" | Out-File -Encoding ascii $keyFile
     Write-Host "==> Injected MICO360 Connect API key into the build." -ForegroundColor Green
 } else {
-    Write-Warning "MICO360_CONNECT_API_KEY not set — MICO360 Cloud mode will be inactive in this build (Local/Ollama still works)."
+    Write-Warning "MICO360_CONNECT_API_KEY not set - MICO360 Cloud mode will be inactive in this build (Local/Ollama still works)."
 }
 
 Write-Host "==> Building app with PyInstaller..." -ForegroundColor Cyan
