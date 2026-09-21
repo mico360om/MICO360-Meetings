@@ -18,6 +18,10 @@ MICO360 Cloud available as an optional mode.
   follow-ups, and calendar (`.ics`) export for action items.
 - **Paste text as a source.** Start a new meeting from pasted notes or a
   transcript — a first-class option alongside audio and file uploads.
+- **Arabic (and RTL) export.** Arabic minutes now export correctly to every
+  format: the PDF shapes and right-to-left–orders Arabic (previously it was
+  dropped entirely), and DOCX/HTML are marked RTL so they render natively.
+  Transcription already accepted Arabic (set Language to `ar`, or `auto`).
 
 ## Experience overhaul
 
