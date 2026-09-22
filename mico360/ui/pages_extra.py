@@ -30,6 +30,8 @@ from .workers import UpdateCheckWorker, UpdateDownloadWorker
 log = logging.getLogger("mico360.pages_extra")
 
 SUPPORT_EMAIL = "info@mico360.com"
+# Effective date shown on the Terms & Privacy tabs — bump when their text changes.
+LEGAL_UPDATED = "22 September 2026"
 
 
 _STATUS_COLORS = {
@@ -903,15 +905,33 @@ class HelpPage(QWidget):
           <ol>
             <li><b>New Meeting → Step 1:</b> drop an audio/video file, record audio
                 or your screen, or paste a transcript.</li>
-            <li><b>Step 2:</b> review and edit the transcript.</li>
+            <li><b>Step 2:</b> review and edit the transcript. Speakers are labelled
+                automatically and you can rename them.</li>
             <li><b>Step 3:</b> choose the Ollama <b>model</b> and the output
                 <b>style</b>, optionally tweak the prompt, then <b>Generate</b>.</li>
-            <li><b>Step 4:</b> edit, copy, save to history, or export to Word/PDF/TXT.</li>
+            <li><b>Step 4:</b> edit, copy, save to history, or export to
+                Word, PDF, Markdown, HTML or plain text.</li>
           </ol>
           <h3>Recording</h3>
-          <p>The Record tab supports microphone audio, screen+audio, and camera+audio.
-             Live details show status, timer, format, microphone, file size and save
-             location, with a red blinking indicator and an audio visualizer.</p>
+          <p>The Record tab supports microphone audio, screen+audio, and camera+audio,
+             with live status, timer, format, file size and save location, a red
+             blinking indicator and an audio visualizer. You can also see the
+             transcript appear <b>live while you record</b> (beta), and let the app
+             <b>auto-record detected meetings</b> in Teams, Google Meet, Zoom or
+             Webex (enable it in Settings).</p>
+          <h3>After the meeting</h3>
+          <ul>
+            <li><b>Action Items</b> aggregates tasks across meetings with statuses,
+                owners, due dates, overdue reminders and calendar (<code>.ics</code>)
+                export.</li>
+            <li><b>Insights</b> shows trends and recurring topics across all your
+                meetings.</li>
+          </ul>
+          <h3>Languages</h3>
+          <p>Meetings in other languages, including <b>Arabic</b>, work throughout.
+             Set <b>Language</b> in Settings to <code>auto</code> (detect) or a code
+             such as <code>ar</code>/<code>en</code>/<code>ur</code>. Arabic minutes
+             display and export right-to-left in PDF, Word and HTML.</p>
           <h3>Tips</h3>
           <ul>
             <li>Pick a smaller Whisper model (tiny/base) for speed on low-end PCs.</li>
@@ -926,28 +946,37 @@ class HelpPage(QWidget):
     def _terms_html(self) -> str:
         return self._wrap(f"""
           <h2>Terms &amp; Conditions</h2>
+          <p style='color:#888'>Effective {LEGAL_UPDATED} • v{__version__}</p>
           <p>By using {__app_name__} you agree to the following terms.</p>
           <h3>1. Licence</h3>
           <p>{__app_name__} is provided for your business and personal use. The
              software and its branding remain the property of MICO360.</p>
           <h3>2. Acceptable use</h3>
           <p>You are responsible for ensuring you have the right to record and process
-             any meeting, and for complying with applicable recording-consent laws in
-             your jurisdiction.</p>
-          <h3>3. No warranty</h3>
+             any meeting, and for complying with applicable recording-consent and
+             privacy laws in your jurisdiction.</p>
+          <h3>3. Your content</h3>
+          <p>You own your recordings, transcripts and minutes. MICO360 claims no
+             ownership of them and, in Local mode, never receives them (see the
+             Privacy Policy).</p>
+          <h3>4. No warranty</h3>
           <p>The software is provided “as is”, without warranty of any kind. AI-generated
              minutes may contain errors and should be reviewed before use.</p>
-          <h3>4. Limitation of liability</h3>
+          <h3>5. Limitation of liability</h3>
           <p>MICO360 is not liable for any loss arising from use of the software,
              including inaccurate transcriptions or minutes.</p>
-          <h3>5. Third-party components</h3>
+          <h3>6. Third-party components</h3>
           <p>The app uses open-source components (Whisper, Ollama, PySide6 and others)
              under their respective licences.</p>
+          <h3>7. Changes</h3>
+          <p>These terms may be updated in future releases; the effective date above
+             reflects the current version.</p>
           <p>Questions: <a href='mailto:{SUPPORT_EMAIL}'>{SUPPORT_EMAIL}</a></p>""")
 
     def _privacy_html(self) -> str:
         return self._wrap(f"""
           <h2>Privacy Policy</h2>
+          <p style='color:#888'>Effective {LEGAL_UPDATED} • v{__version__}</p>
           <p><b>Your data stays on your device.</b></p>
           <h3>What we collect</h3>
           <p><b>Nothing, in Local mode.</b> With the AI mode set to <b>Local (Ollama)</b>
@@ -955,6 +984,10 @@ class HelpPage(QWidget):
              or minutes to any server: transcription (Whisper) and minutes generation
              (Ollama) both run on your computer. See “AI mode” below for the one
              exception you can opt into.</p>
+          <h3>No analytics or tracking</h3>
+          <p>{__app_name__} contains no analytics, telemetry, ads or usage tracking.
+             We do not profile you, and nothing about how you use the app is sent
+             anywhere. There are no user accounts.</p>
           <h3>Local storage</h3>
           <p>Recordings, transcripts, minutes, company profiles and history are stored
              only in your local app-data folder. You can delete them at any time.</p>
@@ -975,5 +1008,9 @@ class HelpPage(QWidget):
              returned to you — choose Local if you need minutes generation to stay
              on-device. <b>Transcription (Whisper) is always local in both modes</b>,
              so your audio and video never leave your computer regardless of AI mode.</p>
+          <h3>Language</h3>
+          <p>Your meeting language, including Arabic and other right-to-left
+             languages, does not change any of the above: the same local-by-default
+             handling applies whichever language you choose.</p>
           <h3>Contact</h3>
           <p>Privacy questions: <a href='mailto:{SUPPORT_EMAIL}'>{SUPPORT_EMAIL}</a></p>""")
