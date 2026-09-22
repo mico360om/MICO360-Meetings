@@ -11,6 +11,12 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write          # needed to create the GitHub Release
+    # Job-level env so the optional steps' `if:` can see these — a step's own
+    # `env:` block is NOT available to that step's `if` condition.
+    env:
+      MICO360_CONNECT_API_KEY: ${{ secrets.MICO360_CONNECT_API_KEY }}
+      CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+      CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +35,6 @@ jobs:
       # if the secret is absent — Local/Ollama mode is unaffected.
       - name: Inject MICO360 Connect key (optional)
         if: ${{ env.MICO360_CONNECT_API_KEY != '' }}
-        env:
-          MICO360_CONNECT_API_KEY: ${{ secrets.MICO360_CONNECT_API_KEY }}
         run: |
           "KEY = '$env:MICO360_CONNECT_API_KEY'" | Out-File -Encoding ascii mico360\_build_key.py
           Write-Host "Injected MICO360 Connect key into the build."
@@ -47,9 +51,6 @@ jobs:
       # Optional code signing — runs only if CERT_PFX_BASE64 secret is configured.
       - name: Sign installer (optional)
         if: ${{ env.CERT_PFX_BASE64 != '' }}
-        env:
-          CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
-          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
         run: |
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:CERT_PFX_BASE64))
           $st = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe"
