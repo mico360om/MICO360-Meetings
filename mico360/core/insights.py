@@ -27,7 +27,37 @@ _STOPWORDS = {
     "discussed", "point", "points", "note", "notes", "summary", "agenda", "attendees",
     "decision", "decisions", "date", "time", "status", "pending", "specified", "team",
     "person", "responsible", "deadline", "review", "reviewed", "update", "updates",
+    # common Arabic function words + minutes boilerplate (after diacritics are
+    # stripped); these would otherwise top every Arabic "theme" list
+    "على", "إلى", "الى", "عن", "مع", "هذا", "هذه", "ذلك", "تلك", "التي", "الذي",
+    "الذين", "كان", "كانت", "يكون", "تكون", "قد", "لقد", "تم", "سيتم", "يتم", "ان",
+    "أن", "إن", "بعد", "قبل", "حول", "خلال", "بين", "عند", "كما", "ذلك", "وقد", "اي",
+    "أي", "كل", "بعض", "غير", "حتى", "لكن", "ولكن", "او", "أو", "ثم", "هو", "هي",
+    "نحن", "هم", "فيه", "فيها", "منه", "منها", "عليه", "عليها", "لدى", "لها", "له",
+    "الاجتماع", "اجتماع", "محضر", "المحضر", "البند", "البنود", "بنود", "المهام",
+    "المهمة", "مهام", "المسؤول", "الموعد", "التاريخ", "الحالة", "قيد", "التنفيذ",
+    "القرارات", "قرارات", "الحضور", "ملخص", "الملخص", "النقاط", "نقاط", "مناقشة",
+    "المناقشة", "الوقت", "محدد", "غير", "النهائي", "المراجعة", "تحديث",
 }
+
+# Arabic diacritics (harakat), superscript alef and tatweel: they are not word
+# characters, so left in they would split one word into fragments.
+_AR_MARKS_RE = re.compile(r"[ؐ-ًؚ-ٰٟۖ-ۭـ]")
+# A "word" is a run of letters in ANY script (not digits/underscore).
+_WORD_RE = re.compile(r"[^\W\d_]+")
+
+
+def _theme_words(text: str) -> list[str]:
+    """Candidate theme words from minutes text, in any script. Latin words need
+    4+ letters; other scripts (Arabic words are short) need 3+."""
+    text = _AR_MARKS_RE.sub("", (text or "").casefold())
+    out = []
+    for w in _WORD_RE.findall(text):
+        if w in _STOPWORDS:
+            continue
+        if len(w) >= (4 if w.isascii() else 3):
+            out.append(w)
+    return out
 
 
 @dataclass
@@ -62,7 +92,7 @@ def compute_insights(history, action_store, *, weeks: int = 8,
                      top_owners: int = 8, top_keywords: int = 12,
                      today: date | None = None) -> Insights:
     today = today or date.today()
-    meetings = list(history.list())
+    meetings = T.all_meetings(history)            # no silent 500-meeting cap
     items = list(action_store.all_items())
 
     # -- action-item status breakdown (Overdue is derived) -----------------
@@ -88,7 +118,8 @@ def compute_insights(history, action_store, *, weeks: int = 8,
     # -- meeting cadence: continuous last N weeks --------------------------
     cad: Counter = Counter()
     for m in meetings:
-        d = _ts_to_date(getattr(m, "updated_at", 0) or getattr(m, "created_at", 0))
+        # when the meeting was HELD — editing an old meeting mustn't move it
+        d = _ts_to_date(getattr(m, "created_at", 0) or getattr(m, "updated_at", 0))
         if d:
             cad[_week_start(d)] += 1
     end = _week_start(today)
@@ -97,9 +128,9 @@ def compute_insights(history, action_store, *, weeks: int = 8,
                for i in range(weeks - 1, -1, -1)]
 
     # -- recurring themes / keywords across minutes ------------------------
-    blob = " ".join((getattr(m, "minutes", "") or "") for m in meetings).lower()
-    blob = re.sub(r"[^a-z\s]", " ", blob)
-    words = [w for w in blob.split() if len(w) >= 4 and w not in _STOPWORDS]
+    words: list[str] = []
+    for m in meetings:
+        words += _theme_words(getattr(m, "minutes", "") or "")
     keywords = Counter(words).most_common(top_keywords)
 
     return Insights(

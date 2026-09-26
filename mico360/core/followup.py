@@ -41,7 +41,7 @@ def build_followup(owner: str, items, today: date | None = None) -> tuple[str, s
     subject = f"Follow-up: your {n} open action item{'s' if n != 1 else ''}"
 
     def sort_key(it):
-        d = T.parse_deadline(it.deadline)
+        d = T.deadline_date(it)            # year-less dates resolved vs the meeting date
         return (0 if T.is_overdue(it, today) else 1, d or date.max)
 
     lines = [f"Hi {owner},", "",

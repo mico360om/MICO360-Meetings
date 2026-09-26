@@ -59,6 +59,61 @@ def ensure_dirs() -> None:
         d.mkdir(parents=True, exist_ok=True)
 
 
+def atomic_write_text(path: Path, text: str, encoding: str = "utf-8") -> None:
+    """Write `text` to `path` atomically: write a sibling temp file, fsync it,
+    then os.replace() it over the target. A crash or power loss mid-write leaves
+    either the old file or the new one — never a truncated, half-written file
+    that the next load would treat as corrupt (and the next save would then
+    overwrite with defaults)."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding=encoding, newline="") as fh:
+            fh.write(text)
+            fh.flush()
+            try:
+                os.fsync(fh.fileno())
+            except OSError:
+                pass
+        # Windows: the target can be briefly locked (AV scanner, Dropbox sync).
+        for attempt in range(5):
+            try:
+                os.replace(tmp, path)
+                return
+            except PermissionError:
+                if attempt == 4:
+                    raise
+                import time as _t
+                _t.sleep(0.05 * (attempt + 1))
+    finally:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except OSError:
+            pass
+
+
+def quarantine_bad_file(path: Path) -> Path | None:
+    """Move a file that failed to load aside (`<name>.bad`, or `<name>.bad-<ts>`
+    if that exists) so the next save can't silently overwrite the only copy of
+    the user's data. Returns the new path, or None if nothing was moved."""
+    path = Path(path)
+    try:
+        if not path.exists():
+            return None
+        dest = path.with_name(path.name + ".bad")
+        if dest.exists():
+            import time as _t
+            dest = path.with_name(f"{path.name}.bad-{_t.strftime('%Y%m%d-%H%M%S')}")
+        os.replace(path, dest)
+        logging.getLogger("mico360").warning("unreadable %s kept as %s", path.name, dest.name)
+        return dest
+    except Exception:
+        logging.getLogger("mico360").warning("could not quarantine %s", path, exc_info=True)
+        return None
+
+
 def apply_quality_preset(settings, name: str) -> None:
     """Apply a Speed/Quality preset's Whisper settings to the store."""
     preset = QUALITY_PRESETS.get(name)
@@ -189,10 +244,15 @@ class Settings:
         try:
             if self._path.exists():
                 loaded = json.loads(self._path.read_text(encoding="utf-8"))
+                if not isinstance(loaded, dict):
+                    raise ValueError("settings file is not a JSON object")
                 # keep defaults for any newly-added keys
                 self._data.update({k: v for k, v in loaded.items()})
         except Exception:  # corrupt settings should never crash startup
             logging.getLogger(__name__).warning("settings load failed; using defaults", exc_info=True)
+            # keep the unreadable file (SMTP credentials etc.) instead of letting
+            # the next save overwrite it with defaults
+            quarantine_bad_file(self._path)
         self._migrate()
 
     def _migrate(self) -> None:
@@ -208,7 +268,7 @@ class Settings:
 
     def save(self) -> None:
         try:
-            self._path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+            atomic_write_text(self._path, json.dumps(self._data, indent=2))
         except Exception:
             logging.getLogger(__name__).warning("settings save failed", exc_info=True)
 

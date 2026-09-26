@@ -10,11 +10,12 @@ import csv
 import hashlib
 import json
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from ..config import DATA_DIR
+from ..config import DATA_DIR, atomic_write_text, quarantine_bad_file
 from ..export import md_blocks
 
 log = logging.getLogger("mico360.tasks")
@@ -41,7 +42,14 @@ _STATUS_SYNONYMS = {
 # Deadline strings in minutes vary wildly; try the common explicit-date shapes.
 _DATE_FORMATS = ["%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y",
                  "%d.%m.%Y", "%b %d, %Y", "%B %d, %Y", "%d %b %Y", "%d %B %Y",
-                 "%b %d %Y", "%d %b", "%d %B"]
+                 "%b %d %Y", "%B %d %Y", "%d %b, %Y", "%d %B, %Y"]
+# Year-less shapes ("10 Jan", "Oct 5"). They are parsed against a leap year so
+# "29 Feb" is valid, then the real year is chosen relative to a reference date.
+_YEARLESS_FORMATS = ["%d %b", "%d %B", "%b %d", "%B %d"]
+_ORDINAL_RE = re.compile(r"\b(\d{1,2})(st|nd|rd|th)\b", re.IGNORECASE)
+# A year-less date more than this far before the reference is taken to mean the
+# NEXT year ("10 Jan" written in a meeting on 20 Dec is next January).
+_YEARLESS_PAST_GRACE = timedelta(days=90)
 
 
 def normalize_status(status: str) -> str:
@@ -51,8 +59,31 @@ def normalize_status(status: str) -> str:
     return _STATUS_SYNONYMS.get(s.lower(), s or "Pending")
 
 
-def parse_deadline(text: str) -> date | None:
-    """Best-effort parse of a free-text deadline into a date, or None."""
+def _resolve_year(month: int, day: int, ref: date) -> date | None:
+    """Pick the year for a year-less month/day: the reference year, or the next
+    one when that would put the date well before the reference. 29 Feb moves to
+    the next leap year."""
+    year = ref.year
+    try:
+        cand = date(year, month, day)
+    except ValueError:
+        cand = None
+    if cand is None or cand < ref - _YEARLESS_PAST_GRACE:
+        year += 1
+        cand = None
+    for y in range(year, year + 8):
+        try:
+            return date(y, month, day)
+        except ValueError:
+            continue
+    return None
+
+
+def parse_deadline(text: str, ref: date | None = None) -> date | None:
+    """Best-effort parse of a free-text deadline into a date, or None.
+
+    `ref` is the date the deadline was written (the meeting date) and is used
+    only for year-less deadlines; it defaults to today."""
     s = (text or "").strip()
     if not s or s.lower() in _PLACEHOLDER:
         return None
@@ -60,22 +91,43 @@ def parse_deadline(text: str) -> date | None:
         return date.fromisoformat(s[:10])
     except Exception:
         pass
+    s = _ORDINAL_RE.sub(r"\1", s).strip().rstrip(".")
+    s = re.sub(r"\s+", " ", s)
     for fmt in _DATE_FORMATS:
         try:
-            d = datetime.strptime(s, fmt).date()
-            if "%Y" not in fmt:                    # year-less → assume current year
-                d = d.replace(year=date.today().year)
-            return d
+            return datetime.strptime(s, fmt).date()
         except Exception:
             continue
+    for fmt in _YEARLESS_FORMATS:
+        try:
+            # parse with an explicit leap year (no 1900 default → 29 Feb works,
+            # and no Python 3.13+ "no year" DeprecationWarning)
+            d = datetime.strptime(f"{s} 2000", fmt + " %Y").date()
+        except Exception:
+            continue
+        return _resolve_year(d.month, d.day, ref or date.today())
     return None
+
+
+def _ref_date(item: "ActionItem") -> date | None:
+    """The date an item was written (its meeting date), if known."""
+    try:
+        return date.fromisoformat((item.meeting_date or "")[:10])
+    except Exception:
+        return None
+
+
+def deadline_date(item: "ActionItem") -> date | None:
+    """An item's deadline as a date, resolving year-less deadlines against the
+    date of the meeting that set them."""
+    return parse_deadline(item.deadline, _ref_date(item))
 
 
 def is_overdue(item: "ActionItem", today: date | None = None) -> bool:
     """True when a task has a parseable past deadline and is still open."""
     if normalize_status(item.status) in _CLOSED:
         return False
-    d = parse_deadline(item.deadline)
+    d = deadline_date(item)
     return d is not None and d < (today or date.today())
 
 
@@ -94,7 +146,7 @@ def reminder_counts(items, today: date | None = None, within_days: int = 7):
         if is_overdue(it, today):
             overdue += 1
             continue
-        d = parse_deadline(it.deadline)
+        d = deadline_date(it)
         if d is not None and today <= d <= today + timedelta(days=within_days):
             due_soon += 1
     return overdue, due_soon
@@ -128,10 +180,21 @@ class ActionItem:
     priority: str = ""
     notes: str = ""
     okey: str = ""          # stable override key (from the ORIGINAL task text)
+    occ: int = 0            # n-th row with this same task text in its meeting
+
+    def _task_hash(self) -> str:
+        return hashlib.md5(self.task.strip().lower().encode("utf-8")).hexdigest()[:10]
+
+    def legacy_key(self) -> str:
+        """The pre-1.2.3 override key (meeting + task text only). Two rows with the
+        same task text in one meeting shared it — see key()."""
+        return f"{self.meeting_id}:{self._task_hash()}"
 
     def key(self) -> str:
-        h = hashlib.md5(self.task.strip().lower().encode("utf-8")).hexdigest()[:10]
-        return f"{self.meeting_id}:{h}"
+        """Override key, unique per row: meeting + task text + which occurrence of
+        that text it is within the meeting. (Alice's and Bob's identical "Send
+        report" rows no longer share one saved status/edit.)"""
+        return f"{self.meeting_id}:{self._task_hash()}:{self.occ}"
 
 
 def _clean(v: str) -> str:
@@ -183,16 +246,41 @@ class ActionItemStore:
     def _load(self) -> dict:
         try:
             if self.status_file.exists():
-                return json.loads(self.status_file.read_text(encoding="utf-8"))
+                data = json.loads(self.status_file.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    raise ValueError("action status file is not a JSON object")
+                return data
         except Exception:
             log.warning("could not load action status overrides", exc_info=True)
+            # keep the unreadable file so the next save can't wipe every edit
+            quarantine_bad_file(self.status_file)
         return {}
 
     def _save(self):
         try:
-            self.status_file.write_text(json.dumps(self._overrides, indent=2), encoding="utf-8")
+            atomic_write_text(self.status_file, json.dumps(self._overrides, indent=2))
         except Exception:
             log.warning("could not save action status overrides", exc_info=True)
+
+    def _migrate_legacy(self, items: list[ActionItem]) -> bool:
+        """Move overrides saved under the old per-text key onto the new per-row
+        keys. Unambiguous (one row with that text) → moved to that row. Several
+        rows shared the old key (and so all showed the edit) → each row gets its
+        own copy, after which they are edited independently. Returns True if
+        anything changed."""
+        groups: dict[str, list[ActionItem]] = {}
+        for it in items:
+            groups.setdefault(it.legacy_key(), []).append(it)
+        changed = False
+        for old, rows in groups.items():
+            if old not in self._overrides:
+                continue
+            ov = self._overrides.pop(old)
+            changed = True
+            for it in rows:
+                if it.okey not in self._overrides:
+                    self._overrides[it.okey] = dict(ov) if isinstance(ov, dict) else ov
+        return changed
 
     # Fields a user may override per action item (persisted in the overrides file).
     _EDITABLE = ("task", "owner", "deadline", "priority", "status", "notes")
@@ -213,16 +301,27 @@ class ActionItemStore:
     def all_items(self, search: str = "") -> list[ActionItem]:
         import time
         out: list[ActionItem] = []
-        for m in self.history.list():
-            for it in extract_action_items(m.minutes):
+        migrated = False
+        for m in all_meetings(self.history):
+            # the meeting date is when it was HELD (created), not last edited
+            ts = getattr(m, "created_at", 0) or getattr(m, "updated_at", 0) or 0
+            items = extract_action_items(m.minutes)
+            seen: dict[str, int] = {}
+            for it in items:
                 it.meeting_id = m.id
                 it.meeting_title = m.title
-                it.meeting_date = time.strftime("%Y-%m-%d", time.localtime(m.updated_at))
-                it.okey = it.key()                    # stable key from the ORIGINAL task
+                it.meeting_date = time.strftime("%Y-%m-%d", time.localtime(ts)) if ts else ""
+                h = it.legacy_key()
+                it.occ = seen.get(h, 0); seen[h] = it.occ + 1
+                it.okey = it.key()                    # stable per-row key (ORIGINAL task)
+            migrated |= self._migrate_legacy(items)
+            for it in items:
                 self._apply_override(it)
                 it.status = normalize_status(it.status)     # fold "Done" etc. -> canonical
                 it.priority = normalize_priority(it.priority)
                 out.append(it)
+        if migrated:
+            self._save()
         if search.strip():
             q = search.lower()
             out = [i for i in out if q in i.task.lower() or q in i.owner.lower()
@@ -285,12 +384,32 @@ class ActionItemStore:
             self._save()
 
     def export_csv(self, path: str | Path, items: list[ActionItem]) -> Path:
+        # utf-8-sig: the BOM makes Excel read the file as UTF-8 (Arabic intact);
+        # every cell is neutralised against CSV formula injection.
         path = Path(path)
-        with path.open("w", newline="", encoding="utf-8") as fh:
+        with path.open("w", newline="", encoding="utf-8-sig") as fh:
             w = csv.writer(fh)
             w.writerow(["Task", "Responsible", "Deadline", "Priority", "Status",
                         "Notes", "Meeting", "Meeting date"])
             for i in items:
-                w.writerow([i.task, i.owner, i.deadline, i.priority, i.status,
-                            i.notes, i.meeting_title, i.meeting_date])
+                w.writerow([csv_safe(v) for v in (
+                    i.task, i.owner, i.deadline, i.priority, i.status,
+                    i.notes, i.meeting_title, i.meeting_date)])
         return path
+
+
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(value) -> str:
+    """Prefix a cell that a spreadsheet would run as a formula (= + - @, or a
+    leading tab/CR) with an apostrophe so it is shown as text."""
+    s = "" if value is None else str(value)
+    return "'" + s if s.startswith(_FORMULA_PREFIXES) else s
+
+
+def all_meetings(history) -> list:
+    """Every meeting in history, with no row cap (aggregation must not silently
+    stop at the list view's 500). Falls back to list() for simple stand-ins."""
+    fn = getattr(history, "list_all", None)
+    return list(fn() if callable(fn) else history.list())
