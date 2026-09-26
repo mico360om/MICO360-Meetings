@@ -29,9 +29,13 @@ CREATE TABLE IF NOT EXISTS meetings (
 );
 """
 
-# Columns returned by list views — every column EXCEPT the heavy `transcript`.
+# Columns returned by list views — every column EXCEPT the heavy `transcript`,
+# plus a cheap `has_transcript` flag so list views can tell a Draft (transcript
+# only) from an Empty meeting without loading every transcript.
 _LIST_COLS = ("id, title, created_at, updated_at, source_type, source_path, "
-              "style, model, profile_id, minutes")
+              "style, model, profile_id, minutes, "
+              "(length(trim(COALESCE(transcript, ''), ' ' || char(9, 10, 13))) > 0) "
+              "AS has_transcript")
 
 
 @dataclass
@@ -47,6 +51,13 @@ class Meeting:
     profile_id: str = ""
     transcript: str = ""
     minutes: str = ""
+    # True when the meeting has a non-blank transcript. List rows omit the
+    # transcript text itself, so they carry this flag instead.
+    has_transcript: bool = False
+
+    def __post_init__(self):
+        if (self.transcript or "").strip():
+            self.has_transcript = True
 
 
 class History:
@@ -60,7 +71,10 @@ class History:
 
     def _row(self, r: sqlite3.Row) -> Meeting:
         # transcript defaults to "" when the row was fetched without it (list views)
-        return Meeting(**{k: r[k] for k in r.keys()})
+        d = {k: r[k] for k in r.keys()}
+        if "has_transcript" in d:
+            d["has_transcript"] = bool(d["has_transcript"])
+        return Meeting(**d)
 
     def save(self, m: Meeting) -> int:
         now = time.time()
@@ -91,13 +105,18 @@ class History:
         self._conn.execute("DELETE FROM meetings WHERE id=?", (meeting_id,))
         self._conn.commit()
 
-    def list(self, search: str = "", limit: int = 500) -> list[Meeting]:
+    def list(self, search: str = "", limit: int | None = 500) -> list[Meeting]:
         """Meeting rows for list views — WITHOUT the (potentially large) verbatim
         transcript. Loading up to `limit` full transcripts into memory just to
         show a table or scan minutes is the biggest avoidable cost on machines
         with little RAM; the transcript is fetched lazily (get / get_transcript)
         only for the one meeting a user actually opens. Search still matches
-        transcript text (WHERE), it just isn't returned."""
+        transcript text (WHERE), it just isn't returned.
+
+        `limit=None` (or <= 0) returns every meeting — used by aggregation
+        (Action Items, Insights) so nothing is silently dropped past 500."""
+        if limit is None or limit <= 0:
+            limit = -1                      # SQLite: no limit
         if search.strip():
             like = f"%{search.strip()}%"
             rows = self._conn.execute(
@@ -112,6 +131,14 @@ class History:
                 (limit,),
             ).fetchall()
         return [self._row(r) for r in rows]
+
+    def list_all(self) -> list[Meeting]:
+        """Every meeting (no cap), newest first — for cross-meeting aggregation."""
+        return self.list(limit=None)
+
+    def count(self) -> int:
+        r = self._conn.execute("SELECT COUNT(*) FROM meetings").fetchone()
+        return int(r[0]) if r else 0
 
     def get_transcript(self, meeting_id: int) -> str:
         """Lazily fetch just one meeting's transcript (list rows omit it)."""

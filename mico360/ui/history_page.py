@@ -43,6 +43,7 @@ class HistoryPage(QWidget):
     # Status filter options + the per-meeting status a meeting resolves to.
     _FILTERS = ["All statuses", "Complete", "Draft", "Empty"]
     _COL_TITLE, _COL_STATUS, _COL_STYLE, _COL_MODEL, _COL_UPDATED = range(5)
+    _LIST_CAP = 500            # History.list() default limit (the table is not paged)
 
     def __init__(self, ctx: AppContext, toast, on_open):
         super().__init__()
@@ -150,7 +151,8 @@ class HistoryPage(QWidget):
     def _status_of(m: Meeting) -> str:
         if (m.minutes or "").strip():
             return "Complete"
-        if (m.transcript or "").strip():
+        # list rows omit the transcript text; they carry a has_transcript flag
+        if (m.transcript or "").strip() or getattr(m, "has_transcript", False):
             return "Draft"
         return "Empty"
 
@@ -172,6 +174,7 @@ class HistoryPage(QWidget):
         query = self.search.text()
         want = self.status_filter.currentText()
         rows = self.ctx.history.list(query)
+        capped = len(rows) >= self._LIST_CAP
         if want != self._FILTERS[0]:
             rows = [m for m in rows if self._status_of(m) == want]
         self._rows = rows
@@ -195,7 +198,9 @@ class HistoryPage(QWidget):
         total = len(rows)
         filtered = query.strip() or want != self._FILTERS[0]
         self.count_lbl.setText(
-            f"{total} meeting{'s' if total != 1 else ''}" + (" (filtered)" if filtered else ""))
+            f"{total} meeting{'s' if total != 1 else ''}" + (" (filtered)" if filtered else "")
+            + (f" — showing the {self._LIST_CAP} most recent; search to find older meetings"
+               if capped else ""))
 
         if rows:
             self.left_stack.setCurrentWidget(self.table)
