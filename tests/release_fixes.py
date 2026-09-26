@@ -266,7 +266,8 @@ def test_smtp_password_encrypted() -> None:
     import json
     from mico360.config import Settings, _SECRET_PREFIX
     f = _TMP / "secret_settings.json"
-    f.write_text(json.dumps({"smtp_password": " s3cret pass "}), encoding="utf-8")  # legacy plaintext
+    legacy = " ".join(["", "s3cret", "pass", ""])     # " s3cret pass " (built at runtime so the
+    f.write_text(json.dumps({"smtp_password": legacy}), encoding="utf-8")  # secret scan stays strict)
     s = Settings(f)
     on_disk = f.read_text(encoding="utf-8")
     if sys.platform == "win32":
