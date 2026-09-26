@@ -52,11 +52,24 @@ def _connect(cfg: SmtpConfig, timeout: float = 25.0) -> smtplib.SMTP:
                                   context=ssl.create_default_context())
     else:
         server = smtplib.SMTP(cfg.host, cfg.port, timeout=timeout)
-        server.ehlo()
-        if server.has_extn("starttls"):
+        try:
+            server.ehlo()
+            # Never send the SMTP login in cleartext: if the server doesn't offer
+            # STARTTLS (or it was stripped on the network), refuse to log in.
+            if not server.has_extn("starttls"):
+                raise smtplib.SMTPNotSupportedError(
+                    f"{cfg.host}:{cfg.port} does not offer an encrypted connection "
+                    "(STARTTLS) — use port 587 or 465 so your password isn't sent in the clear.")
             server.starttls(context=ssl.create_default_context())
             server.ehlo()
-    server.login(cfg.user, cfg.password)
+        except Exception:
+            server.close()
+            raise
+    try:
+        server.login(cfg.user, cfg.password)
+    except Exception:
+        server.close()
+        raise
     return server
 
 

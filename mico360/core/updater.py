@@ -53,7 +53,8 @@ class UpdateInfo:
     release_url: str = ""           # human release page
     repo_url: str = ""              # repository home
     checksum_url: str = ""          # SHA256SUMS / .sha256 asset, if published
-    expected_sha256: str = ""       # hash parsed from the release body, if present
+    checksum_per_file: bool = False # checksum_url is "<installer>.sha256" (bare hash ok)
+    expected_sha256: str = ""       # hash for THIS installer named in the release body
     restart_required: bool = True
     error: str = ""
 
@@ -72,8 +73,18 @@ class UpdateInfo:
 
 
 def _parse_version(v: str) -> tuple:
-    nums = re.findall(r"\d+", v or "")
-    return tuple(int(n) for n in nums[:4]) or (0,)
+    """Comparable key for 'v1.2.3', '1.3.0-rc1', '1.10'.
+
+    Only the numeric release core (up to 4 parts) is compared; a pre-release
+    suffix ('-rc1', '-beta') ranks *below* the same final release, so users on
+    1.3.0-rc1 are still offered 1.3.0 (previously '-rc1' parsed as an extra
+    version part and looked newer).
+    """
+    s = (v or "").strip().lstrip("vV")
+    core, sep, _pre = s.partition("-")
+    nums = tuple(int(n) for n in re.findall(r"\d+", core)[:4]) or (0,)
+    nums = nums + (0,) * (4 - len(nums))            # 1.2 == 1.2.0
+    return nums + ((0,) if sep else (1,))           # final > pre-release
 
 
 def is_newer(latest: str, current: str) -> bool:
@@ -111,21 +122,31 @@ def sha256_file(path: str | Path, chunk: int = 1 << 20) -> str:
     return h.hexdigest()
 
 
-def parse_checksum(text: str, filename: str = "") -> str:
+def parse_checksum(text: str, filename: str = "", allow_bare: bool = False) -> str:
     """Pull the SHA256 for ``filename`` out of a checksums file or release body.
 
-    Handles ``<hash>  <file>`` / ``<hash> *<file>`` lines and, failing a filename
-    match, falls back to the first standalone 64-hex token in the text.
+    With a filename, only a line naming that exact file counts (``<hash>  <file>``
+    / ``<hash> *<file>`` / "<file> … <hash>"). A hash that doesn't name the file
+    is never attributed to it — a release listing several installers once had
+    its notes' hash picked for the wrong file, failing every update as
+    "tampered". ``allow_bare`` accepts a lone hash (a per-file ``<file>.sha256``
+    asset, which holds only the digest). Without a filename, the first
+    standalone 64-hex token is returned.
     """
     if not text:
         return ""
     fn = (filename or "").lower()
     if fn:
+        name_re = re.compile(r"(?<![\w.-])\*?" + re.escape(fn) + r"(?![\w.-])", re.I)
         for line in text.splitlines():
-            if fn in line.lower():
+            if name_re.search(line):
                 m = _SHA256_RE.search(line)
                 if m:
                     return m.group(1).lower()
+        if not allow_bare:
+            return ""
+        hashes = {h.lower() for h in _SHA256_RE.findall(text)}
+        return hashes.pop() if len(hashes) == 1 else ""
     m = _SHA256_RE.search(text)
     return m.group(1).lower() if m else ""
 
@@ -137,18 +158,23 @@ def fetch_text(url: str, timeout: float = 8.0) -> str:
 
 
 def resolve_expected_sha256(info: "UpdateInfo") -> str:
-    """Best available expected hash: release-body value, else the checksum asset."""
-    if info.expected_sha256:
-        return info.expected_sha256.lower()
+    """Expected hash for the installer being downloaded.
+
+    The checksum asset published next to the installer is authoritative; a hash
+    in the release notes is used only if it names this exact file and no asset
+    is available.
+    """
+    name = Path(info.download_url).name if info.download_url else ""
     if info.checksum_url:
         try:
             txt = fetch_text(info.checksum_url)
         except Exception:
             log.warning("could not fetch checksum asset", exc_info=True)
-            return ""
-        name = Path(info.download_url).name if info.download_url else ""
-        return parse_checksum(txt, name)
-    return ""
+            txt = ""
+        found = parse_checksum(txt, name, allow_bare=info.checksum_per_file)
+        if found:
+            return found
+    return info.expected_sha256.lower() if info.expected_sha256 else ""
 
 
 def authenticode_status(path: str | Path) -> str:
@@ -231,6 +257,37 @@ def _classify_body(body: str) -> tuple[list[str], list[str], list[str], str]:
     return features, fixes, security, summary
 
 
+def _pick_assets(assets: list, version: str) -> tuple[str, int, str, bool]:
+    """Choose the installer and its checksum asset from a release's assets.
+
+    Returns ``(download_url, size, checksum_url, checksum_is_per_file)``. The
+    choice never depends on the order GitHub lists assets in: if a release
+    carries more than one installer, the one whose name contains the release
+    version wins, then one that has its own ``<name>.sha256``. The checksum is
+    that installer's own ``.sha256`` if present, else a SHA256SUMS-style file.
+    """
+    by_name = {(a.get("name") or "").lower(): a for a in assets}
+    installers = [a for a in assets
+                  if (a.get("name") or "").lower().endswith((".exe", ".msi", ".zip"))]
+    if not installers:
+        return "", 0, "", False
+    ver = (version or "").lower().lstrip("v")
+
+    def rank(a):
+        n = (a.get("name") or "").lower()
+        return (0 if ver and ver in n else 1, 0 if n + ".sha256" in by_name else 1)
+
+    pick = sorted(installers, key=rank)[0]          # stable: ties keep API order
+    pname = (pick.get("name") or "").lower()
+    own = by_name.get(pname + ".sha256")
+    if own:
+        return (pick.get("browser_download_url", ""), int(pick.get("size", 0)),
+                own.get("browser_download_url", ""), True)
+    sums = next((a for n, a in by_name.items() if n in _CHECKSUM_NAMES), None)
+    return (pick.get("browser_download_url", ""), int(pick.get("size", 0)),
+            sums.get("browser_download_url", "") if sums else "", False)
+
+
 def check_for_updates(repo: str, timeout: float = 8.0) -> UpdateInfo:
     info = UpdateInfo(repo_url=repo_url(repo))
     repo = (repo or "").strip().strip("/")
@@ -268,17 +325,8 @@ def check_for_updates(repo: str, timeout: float = 8.0) -> UpdateInfo:
     info.features, info.fixes, info.security = feats, fixes, sec
     info.description = summary or (data.get("name") or "")
 
-    # find a Windows installer/exe asset (for size + direct download) and any
-    # published checksum asset (SHA256SUMS or <installer>.sha256)
-    for asset in data.get("assets", []):
-        name = (asset.get("name") or "").lower()
-        url = asset.get("browser_download_url", "")
-        if name.endswith((".exe", ".msi", ".zip")) and not info.download_url:
-            info.size_bytes = int(asset.get("size", 0))
-            info.download_url = url
-        elif name.endswith(".sha256") or name in _CHECKSUM_NAMES:
-            info.checksum_url = url
-    # a checksum embedded in the release body is a convenient fallback
+    info.download_url, info.size_bytes, info.checksum_url, info.checksum_per_file =         _pick_assets(data.get("assets", []), info.latest_version)
+    # a checksum in the release body counts only if it names this exact file
     info.expected_sha256 = parse_checksum(
         data.get("body", ""), Path(info.download_url).name if info.download_url else "")
 

@@ -11,14 +11,33 @@ jobs:
     runs-on: windows-latest
     permissions:
       contents: write          # needed to create the GitHub Release
-    # Job-level env so the optional steps' `if:` can see these — a step's own
-    # `env:` block is NOT available to that step's `if` condition.
+    # Only yes/no FLAGS are job-wide (a step's own `env:` isn't visible to its
+    # `if:`). The secrets themselves are passed solely to the step that uses
+    # them, so dependency installs, PyInstaller and third-party actions never
+    # see the Cloud key or the signing certificate.
     env:
-      MICO360_CONNECT_API_KEY: ${{ secrets.MICO360_CONNECT_API_KEY }}
-      CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
-      CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
+      HAS_CONNECT_KEY: ${{ secrets.MICO360_CONNECT_API_KEY != '' }}
+      HAS_SIGNING_CERT: ${{ secrets.CERT_PFX_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
+
+      # A tagged release must match the app's version (otherwise every client
+      # installs it, still reports the old version, and is offered it forever).
+      - name: Check tag matches app version
+        if: ${{ github.ref_type == 'tag' }}
+        run: |
+          $ver = (Select-String -Path mico360\__init__.py -Pattern '__version__ = "(.+)"').Matches[0].Groups[1].Value
+          if ("${{ github.ref_name }}" -ne "v$ver") {
+            Write-Error "Tag ${{ github.ref_name }} does not match mico360.__version__ ($ver)."; exit 1
+          }
+
+      # Never publish a Cloud-disabled release by accident: existing users would
+      # auto-update into an app whose Cloud mode no longer works.
+      - name: Require the MICO360 Connect key for tagged releases
+        if: ${{ github.ref_type == 'tag' && env.HAS_CONNECT_KEY != 'true' }}
+        run: |
+          Write-Error "The MICO360_CONNECT_API_KEY repository secret is not set — refusing to publish a Local-only release."
+          exit 1
 
       - uses: actions/setup-python@v5
         with:
@@ -30,11 +49,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      # Live-meeting detection and Outlook calendar need pywin32. It is imported
+      # lazily (features silently turn off without it), so fail loudly here.
+      - name: Verify Windows integrations are installed
+        run: python -c "import win32gui, pythoncom, win32com.client; print('pywin32 OK')"
+
       # Inject the MICO360 Connect API key (from a repo secret) so the shipped
-      # installer has Cloud mode working with no end-user configuration. Skipped
-      # if the secret is absent — Local/Ollama mode is unaffected.
-      - name: Inject MICO360 Connect key (optional)
-        if: ${{ env.MICO360_CONNECT_API_KEY != '' }}
+      # installer has Cloud mode working with no end-user configuration.
+      - name: Inject MICO360 Connect key
+        if: ${{ env.HAS_CONNECT_KEY == 'true' }}
+        env:
+          MICO360_CONNECT_API_KEY: ${{ secrets.MICO360_CONNECT_API_KEY }}
         run: |
           "KEY = '$env:MICO360_CONNECT_API_KEY'" | Out-File -Encoding ascii mico360\_build_key.py
           Write-Host "Injected MICO360 Connect key into the build."
@@ -50,7 +75,10 @@ jobs:
 
       # Optional code signing — runs only if CERT_PFX_BASE64 secret is configured.
       - name: Sign installer (optional)
-        if: ${{ env.CERT_PFX_BASE64 != '' }}
+        if: ${{ env.HAS_SIGNING_CERT == 'true' }}
+        env:
+          CERT_PFX_BASE64: ${{ secrets.CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.CERT_PASSWORD }}
         run: |
           [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:CERT_PFX_BASE64))
           $st = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe"
@@ -76,11 +104,16 @@ jobs:
             build/Output/MICO360Meetings-Setup.exe
             build/Output/SHA256SUMS.txt
 
+      # One CI-built installer per release, described by the maintained release
+      # notes (the in-app Updates page parses them into features / fixes).
+      # Pre-release tags (e.g. v1.3.0-rc1) are published as pre-releases so the
+      # updater's "latest" never points at them.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: build/RELEASE_NOTES_${{ github.ref_name }}.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             build/Output/MICO360Meetings-Setup.exe
             build/Output/MICO360Meetings-Setup.exe.sha256
             build/Output/SHA256SUMS.txt
-          generate_release_notes: true

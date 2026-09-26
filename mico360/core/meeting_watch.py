@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -63,11 +64,27 @@ def detect_live_meeting(titles=None):
     return None
 
 
+def detection_available() -> bool:
+    """True if live-meeting detection can work (needs pywin32 on Windows)."""
+    try:
+        import win32gui  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+_warned_no_win32 = False
+
+
 def list_window_titles() -> list[str]:
     """Visible top-level window titles on Windows; [] elsewhere or on error."""
+    global _warned_no_win32
     try:
         import win32gui
     except Exception:
+        if sys.platform == "win32" and not _warned_no_win32:
+            _warned_no_win32 = True
+            log.warning("pywin32 is not installed — live-meeting detection is off")
         return []
     out: list[str] = []
 
