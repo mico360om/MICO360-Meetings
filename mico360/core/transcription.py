@@ -6,6 +6,7 @@ a callback (0.0–1.0) derived from segment end-time vs. total duration.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
@@ -94,31 +95,34 @@ class TranscriptResult:
         return "\n".join(lines)
 
 
+_GPU_ERR_KEYS = ("cublas", "cuda", "cudnn", "cudart", "gpu")
+
+
+def _is_gpu_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(k in msg for k in _GPU_ERR_KEYS)
+
+
 class TranscriptionEngine:
+    """`device` / `compute_type` stay what the user asked for (the app context
+    compares them with the settings to decide whether to rebuild the engine).
+    When the GPU turns out to be unusable the engine falls back to CPU and
+    REMEMBERS it (`effective_device`), so it isn't rebuilt on CUDA and failing
+    again for every file (M33)."""
+
     def __init__(self, model_size: str = "base", device: str = "auto", compute_type: str = "int8"):
         self.model_size = model_size
         self.device = device
         self.compute_type = compute_type
         self._model = None
         self._loaded_key: tuple | None = None
+        self._cpu_fallback = False
+        self._lock = threading.RLock()          # file + live transcription share the model
 
-    # -- model lifecycle ----------------------------------------------------
-    def _key(self) -> tuple:
-        return (self.model_size, self.device, self.compute_type)
-
-    def load(self, progress: ProgressCb | None = None) -> None:
-        from faster_whisper import WhisperModel
-
-        if self._model is not None and self._loaded_key == self._key():
-            return
-        if progress:
-            if model_cached(self.model_size):
-                progress(0.02, f"Loading the Whisper '{self.model_size}' model…")
-            else:
-                approx = APPROX_SIZE.get(self.model_size, "a few hundred MB")
-                progress(0.02, f"Downloading the Whisper '{self.model_size}' model "
-                               f"(~{approx}, first run — this can take a minute)…")
-
+    # -- effective device -----------------------------------------------------
+    def _effective(self) -> tuple[str, str]:
+        if self._cpu_fallback:
+            return "cpu", "int8"
         # Device selection is conservative: "auto" means CPU. GPU (CUDA) needs
         # the cuBLAS/cuDNN runtime DLLs which we do NOT bundle, so auto-selecting
         # CUDA on a machine without them fails with "cublas64_12.dll not found".
@@ -128,24 +132,61 @@ class TranscriptionEngine:
         compute = self.compute_type
         if device == "cpu" and compute in ("float16", "fp16"):
             compute = "int8"  # fp16 is not supported on CPU
+        return device, compute
 
-        def _make(dev, comp):
-            log.info("loading whisper model=%s device=%s compute=%s", self.model_size, dev, comp)
-            return WhisperModel(self.model_size, device=dev, compute_type=comp,
-                                download_root=str(MODELS_DIR))
+    @property
+    def effective_device(self) -> str:
+        return self._effective()[0]
 
-        try:
-            self._model = _make(device, compute)
-        except Exception as exc:
-            if device != "cpu":
-                log.warning("Whisper on '%s' failed (%s); falling back to CPU/int8.", device, exc)
-                if progress:
-                    progress(0.03, "GPU unavailable — using CPU…")
-                device, compute = "cpu", "int8"
+    @property
+    def using_fallback(self) -> bool:
+        return self._cpu_fallback
+
+    def _fall_back_to_cpu(self, exc: BaseException, progress: ProgressCb | None = None,
+                          frac: float = 0.06) -> None:
+        log.warning("Whisper on '%s' failed (%s); using CPU/int8 from now on.",
+                    self.effective_device, exc)
+        if progress:
+            progress(frac, "GPU unavailable — using CPU…")
+        with self._lock:
+            self._cpu_fallback = True
+            self._model = None
+            self._loaded_key = None
+
+    # -- model lifecycle ----------------------------------------------------
+    def _key(self) -> tuple:
+        return (self.model_size,) + self._effective()
+
+    def load(self, progress: ProgressCb | None = None) -> None:
+        from faster_whisper import WhisperModel
+
+        with self._lock:
+            if self._model is not None and self._loaded_key == self._key():
+                return
+            if progress:
+                if model_cached(self.model_size):
+                    progress(0.02, f"Loading the Whisper '{self.model_size}' model…")
+                else:
+                    approx = APPROX_SIZE.get(self.model_size, "a few hundred MB")
+                    progress(0.02, f"Downloading the Whisper '{self.model_size}' model "
+                                   f"(~{approx}, first run — this can take a minute)…")
+
+            device, compute = self._effective()
+
+            def _make(dev, comp):
+                log.info("loading whisper model=%s device=%s compute=%s", self.model_size, dev, comp)
+                return WhisperModel(self.model_size, device=dev, compute_type=comp,
+                                    download_root=str(MODELS_DIR))
+
+            try:
                 self._model = _make(device, compute)
-            else:
-                raise
-        self._loaded_key = self._key()
+            except Exception as exc:
+                if device != "cpu":
+                    self._fall_back_to_cpu(exc, progress, 0.03)
+                    self._model = _make(*self._effective())
+                else:
+                    raise
+            self._loaded_key = self._key()
 
     # -- transcription ------------------------------------------------------
     def transcribe_file(
@@ -167,18 +208,13 @@ class TranscriptionEngine:
 
         try:
             result = self._run(usable, lang, duration, progress, cancel)
+        except InterruptedError:
+            raise
         except Exception as exc:
             # CUDA/cuBLAS/cuDNN errors surface lazily during decode — fall back
-            # to CPU and retry once so transcription still succeeds.
-            msg = str(exc).lower()
-            gpu_err = any(k in msg for k in ("cublas", "cuda", "cudnn", "cudart", "gpu"))
-            if gpu_err and self.device != "cpu":
-                log.warning("GPU decode failed (%s); retrying on CPU/int8.", exc)
-                if progress:
-                    progress(0.06, "GPU unavailable — retrying on CPU…")
-                self._model = None
-                self._loaded_key = None
-                self.device, self.compute_type = "cpu", "int8"
+            # to CPU (for good) and retry once so transcription still succeeds.
+            if _is_gpu_error(exc) and self.effective_device != "cpu":
+                self._fall_back_to_cpu(exc, progress)
                 self.load(progress)
                 result = self._run(usable, lang, duration, progress, cancel)
             else:
@@ -189,16 +225,30 @@ class TranscriptionEngine:
                 if progress:
                     progress(0.99, "Identifying speakers…")
                 from . import diarization
-                result.speakers = diarization.apply_to_segments(str(usable), result.segments)
+                result.speakers = diarization.apply_to_segments(
+                    str(usable), result.segments, cancel=cancel)
+            except InterruptedError:
+                raise
             except Exception:
                 log.warning("diarization failed", exc_info=True)
         return result
 
     def transcribe_array(self, audio_f32, language: str | None = None) -> str:
         """Transcribe a mono 16 kHz float32 numpy array to text — for live capture
-        (fast: greedy decoding, VAD-filtered, no progress/diarisation)."""
+        (fast: greedy decoding, VAD-filtered, no progress/diarisation). Falls back
+        to CPU like transcribe_file when the GPU turns out to be unusable."""
         self.load()
         lang = None if (not language or language == "auto") else language
+        try:
+            return self._run_array(audio_f32, lang)
+        except Exception as exc:
+            if _is_gpu_error(exc) and self.effective_device != "cpu":
+                self._fall_back_to_cpu(exc)
+                self.load()
+                return self._run_array(audio_f32, lang)
+            raise
+
+    def _run_array(self, audio_f32, lang) -> str:
         segments, _info = self._model.transcribe(  # type: ignore[union-attr]
             audio_f32, language=lang, vad_filter=True, beam_size=1)
         return "".join(seg.text for seg in segments).strip()

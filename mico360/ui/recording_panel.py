@@ -89,6 +89,12 @@ class RecordingPanel(QWidget):
         self._blink = False
         self._live_worker = None
         self._live_text = ""
+        self._auto_mode = False
+        # M32: stop/mux runs on a RecorderStopWorker; while it runs we're "saving".
+        self._stopping = False
+        self._stop_ctx: dict = {}
+        self._stop_workers: list = []            # kept until each thread has ended (H3)
+        self._warned = 0                         # recorder warnings already shown
 
         self.stack = QStackedWidget()
         self.stack.addWidget(self._build_config())   # 0
@@ -344,7 +350,14 @@ class RecordingPanel(QWidget):
     # ----- lifecycle -------------------------------------------------------
     # ----- programmatic control (auto-record) --------------------------------
     def is_recording(self) -> bool:
+        """True while recording — and while the last recording is still being
+        saved, so nothing starts a new one on top of it."""
+        if self._stopping:
+            return True
         return bool(self._rec) and self._rec.state in (R.RECORDING, R.PAUSED)
+
+    def is_saving(self) -> bool:
+        return self._stopping
 
     def start_auto(self, source: str = "both", live: bool = True) -> bool:
         """Start an audio recording without user clicks (auto-record). Uses the
@@ -370,6 +383,12 @@ class RecordingPanel(QWidget):
             self._stop()
 
     def _start(self):
+        if self._stopping:
+            if self.toast:
+                self.toast.show_message("The previous recording is still being saved — "
+                                        "try again in a moment.", "warn", 5000)
+            return
+        self._warned = 0
         kind = self._selected_type()
         source = self.source_box.currentData() or "mic"
         mic_index = self.mic_box.currentData()
@@ -385,6 +404,12 @@ class RecordingPanel(QWidget):
             self._rec = R.make_recorder(cfg)
             self._rec.start()
         except Exception as exc:
+            rec, self._rec = self._rec, None
+            try:
+                if rec is not None:
+                    rec.stop()                   # release anything that did open
+            except Exception:
+                pass
             if self.toast:
                 self.toast.show_message(f"Could not start recording: {exc}", "error", 6000)
             return
@@ -445,25 +470,17 @@ class RecordingPanel(QWidget):
 
     def _tick(self):
         rec = self._rec
-        if not rec:
+        if not rec or self._stopping:
             return
         if rec.state == R.ERROR:
             # Fully tear the failed recording down: release the devices and the
             # capture threads, stop the live worker, and clear the recording and
-            # auto-record state so nothing keeps running or triggers later.
-            err = rec.error
-            self._retire_live_worker(4000)
-            try:
-                rec.stop()
-            except Exception:
-                log.exception("stopping a failed recording")
-            self._rec = None
-            self._teardown()
-            self.stack.setCurrentIndex(0)
-            self.recordingFailed.emit()
-            if self.toast:
-                self.toast.show_message(f"Recording error: {err}", "error", 6000)
+            # auto-record state so nothing keeps running or triggers later. The
+            # stop runs off the GUI thread; whatever was recorded before the
+            # problem (e.g. an unplugged mic, H13) is kept and shown.
+            self._begin_stop(error=rec.error or "the recorder stopped unexpectedly")
             return
+        self._show_new_warnings(rec)
         secs = int(rec.elapsed())
         h, rem = divmod(secs, 3600); m, s = divmod(rem, 60)
         self.timer_lbl.setText(f"{h:02d}:{m:02d}:{s:02d}")
@@ -498,59 +515,185 @@ class RecordingPanel(QWidget):
             self._rec.resume()
             self.pause_btn.setText("⏸ Pause")
 
+    def _show_new_warnings(self, rec) -> None:
+        """Surface non-fatal recorder problems once each (a source that couldn't
+        be opened, a mic that dropped out and was reopened, …)."""
+        getter = getattr(rec, "all_warnings", None)
+        if getter is None:
+            return
+        try:
+            warnings = list(getter())
+        except Exception:
+            return
+        if len(warnings) > self._warned:
+            for msg in warnings[self._warned:]:
+                log.warning("recording: %s", msg)
+                if self.toast:
+                    self.toast.show_message(msg, "warn", 9000)
+            self._warned = len(warnings)
+
     def _retire_live_worker(self, wait_ms: int) -> None:
         """Stop the live-transcription worker. If it's still finishing a chunk
         after `wait_ms`, keep a reference until it really ends — dropping the last
         reference to a running QThread aborts the whole process."""
         w = getattr(self, "_live_worker", None)
         self._live_worker = None
+        self._retire_worker(w, wait_ms)
+
+    def _retire_worker(self, w, wait_ms: int = 0) -> None:
         if w is None:
             return
-        w.stop()
+        try:
+            w.stop()
+        except Exception:
+            pass
         if wait_ms:
             w.wait(wait_ms)
         if w.isRunning():
             retired = self.__dict__.setdefault("_retired_workers", [])
-            retired.append(w)
-            w.finished.connect(lambda w=w: w in retired and retired.remove(w))
+            if w not in retired:
+                retired.append(w)
+                w.finished.connect(lambda w=w: w in retired and retired.remove(w))
 
     def _cancel(self):
-        self._retire_live_worker(4000)
-        if self._rec:
-            self._rec.cancel()
-        self._teardown()
-        self.stack.setCurrentIndex(0)
-        if self.toast:
-            self.toast.show_message("Recording cancelled.", "warn")
+        if self._stopping:
+            return
+        if not self._rec:
+            self._retire_live_worker(0)
+            self._teardown()
+            self.stack.setCurrentIndex(0)
+            return
+        self._begin_stop(cancel=True)
 
     def _stop(self):
-        if not self._rec:
+        if not self._rec or self._stopping:
             return
         self.stop_btn.setEnabled(False)
         self.stop_btn.setText("Saving…")
-        # mux may take a moment for long videos; do it without freezing the timer UI badly
-        QTimer.singleShot(50, self._finish_stop)
+        self._begin_stop()
 
-    def _finish_stop(self):
+    def _begin_stop(self, cancel: bool = False, error: str = "") -> None:
+        """Stop / cancel / tear down the recorder on a background thread (M32):
+        closing devices, mixing mic + system audio and muxing a long video used
+        to freeze the window. The result is handled in _on_stop_done."""
+        from .workers import RecorderStopWorker
         rec = self._rec
-        self._result = rec.stop()
-        auto = getattr(self, "_auto_mode", False)
-        has_file = bool(self._result and Path(self._result.path).exists())
+        self._stopping = True
+        self._timer.stop()
+        self._blink_timer.stop()
+        self.rec_dot.setVisible(True)
+        for b in (self.pause_btn, self.cancel_btn, self.stop_btn):
+            b.setEnabled(False)
+        label = "Cancelling…" if cancel else ("Stopping…" if error else "Saving…")
+        self.status_lbl.setText(label)
+        self.detail_labels["Status"].setText(label)
+        live, self._live_worker = self._live_worker, None
+        auto = bool(self._auto_mode)
+        self._stop_ctx = {"rec": rec, "cancel": cancel, "error": error, "live": live}
+        # Manual recordings wait (off the GUI thread) for the live worker's last
+        # chunk; auto-record doesn't use the live draft when the file was saved.
+        w = RecorderStopWorker(rec, cancel=cancel, live_worker=live,
+                               live_wait_ms=0 if (cancel or error) else 6000,
+                               skip_live_wait_if_file=auto)
+        self._stop_workers.append(w)
+        w.done.connect(self._on_stop_done)
+        w.finished.connect(self._on_stop_thread_finished)
+        w.start()
+
+    def _on_stop_thread_finished(self):
+        for w in list(self._stop_workers):
+            if not w.isRunning():
+                w.wait(2000)
+                self._stop_workers.remove(w)
+                w.deleteLater()
+
+    def _on_stop_done(self, result, err: str):
+        ctx, self._stop_ctx = self._stop_ctx, {}
+        self._stopping = False
+        # the live worker may still be finishing a chunk: keep it alive (H3)
+        self._retire_worker(ctx.get("live"), 0)
+        for b in (self.pause_btn, self.cancel_btn, self.stop_btn):
+            b.setEnabled(True)
+        self.stop_btn.setText("⏹ Stop & Save")
+        self.pause_btn.setText("⏸ Pause")
+        if ctx.get("cancel"):
+            self._teardown()
+            self.stack.setCurrentIndex(0)
+            if self.toast:
+                self.toast.show_message("Recording cancelled.", "warn")
+            return
+        if ctx.get("error"):
+            self._on_recording_error(result, ctx["error"])
+            return
+        if result is None:
+            rec = ctx.get("rec")
+            if rec is not None and not getattr(rec, "error", ""):
+                try:
+                    rec.error = err
+                except Exception:
+                    pass
+        self._finish_stop(result, live_wait_ms=0, stopped=True)
+
+    def _on_recording_error(self, res, err: str) -> None:
+        """The recorder failed mid-way. Keep and show whatever it saved."""
+        self._rec = None
+        self._teardown()
+        partial = False
+        try:
+            partial = bool(res is not None and res.path and Path(res.path).exists()
+                           and Path(res.path).stat().st_size > 1024)
+        except OSError:
+            partial = False
+        self.recordingFailed.emit()
+        if partial:
+            self._result = res
+            self._show_summary(res, announce=False)
+            if self.toast:
+                self.toast.show_message(f"Recording stopped: {err} The part recorded before the "
+                                        "problem was saved.", "error", 9000)
+        else:
+            self.stack.setCurrentIndex(0)
+            if self.toast:
+                self.toast.show_message(f"Recording error: {err}", "error", 6000)
+
+    def _finish_stop(self, result=None, live_wait_ms: int = 6000, stopped: bool = False):
+        """Handle a stopped recording. Called with the result from the background
+        stop worker; called with no result it stops the recorder here (the
+        synchronous path)."""
+        rec = self._rec
+        if not stopped and result is None and rec is not None:
+            result = rec.stop()
+        self._result = result
+        auto = bool(self._auto_mode)
+        try:
+            has_file = bool(result is not None and result.path and Path(result.path).exists())
+        except OSError:
+            has_file = False
         # flush + stop the live worker (its last chunk lands in _live_text)
-        self._retire_live_worker(6000)
+        self._retire_live_worker(live_wait_ms)
         live = self._live_text.strip()
         if auto and has_file:
             # Auto-record: transcribe the full recording. The live draft only hears
             # the local microphone, so minutes built from it would leave out
             # everything the other participants said (system audio).
-            self.recordingReady.emit(self._result.path)
+            self.recordingReady.emit(result.path)
         elif live:
             self.liveTranscriptReady.emit(live)
         self._auto_mode = False
         self._teardown()
         self.stop_btn.setEnabled(True)
         self.stop_btn.setText("⏹ Stop & Save")
-        self._show_summary(self._result)
+        if has_file:
+            self._show_summary(result)
+            return
+        # M31: nothing was written (e.g. the mix ran out of memory / disk) — say
+        # so instead of claiming "Recording saved".
+        why = (getattr(rec, "error", "") if rec is not None else "") or "no audio was captured"
+        self.stack.setCurrentIndex(0)
+        self.recordingFailed.emit()
+        if self.toast:
+            extra = " The live transcript was kept." if live else ""
+            self.toast.show_message(f"The recording could not be saved: {why}{extra}", "error", 10000)
 
     def _teardown(self):
         self._timer.stop()
@@ -559,7 +702,7 @@ class RecordingPanel(QWidget):
         self._auto_mode = False
         self.recordingStateChanged.emit(False)
 
-    def _show_summary(self, res: R.RecordingResult):
+    def _show_summary(self, res: R.RecordingResult, announce: bool = True):
         # clear grid
         while self.summary_grid.count():
             it = self.summary_grid.takeAt(0)
@@ -587,7 +730,7 @@ class RecordingPanel(QWidget):
         self.summary_grid.setColumnStretch(0, 1)
         self.summary_grid.setColumnStretch(1, 1)
         self.stack.setCurrentIndex(2)
-        if self.toast:
+        if self.toast and announce:
             self.toast.show_message("Recording saved.", "success")
 
     def _open_folder(self):
@@ -611,7 +754,16 @@ class RecordingPanel(QWidget):
                 self.toast.show_message("Added to the transcription queue.", "success")
 
     def stop_if_active(self):
-        """Called on app close to flush an in-progress recording."""
+        """Called on app close to flush an in-progress recording, and to let every
+        worker thread end first (a QThread destroyed while running aborts the
+        process — H3)."""
+        # a save already under way must finish, or the file is lost
+        for w in list(self._stop_workers):
+            try:
+                if w.isRunning():
+                    w.wait(180000)
+            except Exception:
+                pass
         try:
             self._retire_live_worker(8000)
         except Exception:
@@ -619,5 +771,12 @@ class RecordingPanel(QWidget):
         if self._rec and self._rec.state in (R.RECORDING, R.PAUSED):
             try:
                 self._rec.stop()
+            except Exception:
+                pass
+        for w in list(self.__dict__.get("_retired_workers", ())):
+            try:
+                if w.isRunning():
+                    w.stop()
+                    w.wait(10000)
             except Exception:
                 pass

@@ -80,25 +80,39 @@ def _mel_filterbank() -> np.ndarray:
     return fb
 
 
-def _mfcc(signal: np.ndarray) -> np.ndarray:
-    """Return (n_frames, n_mfcc) MFCCs for a 1-D signal."""
-    if len(signal) < _FRAME:
-        return np.zeros((0, _N_MFCC), dtype="float32")
-    sig = np.append(signal[0], signal[1:] - 0.97 * signal[:-1])      # pre-emphasis
-    n_frames = 1 + (len(sig) - _FRAME) // _HOP
-    win = np.hamming(_FRAME).astype("float32")
-    fb = _mel_filterbank()
-    mfccs = np.empty((n_frames, _N_MFCC), dtype="float32")
-    # DCT-II matrix
+def _dct_matrix() -> np.ndarray:
     dct = np.zeros((_N_MFCC, _N_MELS), dtype="float32")
     for k in range(_N_MFCC):
         dct[k] = np.cos(np.pi * k / _N_MELS * (np.arange(_N_MELS) + 0.5))
-    for i in range(n_frames):
-        frame = sig[i * _HOP: i * _HOP + _FRAME] * win
-        mag = np.abs(np.fft.rfft(frame, _FFT)) ** 2 / _FFT
-        mel = np.log(np.maximum(fb @ mag, 1e-10))
-        mfccs[i] = dct @ mel
-    return mfccs
+    return dct
+
+
+_DCT = None
+_WIN = None
+_MFCC_CHUNK = 2048          # frames per vectorised FFT batch (bounds memory)
+
+
+def _mfcc(signal: np.ndarray) -> np.ndarray:
+    """Return (n_frames, n_mfcc) MFCCs for a 1-D signal (vectorised: one batched
+    FFT per chunk of frames instead of a Python loop per frame)."""
+    global _DCT, _WIN
+    if len(signal) < _FRAME:
+        return np.zeros((0, _N_MFCC), dtype="float32")
+    if _DCT is None:
+        _DCT = _dct_matrix()
+        _WIN = np.hamming(_FRAME).astype("float32")
+    sig = np.asarray(signal, dtype="float32")
+    sig = np.append(sig[0], sig[1:] - 0.97 * sig[:-1]).astype("float32")   # pre-emphasis
+    n_frames = 1 + (len(sig) - _FRAME) // _HOP
+    frames = np.lib.stride_tricks.sliding_window_view(sig, _FRAME)[::_HOP][:n_frames]
+    fb = _mel_filterbank()
+    out = np.empty((n_frames, _N_MFCC), dtype="float32")
+    for s in range(0, n_frames, _MFCC_CHUNK):
+        blk = frames[s:s + _MFCC_CHUNK] * _WIN
+        mag = np.abs(np.fft.rfft(blk, _FFT, axis=1)) ** 2 / _FFT
+        mel = np.log(np.maximum(mag @ fb.T, 1e-10))
+        out[s:s + len(blk)] = mel @ _DCT.T
+    return out
 
 
 def _embedding(signal: np.ndarray) -> np.ndarray:
@@ -114,64 +128,124 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(1.0 - np.dot(a, b))
 
 
-def _agglomerative(embeddings: list[np.ndarray], threshold: float, max_k: int) -> list[int]:
-    """Average-linkage agglomerative clustering on cosine distance."""
-    clusters = [[i] for i in range(len(embeddings))]
-    emb = embeddings
+def _check_cancel(cancel) -> None:
+    if cancel is not None and cancel():
+        raise InterruptedError("Transcription cancelled.")
 
-    def cdist(c1, c2):
-        return np.mean([_cosine(emb[i], emb[j]) for i in c1 for j in c2])
 
-    while len(clusters) > 1:
-        best, bi, bj = 1e9, -1, -1
-        for i in range(len(clusters)):
-            for j in range(i + 1, len(clusters)):
-                d = cdist(clusters[i], clusters[j])
-                if d < best:
-                    best, bi, bj = d, i, j
-        if best > threshold and len(clusters) <= max_k:
+def _agglomerative(embeddings, threshold: float, max_k: int, cancel=None) -> list[int]:
+    """Average-linkage agglomerative clustering on cosine distance.
+
+    Vectorised (H11): one distance matrix, updated in place with the
+    Lance–Williams average-linkage rule after each merge, so every step is a
+    NumPy argmin + two row updates instead of an O(n²) Python double loop that
+    recomputed every pairwise mean. Same merges and stopping rule as before.
+    `cancel()` is checked every step."""
+    n = len(embeddings)
+    if n == 0:
+        return []
+    if n == 1:
+        return [0]
+    X = np.asarray(embeddings, dtype=np.float64).reshape(n, -1)
+    D = 1.0 - X @ X.T
+    np.fill_diagonal(D, np.inf)
+    sizes = np.ones(n, dtype=np.float64)
+    members: list[list[int]] = [[i] for i in range(n)]
+    k = n
+    while k > 1:
+        _check_cancel(cancel)
+        flat = int(np.argmin(D))                    # first minimum = lowest (i, j), i < j
+        i, j = divmod(flat, n)
+        if i > j:
+            i, j = j, i
+        best = float(D[i, j])
+        if best > threshold and k <= max_k:
             break
-        if len(clusters) <= 1:
+        si, sj = sizes[i], sizes[j]
+        row = (si * D[i] + sj * D[j]) / (si + sj)   # Lance–Williams, average linkage
+        D[i, :] = row
+        D[:, i] = row
+        D[i, i] = np.inf
+        D[j, :] = np.inf
+        D[:, j] = np.inf
+        sizes[i] = si + sj
+        members[i].extend(members[j])
+        members[j] = []
+        k -= 1
+        if best > threshold and k <= max_k:
             break
-        clusters[bi].extend(clusters[bj])
-        clusters.pop(bj)
-        if best > threshold and len(clusters) <= max_k:
-            break
-    labels = [0] * len(embeddings)
-    for cid, members in enumerate(clusters):
-        for idx in members:
+    labels = [0] * n
+    cid = 0
+    for group in members:
+        if not group:
+            continue
+        for idx in group:
             labels[idx] = cid
+        cid += 1
     return labels
 
 
-def diarize(audio_path: str, segments, max_speakers: int = 4, threshold: float = 0.22) -> list[int]:
-    """Return a speaker index (0-based) for each segment."""
+# Clustering is O(n²) memory / ~O(n²)–O(n³) time: very long meetings are
+# clustered on their longest (most reliable) segments and the rest are assigned
+# to the nearest speaker.
+_MAX_CLUSTER_ITEMS = 1200
+
+
+def _cluster(embeddings, durations, threshold: float, max_k: int, cancel=None) -> list[int]:
+    n = len(embeddings)
+    if n <= _MAX_CLUSTER_ITEMS:
+        return _agglomerative(embeddings, threshold, max_k, cancel)
+    X = np.asarray(embeddings, dtype=np.float64).reshape(n, -1)
+    keep = np.sort(np.argsort(-np.asarray(durations, dtype=np.float64), kind="stable")
+                   [:_MAX_CLUSTER_ITEMS])
+    sub = _agglomerative(X[keep], threshold, max_k, cancel)
+    _check_cancel(cancel)
+    n_clusters = max(sub) + 1
+    cent = np.zeros((n_clusters, X.shape[1]))
+    for row, lab in zip(keep, sub):
+        cent[lab] += X[row]
+    norms = np.linalg.norm(cent, axis=1, keepdims=True)
+    cent = cent / np.where(norms > 0, norms, 1.0)
+    labels = np.argmax(X @ cent.T, axis=1)
+    labels[keep] = sub
+    return [int(x) for x in labels]
+
+
+def diarize(audio_path: str, segments, max_speakers: int = 4, threshold: float = 0.22,
+            cancel=None) -> list[int]:
+    """Return a speaker index (0-based) for each segment. Raises InterruptedError
+    if `cancel()` becomes true."""
     if len(segments) <= 1:
         return [0] * len(segments)
     try:
         audio = _load_audio(audio_path)
         if len(audio) == 0:
             return [0] * len(segments)
-        embeddings = []
-        for seg in segments:
+        embeddings, durations = [], []
+        for n, seg in enumerate(segments):
+            if n % 25 == 0:
+                _check_cancel(cancel)
             a = int(max(0, seg.start) * _SR)
             b = int(max(seg.start, seg.end) * _SR)
             embeddings.append(_embedding(audio[a:b]))
-        labels = _agglomerative(embeddings, threshold, max_speakers)
+            durations.append(max(0.0, float(seg.end) - float(seg.start)))
+        labels = _cluster(embeddings, durations, threshold, max_speakers, cancel)
         # relabel by first appearance so speakers are 0,1,2… in order
-        order, remap = {}, {}
+        remap: dict[int, int] = {}
         for lab in labels:
             if lab not in remap:
                 remap[lab] = len(remap)
         return [remap[lab] for lab in labels]
+    except InterruptedError:
+        raise
     except Exception:
         log.exception("diarization failed; returning single speaker")
         return [0] * len(segments)
 
 
-def apply_to_segments(audio_path: str, segments, max_speakers: int = 4) -> int:
+def apply_to_segments(audio_path: str, segments, max_speakers: int = 4, cancel=None) -> int:
     """Diarize and write 'Speaker N' onto each segment. Returns speaker count."""
-    labels = diarize(audio_path, segments, max_speakers)
+    labels = diarize(audio_path, segments, max_speakers, cancel=cancel)
     for seg, lab in zip(segments, labels):
         seg.speaker = f"Speaker {lab + 1}"
     return (max(labels) + 1) if labels else 0

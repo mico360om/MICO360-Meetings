@@ -19,7 +19,7 @@ import logging
 import threading
 import time
 import wave
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from ..config import RECORDINGS_DIR, TMP_DIR
@@ -192,6 +192,173 @@ def input_candidates(sd, preferred=None) -> list[int]:
     return out
 
 
+def _refresh_portaudio(sd) -> None:
+    """Re-scan audio devices. PortAudio caches the device list at start-up, so a
+    headset that was unplugged and plugged back in (or a new default device) is
+    only visible after a terminate/initialize cycle."""
+    try:
+        sd._terminate()
+        sd._initialize()
+    except Exception:
+        log.debug("PortAudio refresh failed", exc_info=True)
+
+
+# Device-loss detection (H13): no audio callback for this long while recording
+# means the device went away (USB/Bluetooth unplugged, driver reset).
+_STALL_SECONDS = 3.0
+# How long to keep trying to reopen a lost microphone before giving up.
+_REOPEN_SECONDS = 12.0
+# Mic + system mixing is streamed in blocks of this many seconds (M31).
+_MIX_BLOCK_SECONDS = 5.0
+
+_LOST_MIC_MSG = ("The microphone stopped sending audio (was it unplugged?). "
+                 "Everything recorded up to that point was saved.")
+
+
+# ---------------------------------------------------------------------------
+# Streaming mix (M31): mic + system audio are mixed block by block, so a long
+# meeting never has to fit in RAM.
+# ---------------------------------------------------------------------------
+class _LinearResampler:
+    """Streaming linear-interpolation resampler (same result as one np.interp
+    over the whole signal, but fed block by block)."""
+
+    def __init__(self, src_rate: int, dst_rate: int):
+        import numpy as np
+        self._np = np
+        self.src, self.dst = int(src_rate), int(dst_rate)
+        self.step = self.src / float(self.dst)      # input samples per output sample
+        self.next_pos = 0.0                         # absolute input position of next output
+        self.offset = 0                             # absolute index of self.buf[0]
+        self.buf = np.zeros(0, dtype="float32")
+
+    def process(self, x):
+        np = self._np
+        x = np.asarray(x, dtype="float32")
+        if self.src == self.dst:
+            return x
+        buf = np.concatenate([self.buf, x]) if len(self.buf) else x
+        if not len(buf):
+            return np.zeros(0, dtype="float32")
+        last = self.offset + len(buf) - 1           # last absolute input index available
+        if self.next_pos > last:
+            n = 0
+        else:
+            n = int((last - self.next_pos) // self.step) + 1
+        if n:
+            pos = self.next_pos + self.step * np.arange(n) - self.offset
+            out = np.interp(pos, np.arange(len(buf)), buf).astype("float32")
+            self.next_pos += self.step * n
+        else:
+            out = np.zeros(0, dtype="float32")
+        keep = int(self.next_pos) - self.offset     # keep from floor(next_pos) on
+        keep = max(0, min(keep, len(buf) - 1))
+        self.buf = buf[keep:]
+        self.offset += keep
+        return out
+
+
+def _iter_mono(path: str, target: int, block_seconds: float):
+    """Yield a media file as mono float32 blocks at `target` Hz."""
+    import soundfile as sf
+    with sf.SoundFile(path) as f:
+        rs = _LinearResampler(f.samplerate, target)
+        bs = max(1024, int(f.samplerate * block_seconds))
+        for blk in f.blocks(blocksize=bs, dtype="float32", always_2d=True):
+            mono = blk.mean(axis=1) if blk.shape[1] > 1 else blk[:, 0]
+            out = rs.process(mono)
+            if len(out):
+                yield out
+
+
+def _iter_mix(paths: list[str], target: int, block_seconds: float):
+    """Yield the sum of several sources in blocks (shorter sources are padded)."""
+    import numpy as np
+    gens = [_iter_mono(p, target, block_seconds) for p in paths]
+    bufs = [np.zeros(0, dtype="float32") for _ in paths]
+    done = [False] * len(paths)
+    size = max(1024, int(target * block_seconds))
+    while True:
+        for i, g in enumerate(gens):
+            while not done[i] and len(bufs[i]) < size:
+                try:
+                    bufs[i] = np.concatenate([bufs[i], next(g)])
+                except StopIteration:
+                    done[i] = True
+        n = max((min(len(b), size) for b in bufs), default=0)
+        if n == 0:
+            if all(done):
+                return
+            continue
+        chunk = np.zeros(n, dtype="float32")
+        for i, b in enumerate(bufs):
+            take = b[:n]
+            chunk[:len(take)] += take
+            bufs[i] = b[len(take):]
+        yield chunk
+
+
+def mix_sources_to_file(paths: list[str], out_path: str, fmt: str = "wav", target: int = 16000,
+                        block_seconds: float | None = None, scratch_dir: Path | None = None) -> None:
+    """Mix `paths` (any rate / channel count) into a mono `target` Hz WAV or MP3
+    at `out_path`, streaming in blocks. Two passes so the result can still be
+    normalised when the sum clips. Raises on failure and never leaves a
+    half-written `out_path` behind."""
+    import numpy as np
+    import soundfile as sf
+    block = float(block_seconds or _MIX_BLOCK_SECONDS)
+    scratch_dir = Path(scratch_dir or TMP_DIR)
+    scratch_dir.mkdir(parents=True, exist_ok=True)
+    scratch = scratch_dir / f"_mix_{int(time.time() * 1000)}_{threading.get_ident()}.wav"
+    try:
+        peak = 0.0
+        with sf.SoundFile(str(scratch), mode="w", samplerate=target, channels=1,
+                          subtype="FLOAT") as tmp:
+            for chunk in _iter_mix(paths, target, block):
+                if len(chunk):
+                    peak = max(peak, float(np.abs(chunk).max()))
+                    tmp.write(chunk)
+        gain = (1.0 / peak) if peak > 1.0 else 1.0
+        bs = max(1024, int(target * block))
+        with sf.SoundFile(str(scratch)) as src:
+            if fmt == "mp3":
+                import av
+                from fractions import Fraction
+                c = av.open(out_path, mode="w")
+                try:
+                    stm = c.add_stream("libmp3lame", rate=target)
+                    stm.layout = "mono"
+                    pts = 0
+                    for blk in src.blocks(blocksize=bs, dtype="float32"):
+                        pcm = (np.clip(blk * gain, -1.0, 1.0) * 32767).astype("int16").reshape(1, -1)
+                        fr = av.AudioFrame.from_ndarray(pcm, format="s16", layout="mono")
+                        fr.sample_rate = target
+                        fr.pts, fr.time_base = pts, Fraction(1, target)
+                        pts += pcm.shape[1]
+                        for p in stm.encode(fr):
+                            c.mux(p)
+                    for p in stm.encode(None):
+                        c.mux(p)
+                finally:
+                    c.close()
+            else:
+                with sf.SoundFile(out_path, mode="w", samplerate=target, channels=1,
+                                  subtype="PCM_16") as dst:
+                    for blk in src.blocks(blocksize=bs, dtype="float32"):
+                        dst.write(blk * gain if gain != 1.0 else blk)
+    except BaseException:
+        try:
+            Path(out_path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
+    finally:
+        try:
+            scratch.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Config + result
 # ---------------------------------------------------------------------------
@@ -252,6 +419,8 @@ class BaseRecorder:
         self.has_audio = cfg.include_audio
         self.resolution = ""
         self.error = ""
+        self.warnings: list[str] = []   # non-fatal problems to show the user
+        self._discard = False           # cancel(): skip mixing/muxing, drop intermediates
 
     # -- clock --------------------------------------------------------------
     def elapsed(self) -> float:
@@ -270,8 +439,17 @@ class BaseRecorder:
         elif self.state == RECORDING:
             self._final_elapsed = time.time() - self._t0 - self._paused_total
 
+    def _fail(self, message: str) -> None:
+        """Enter ERROR from a capture thread (clock frozen so the duration is kept)."""
+        self._freeze_clock()
+        self.error = message
+        self.state = ERROR
+
     def level(self) -> float:
         return 0.0 if self.state == PAUSED else self._level
+
+    def all_warnings(self) -> list[str]:
+        return list(self.warnings)
 
     def file_size(self) -> int:
         try:
@@ -294,6 +472,7 @@ class BaseRecorder:
             self.state = RECORDING
 
     def cancel(self) -> None:
+        self._discard = True
         try:
             self.stop()
         finally:
@@ -311,6 +490,22 @@ class BaseRecorder:
             has_audio=self.has_audio, resolution=self.resolution,
         )
 
+    @staticmethod
+    def _safe_close(stream):
+        try:
+            stream.stop(); stream.close()
+        except Exception:
+            pass
+
+    def _close_with_timeout(self, stream, timeout: float = 3.0) -> bool:
+        """Close a (possibly wedged) stream without hanging; True if it closed."""
+        if stream is None:
+            return True
+        closer = threading.Thread(target=lambda: self._safe_close(stream), daemon=True)
+        closer.start()
+        closer.join(timeout=timeout)
+        return not closer.is_alive()
+
 
 # ---------------------------------------------------------------------------
 # Audio-only recorder  (WAV or MP3)
@@ -326,6 +521,14 @@ class AudioRecorder(BaseRecorder):
         self._stop_flag = threading.Event()
         self._thread: threading.Thread | None = None
         self._frames_captured = 0
+        # what was actually written, per source: {"mic"|"sys": (frames, rate)}
+        self._written: dict[str, tuple[int, int]] = {}
+        self._last_cb: dict[str, float] = {}         # source -> time of last device callback
+        self._first_audio_elapsed: float | None = None
+        self._failed_sources: dict[str, str] = {}
+        self._temps: list[str] = []
+        self._finalizing = False
+        self.reopened = 0                            # times a lost mic was reopened
         # live-transcription tap (opt-in): captured mic frames buffered for a
         # separate worker to pull and transcribe as recording proceeds.
         self._live_on = False
@@ -355,6 +558,44 @@ class AudioRecorder(BaseRecorder):
             self._live_buf = []
         return arr, self._live_rate
 
+    # -- bookkeeping ----------------------------------------------------------
+    def _note_audio(self, src: str, frames: int, rate: int) -> None:
+        """Account for `frames` samples of `src` that were just written."""
+        n, _ = self._written.get(src, (0, rate))
+        self._written[src] = (n + int(frames), int(rate))
+        self._frames_captured += int(frames)
+        if self._first_audio_elapsed is None:
+            self._first_audio_elapsed = max(0.0, self.elapsed() - frames / float(rate or 1))
+
+    def recorded_seconds(self) -> float:
+        """Length of the audio actually written (frames / rate) — the truthful
+        duration, even if a device dropped out for part of the meeting (H13)."""
+        return max((n / float(r) for n, r in self._written.values() if r), default=0.0)
+
+    def _stalled(self, src: str) -> bool:
+        last = self._last_cb.get(src)
+        return (last is not None and self._written.get(src, (0, 0))[0] > 0
+                and self.state in (RECORDING, PAUSED)
+                and time.time() - last > _STALL_SECONDS)
+
+    def _result(self, fmt: str) -> RecordingResult:
+        res = super()._result(fmt)
+        secs = self.recorded_seconds()
+        if secs > 0:
+            res.duration = secs
+        return res
+
+    def file_size(self) -> int:
+        if self.state in (RECORDING, PAUSED) and self._temps:
+            total = 0
+            for t in self._temps:
+                try:
+                    total += Path(t).stat().st_size
+                except OSError:
+                    pass
+            return total
+        return super().file_size()
+
     def start(self) -> None:
         # Capture runs in a background thread so opening the audio device can
         # NEVER freeze the UI (some drivers/host APIs block on open). The UI
@@ -370,6 +611,88 @@ class AudioRecorder(BaseRecorder):
         self.state = RECORDING
         self._thread.start()
 
+    # -- microphone open / reopen (shared by the single and multi-source paths) --
+    def _open_mic(self, sd, callback, rates, on_rate=None, on_fail=None, timeout: float = 6.0):
+        """Open the first working input: each candidate device (user's choice,
+        host-API defaults, then every input) × each samplerate in `rates` (None =
+        the device's default rate). `on_rate(rate)` runs before each attempt (to
+        create a writer at that rate), `on_fail()` after a failed one. Runs in a
+        helper thread so a driver that blocks in open() can't hang the recorder.
+        Returns (stream, device, rate); raises RuntimeError."""
+        box: dict = {}
+        lock = threading.Lock()
+        state = {"abandoned": False}
+
+        def run():
+            err = None
+            cands = input_candidates(sd, self.cfg.mic_index)
+            if not cands:
+                box["err"] = RuntimeError("No microphone detected. Connect a microphone and try again.")
+                return
+            for device in cands:
+                for pref in rates:
+                    rate = pref
+                    if rate is None:
+                        try:
+                            rate = int(sd.query_devices(device).get("default_samplerate") or 44100)
+                        except Exception:
+                            rate = 44100
+                    try:
+                        if on_rate:
+                            on_rate(rate)
+                        st = sd.InputStream(samplerate=rate, channels=1, device=device,
+                                            dtype="float32", blocksize=1600, callback=callback)
+                        st.start()
+                    except Exception as exc:
+                        err = exc
+                        if on_fail:
+                            try:
+                                on_fail()
+                            except Exception:
+                                pass
+                        continue
+                    with lock:
+                        late = state["abandoned"]
+                        if not late:
+                            box["ok"] = (st, device, rate)
+                    if late:                         # caller gave up: don't leak the device
+                        self._safe_close(st)
+                    return
+            box["err"] = err
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        t.join(timeout)
+        with lock:
+            if "ok" in box:
+                return box["ok"]
+            state["abandoned"] = True
+        if t.is_alive():
+            raise RuntimeError("Microphone did not respond (it may be busy, muted or disabled). "
+                               "Try selecting a different microphone.")
+        raise RuntimeError(str(box.get("err") or "The microphone could not be opened."))
+
+    def _reopen_mic(self, sd, callback, rate: int, dead_stream):
+        """The mic stopped delivering audio (unplugged / driver reset). Close it
+        and keep trying to open an input — the same one if it comes back, else
+        another — at the SAME rate so the file stays consistent. Returns
+        (stream, device, rate) or None."""
+        closed = self._close_with_timeout(dead_stream)
+        deadline = time.time() + _REOPEN_SECONDS
+        while not self._stop_flag.is_set() and time.time() < deadline:
+            if closed:
+                _refresh_portaudio(sd)
+            try:
+                got = self._open_mic(sd, callback, (rate,), timeout=4.0)
+                self._last_cb["mic"] = time.time()
+                self.reopened += 1
+                log.warning("microphone lost and reopened on device %s @ %sHz", got[1], rate)
+                return got
+            except Exception as exc:
+                log.info("reopening the microphone failed: %s", exc)
+            self._stop_flag.wait(1.0)
+        return None
+
     # -- multi-source (system / both) ---------------------------------------
     def _source_plan(self) -> list[str]:
         """Which sources to capture: 'mic' (sounddevice) and/or 'sys' (loopback)."""
@@ -380,6 +703,16 @@ class AudioRecorder(BaseRecorder):
         if src in ("system", "both"):
             plan.append("sys")
         return plan
+
+    def _source_failed(self, kind: str, message: str) -> None:
+        """A source could not be captured (M34): remember why and, when another
+        source keeps recording, tell the user instead of dropping it silently."""
+        self._failed_sources[kind] = message
+        log.warning("%s source failed: %s", kind, message)
+        others = [k for k in self._source_plan() if k != kind and k not in self._failed_sources]
+        if others:
+            rest = "system audio" if kind == "mic" else "the microphone"
+            self.warnings.append(f"{message} — recording {rest} only.")
 
     def _loop_sources(self):
         # Each source captures to its own temp WAV in a thread; on stop they are
@@ -399,73 +732,115 @@ class AudioRecorder(BaseRecorder):
                 th = threading.Thread(target=target, args=(tmp,), daemon=True)
                 th.start()
                 threads.append(th)
+            self._temps = list(temps)
 
             start = time.time()
             while not self._stop_flag.is_set():
                 time.sleep(0.1)
+                if self._stop_flag.is_set():
+                    break
+                if not any(th.is_alive() for th in threads):
+                    # every source has failed (M34) — say why, don't wait it out
+                    why = "; ".join(self._failed_sources.values())
+                    raise RuntimeError(why or "Audio capture stopped unexpectedly.")
                 if (self.state == RECORDING and self._frames_captured == 0
                         and time.time() - start > 6.0):
                     raise RuntimeError("No audio is being received. For system audio make "
                                        "sure something is playing; for the mic check it isn't muted.")
         except Exception as exc:
-            self.error = str(exc); self.state = ERROR
+            self._fail(str(exc))
             log.exception("multi-source audio capture failed")
         finally:
             if self.state != ERROR:
                 self.state = STOPPED
+            self._stop_flag.set()                # also ends the surviving source threads
             for th in threads:
                 th.join(timeout=6)
-            try:
-                self._finalize_sources(temps)
-            except Exception:
-                log.exception("finalizing multi-source recording failed")
+            if self._discard:
+                for t in temps:
+                    Path(t).unlink(missing_ok=True)
+            else:
+                self._finalizing = True
+                try:
+                    self._finalize_sources(temps)
+                except BaseException as exc:          # MemoryError, disk full, …
+                    kept = ", ".join(Path(t).name for t in temps if Path(t).exists())
+                    self.error = (f"The recording could not be saved ({exc.__class__.__name__}: "
+                                  f"{exc}). The captured audio was kept in {TMP_DIR}"
+                                  + (f" ({kept})." if kept else "."))
+                    log.exception("finalizing multi-source recording failed")
+                finally:
+                    self._finalizing = False
 
     def _capture_mic(self, temp: str):
         import numpy as np
         import sounddevice as sd
         import soundfile as sf
-        writer = stream = None
-        try:
-            device = self.cfg.mic_index
-            if device is None:
-                d = default_microphone()
-                device = d.index if d else None
-            rate = self.cfg.samplerate
-            writer = sf.SoundFile(temp, mode="w", samplerate=rate, channels=1, subtype="PCM_16")
+        box: dict = {"writer": None, "rate": self.cfg.samplerate}
+        stream = None
 
-            def cb(indata, frames, time_info, status):  # noqa: ARG001
-                if self.state != RECORDING:
-                    return
+        def close_writer():
+            w, box["writer"] = box["writer"], None
+            if w is not None:
                 try:
-                    data = indata if indata.ndim == 1 or indata.shape[1] == 1 \
-                        else indata.mean(axis=1, keepdims=True)
-                    self._frames_captured += frames
-                    self._level = float(min(1.0, float(np.abs(data).max()) * 1.4))
-                    if self._live_on:
-                        self._live_rate = self.cfg.samplerate
-                        self._live_push(np.asarray(data).reshape(-1).copy())
-                    writer.write(data.copy())
+                    w.close()
                 except Exception:
                     pass
 
-            stream = sd.InputStream(samplerate=rate, channels=1, device=device,
-                                    dtype="float32", blocksize=1600, callback=cb)
-            stream.start()
+        def open_writer(rate):
+            close_writer()
+            box["rate"] = rate
+            box["writer"] = sf.SoundFile(temp, mode="w", samplerate=rate, channels=1,
+                                         subtype="PCM_16")
+
+        def cb(indata, frames, time_info, status):  # noqa: ARG001
+            self._last_cb["mic"] = time.time()
+            if self.state != RECORDING:
+                return
+            w = box["writer"]
+            if w is None:
+                return
+            try:
+                data = indata if indata.ndim == 1 or indata.shape[1] == 1 \
+                    else indata.mean(axis=1, keepdims=True)
+                rate = box["rate"]
+                w.write(data.copy())
+                self._note_audio("mic", frames, rate)
+                self._level = float(min(1.0, float(np.abs(data).max()) * 1.4))
+                if self._live_on:
+                    self._live_rate = rate
+                    self._live_push(np.asarray(data).reshape(-1).copy())
+            except Exception:
+                pass
+
+        try:
+            try:
+                # M34: same device + samplerate fallback as the mic-only path
+                stream, device, rate = self._open_mic(
+                    sd, cb, (self.cfg.samplerate, None), on_rate=open_writer, on_fail=close_writer)
+                log.info("mic source on device %s @ %sHz", device, rate)
+            except Exception as exc:
+                self._source_failed("mic", f"The microphone could not be opened ({exc})")
+                return
             while not self._stop_flag.is_set():
                 time.sleep(0.05)
-        except Exception:
-            log.warning("mic source capture failed", exc_info=True)
+                if self._stalled("mic"):
+                    got = self._reopen_mic(sd, cb, box["rate"], stream)
+                    stream = None
+                    if got is None:
+                        if not self._stop_flag.is_set():
+                            self._source_failed("mic", "The microphone stopped sending audio "
+                                                       "(was it unplugged?)")
+                        return
+                    stream = got[0]
+                    self.warnings.append("The microphone stopped responding and was reopened — "
+                                         "a few seconds of audio may be missing.")
+        except Exception as exc:
+            self._source_failed("mic", f"Microphone capture failed ({exc})")
         finally:
-            try:
-                if stream is not None:
-                    stream.stop(); stream.close()
-            except Exception:
-                pass
-            try:
-                if writer is not None:
-                    writer.close()
-            except Exception:
-                pass
+            if stream is not None:
+                self._close_with_timeout(stream)
+            close_writer()
 
     def _capture_system(self, temp: str):
         import numpy as np
@@ -480,14 +855,17 @@ class AudioRecorder(BaseRecorder):
             with loop_mic.recorder(samplerate=rate, channels=1, blocksize=2048) as r:
                 while not self._stop_flag.is_set():
                     data = r.record(numframes=2048)
-                    if self.state == PAUSED:
+                    self._last_cb["sys"] = time.time()
+                    if self.state != RECORDING:
                         continue
                     d = data.reshape(-1) if getattr(data, "ndim", 1) > 1 else data
-                    self._frames_captured += len(d)
-                    self._level = float(min(1.0, float(np.abs(d).max()) * 1.4))
                     writer.write(d.astype("float32"))
-        except Exception:
+                    self._note_audio("sys", len(d), rate)
+                    self._level = float(min(1.0, float(np.abs(d).max()) * 1.4))
+        except Exception as exc:
             log.warning("system-audio (loopback) capture failed", exc_info=True)
+            if not self._stop_flag.is_set():
+                self._source_failed("sys", f"System audio could not be captured ({exc})")
         finally:
             try:
                 if writer is not None:
@@ -496,8 +874,6 @@ class AudioRecorder(BaseRecorder):
                 pass
 
     def _finalize_sources(self, temps: list[str]):
-        import numpy as np
-        import soundfile as sf
         temps = [t for t in temps if Path(t).exists() and Path(t).stat().st_size > 1024]
         if not temps:
             return
@@ -507,38 +883,8 @@ class AudioRecorder(BaseRecorder):
                 return
             except OSError:
                 pass
-        target = 16000
-        arrays = []
-        for t in temps:
-            data, sr = sf.read(t, dtype="float32", always_2d=False)
-            if getattr(data, "ndim", 1) > 1:
-                data = data.mean(axis=1)
-            if sr != target and len(data):
-                n = int(len(data) * target / sr)
-                data = np.interp(np.linspace(0, 1, n, endpoint=False),
-                                 np.linspace(0, 1, len(data), endpoint=False), data).astype("float32")
-            arrays.append(data)
-        n = max((len(a) for a in arrays), default=0)
-        mix = np.zeros(n, dtype="float32")
-        for a in arrays:
-            mix[:len(a)] += a
-        peak = float(np.abs(mix).max()) if n else 0.0
-        if peak > 1.0:
-            mix /= peak
-        if self.cfg.audio_format == "mp3":
-            import av
-            c = av.open(self.output_path, mode="w")
-            stm = c.add_stream("libmp3lame", rate=target); stm.layout = "mono"
-            frame = av.AudioFrame.from_ndarray((mix * 32767).astype("int16").reshape(1, -1),
-                                               format="s16", layout="mono")
-            frame.sample_rate = target
-            for p in stm.encode(frame):
-                c.mux(p)
-            for p in stm.encode(None):
-                c.mux(p)
-            c.close()
-        else:
-            sf.write(self.output_path, mix, target, subtype="PCM_16")
+        # M31: streamed block by block — never loads a whole source into RAM.
+        mix_sources_to_file(temps, self.output_path, self.cfg.audio_format, target=16000)
         for t in temps:
             Path(t).unlink(missing_ok=True)
 
@@ -577,115 +923,110 @@ class AudioRecorder(BaseRecorder):
         import sounddevice as sd
         self._writer = self._av_stream = self._container = None
         stream = None
-
         self._frames_captured = 0
+        wlock = threading.Lock()
 
         def callback(indata, frames, time_info, status):  # noqa: ARG001
+            self._last_cb["mic"] = time.time()
             if self.state != RECORDING:
                 return
             try:
-                self._frames_captured += frames
+                with wlock:
+                    if self._av_stream is not None:
+                        import av as _av
+                        frame = _av.AudioFrame.from_ndarray(
+                            (indata.T * 32767).astype(np.int16), format="s16", layout="mono")
+                        frame.sample_rate = self._rate
+                        for packet in self._av_stream.encode(frame):
+                            self._container.mux(packet)
+                    elif self._writer is not None:
+                        self._writer.write(indata.copy())
+                    else:
+                        return
+                self._note_audio("mic", frames, self._rate)
                 self._level = float(min(1.0, float(np.abs(indata).max()) * 1.4))
                 if self._live_on:
                     self._live_rate = self._rate
                     self._live_push(indata.reshape(-1).copy())
-                if self._av_stream is not None:
-                    import av as _av
-                    frame = _av.AudioFrame.from_ndarray(
-                        (indata.T * 32767).astype(np.int16), format="s16", layout="mono")
-                    frame.sample_rate = self._rate
-                    for packet in self._av_stream.encode(frame):
-                        self._container.mux(packet)
-                elif self._writer is not None:
-                    self._writer.write(indata.copy())
             except Exception:
                 log.warning("audio write error", exc_info=True)
 
-        box: dict = {"stream": None, "err": None}
-
-        def _open():
-            candidates = input_candidates(sd, self.cfg.mic_index)
-            if not candidates:
-                box["err"] = RuntimeError("No microphone detected. Connect a microphone and try again.")
-                return
-            for device in candidates:
-                for rate_pref in (self.cfg.samplerate, None):
-                    rate = rate_pref
-                    if rate is None:
-                        try:
-                            rate = int(sd.query_devices(device).get("default_samplerate") or 44100)
-                        except Exception:
-                            rate = 44100
-                    try:
-                        self._rate = rate
-                        self._open_writer(rate)
-                        st = sd.InputStream(samplerate=rate, channels=1, device=device,
-                                            dtype="float32", blocksize=1600, callback=callback)
-                        st.start()
-                        box["stream"] = st
-                        box["device"] = device
-                        box["err"] = None
-                        log.info("audio recording on device %s @ %sHz", device, rate)
-                        return
-                    except Exception as exc:
-                        box["err"] = exc
-                        self._close_writer(finalize=False)
+        def open_writer(rate):
+            self._rate = rate
+            self._open_writer(rate)
 
         try:
-            # Open the device in a sub-thread; if a broken/busy device blocks the
-            # native open call, we don't wait forever.
-            opener = threading.Thread(target=_open, daemon=True)
-            opener.start()
-            opener.join(timeout=6)
-            stream = box["stream"]
-            if opener.is_alive() or stream is None:
-                raise RuntimeError(str(box["err"]) if box["err"] else
-                                   "Microphone did not respond (it may be busy, muted or disabled). "
-                                   "Try selecting a different microphone.")
+            stream, device, rate = self._open_mic(
+                sd, callback, (self.cfg.samplerate, None), on_rate=open_writer,
+                on_fail=lambda: self._close_writer(finalize=False))
+            log.info("audio recording on device %s @ %sHz", device, rate)
 
-            # Watchdog: device opened but delivers no audio (muted / no permission).
             start = time.time()
             while not self._stop_flag.is_set():
                 time.sleep(0.1)
+                # Watchdog: device opened but delivers no audio (muted / no permission).
                 if (self.state == RECORDING and self._frames_captured == 0
                         and time.time() - start > 4.0):
                     raise RuntimeError("Microphone opened but no audio is being received. "
                                        "Check it isn't muted or disabled, or select a different microphone.")
+                # H13: the device went away mid-recording — reopen it (or another
+                # input) at the same rate; if that fails, stop with a clear error
+                # instead of silently producing a file that ends early.
+                if self._stalled("mic"):
+                    log.warning("microphone stopped delivering audio; trying to reopen it")
+                    got = self._reopen_mic(sd, callback, self._rate, stream)
+                    stream = None
+                    if got is None:
+                        if self._stop_flag.is_set():
+                            break
+                        raise RuntimeError(_LOST_MIC_MSG)
+                    stream = got[0]
+                    self.warnings.append("The microphone stopped responding and was reopened — "
+                                         "a few seconds of audio may be missing.")
         except Exception as exc:
-            self.error = str(exc)
-            self.state = ERROR
+            self._fail(str(exc))
             log.exception("audio capture failed")
         finally:
             if self.state != ERROR:
                 self.state = STOPPED
             # Closing a wedged stream can block — do it with a timeout so stop() returns.
-            st = box.get("stream")
-            if st is not None:
-                closer = threading.Thread(target=lambda: self._safe_close(st), daemon=True)
-                closer.start(); closer.join(timeout=3)
-            self._close_writer(finalize=True)
+            if stream is not None:
+                self._close_with_timeout(stream)
+            with wlock:
+                self._close_writer(finalize=True)
 
-    @staticmethod
-    def _safe_close(stream):
-        try:
-            stream.stop(); stream.close()
-        except Exception:
-            pass
+    def _join_capture(self) -> None:
+        th = self._thread
+        if th is None:
+            return
+        th.join(timeout=15)
+        # Mixing a long mic+system recording can take a while; it runs on the
+        # capture thread, so wait for it (stop() runs off the GUI thread).
+        while th.is_alive() and self._finalizing:
+            th.join(timeout=0.5)
 
     def stop(self) -> RecordingResult:
         if self.state in (STOPPED, CANCELLED):
+            self._stop_flag.set()
+            self._join_capture()
             return self._result(self.cfg.audio_format)
         self._freeze_clock()
         self.state = STOPPED
         self._stop_flag.set()
-        if self._thread:
-            self._thread.join(timeout=8)
+        self._join_capture()
         return self._result(self.cfg.audio_format)
 
 
 # ---------------------------------------------------------------------------
-# Video recorder (screen or camera) + optional mic audio  -> MP4
+# Video recorder (screen or camera) + optional audio  -> MP4
 # ---------------------------------------------------------------------------
+def frame_pts(t: float, t_first: float, last_pts: int) -> int:
+    """Presentation time (ms, time base 1/1000) of a frame captured at recording
+    time `t` (H10): video follows the clock, not the frame count, so it stays in
+    step with the audio even when capture runs below the target fps."""
+    return max(last_pts + 1, int(round((t - t_first) * 1000)))
+
+
 class VideoRecorder(BaseRecorder):
     kind = "screen"
 
@@ -699,42 +1040,80 @@ class VideoRecorder(BaseRecorder):
         self._frames = 0
         self._stop_flag = threading.Event()
         self._vthread: threading.Thread | None = None
-        self._athread: threading.Thread | None = None
+        self._audio: AudioRecorder | None = None
+        self._first_frame_elapsed: float | None = None
+
+    def _make_audio_recorder(self) -> AudioRecorder | None:
+        """H9: the soundtrack uses the same capture + mix path as audio-only
+        recordings, so "System audio" and "Mic + System" work for screen and
+        camera recordings too (remote participants are no longer dropped)."""
+        if not self.cfg.include_audio:
+            return None
+        src = self.cfg.source if self.cfg.source in ("mic", "system", "both") else "mic"
+        if src == "mic" and not has_microphone():
+            return None
+        acfg = replace(self.cfg, kind="audio", audio_format="wav", source=src)
+        rec = AudioRecorder(acfg)
+        rec.output_path = self._tmp_wav
+        return rec
 
     def file_size(self) -> int:
         if self.state in (STOPPED, CANCELLED):
             return super().file_size()
         total = 0
-        for p in (self._tmp_video, self._tmp_wav):
-            try:
-                total += Path(p).stat().st_size
-            except OSError:
-                pass
+        try:
+            total += Path(self._tmp_video).stat().st_size
+        except OSError:
+            pass
+        if self._audio is not None:
+            total += self._audio.file_size()
         return total
+
+    def level(self) -> float:
+        if self.state == PAUSED or self._audio is None:
+            return 0.0
+        return self._audio.level()
+
+    def all_warnings(self) -> list[str]:
+        out = list(self.warnings)
+        if self._audio is not None:
+            out += self._audio.all_warnings()
+            if self._audio.state == ERROR and self._audio.error:
+                out.append(f"Audio stopped: {self._audio.error} The video continues without sound.")
+        return out
+
+    def pause(self) -> None:
+        super().pause()
+        if self._audio is not None:
+            self._audio.pause()
+
+    def resume(self) -> None:
+        super().resume()
+        if self._audio is not None:
+            self._audio.resume()
 
     def start(self) -> None:
         TMP_DIR.mkdir(parents=True, exist_ok=True)
         RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
-        # audio first so we can downgrade gracefully if no mic
-        if self.cfg.include_audio and has_microphone():
-            self.has_audio = True
-            self._athread = threading.Thread(target=self._audio_loop, daemon=True)
-        else:
-            self.has_audio = False
-            self._athread = None
+        self._audio = self._make_audio_recorder()
+        self.has_audio = self._audio is not None
         self._vthread = threading.Thread(target=self._video_loop, daemon=True)
-
-        self._t0 = time.time()
+        if self._audio is not None:
+            self._audio.start()
+            self._t0 = self._audio._t0             # one clock for both tracks
+        else:
+            self._t0 = time.time()
         self.started_at = self._t0
         self.state = RECORDING
-        if self._athread:
-            self._athread.start()
         self._vthread.start()
 
-    # -- capture loops ------------------------------------------------------
+    # -- capture loop -------------------------------------------------------
     def _video_loop(self):
         import av
         import numpy as np
+        from fractions import Fraction
+        container = None
+        tb = Fraction(1, 1000)
         try:
             grab, size = self._make_source()
             self.resolution = f"{size[0]}x{size[1]}"
@@ -742,10 +1121,13 @@ class VideoRecorder(BaseRecorder):
             stream = container.add_stream("libx264", rate=self.cfg.fps)
             stream.width, stream.height = size
             stream.pix_fmt = "yuv420p"
+            stream.time_base = tb                  # H10: wall-clock timestamps (ms)
+            stream.codec_context.time_base = tb
             stream.options = {"preset": "ultrafast", "crf": "26"}
 
             frame_interval = 1.0 / max(1, self.cfg.fps)
             next_t = time.time()
+            last_pts = -1
             while not self._stop_flag.is_set():
                 if self.state == PAUSED:
                     time.sleep(0.03)
@@ -755,9 +1137,16 @@ class VideoRecorder(BaseRecorder):
                 if rgb is None:
                     time.sleep(frame_interval)
                     continue
+                t = self.elapsed()                  # pause-free recording clock
+                if self.state != RECORDING:
+                    continue
+                if self._first_frame_elapsed is None:
+                    self._first_frame_elapsed = t
+                pts = frame_pts(t, self._first_frame_elapsed, last_pts)
+                last_pts = pts
                 vframe = av.VideoFrame.from_ndarray(np.ascontiguousarray(rgb), format="rgb24")
-                # Let the encoder assign CFR timing (rate = fps); manual pts/time_base
-                # is fragile across PyAV versions and not needed here.
+                vframe.pts = pts
+                vframe.time_base = tb
                 for packet in stream.encode(vframe):
                     container.mux(packet)
                 self._frames += 1
@@ -769,12 +1158,16 @@ class VideoRecorder(BaseRecorder):
                     next_t = time.time()
             for packet in stream.encode(None):
                 container.mux(packet)
-            container.close()
-            self._close_source()
         except Exception as exc:
-            self.error = str(exc)
-            self.state = ERROR
+            self._fail(str(exc))
             log.exception("video capture failed")
+        finally:
+            if container is not None:
+                try:
+                    container.close()
+                except Exception:
+                    log.warning("closing the video file failed", exc_info=True)
+            self._close_source()
 
     def _make_source(self):
         if self.kind == "camera":
@@ -821,72 +1214,43 @@ class VideoRecorder(BaseRecorder):
         except Exception:
             pass
 
-    def _audio_loop(self):
-        # Callback stream + host-API fallback (blocking read() and the default
-        # device can fail with PaErrorCode -9999 on some Windows machines).
-        import numpy as np
-        import sounddevice as sd
-        import soundfile as sf
-        writer = stream = None
-        try:
-            writer = sf.SoundFile(self._tmp_wav, mode="w", samplerate=self.cfg.samplerate,
-                                  channels=1, subtype="PCM_16")
-
-            def callback(indata, frames, time_info, status):  # noqa: ARG001
-                if self.state == PAUSED:
-                    return
-                try:
-                    self._level = float(min(1.0, float(np.abs(indata).max()) * 1.4))
-                    writer.write(indata.copy())
-                except Exception:
-                    pass
-
-            last = None
-            for device in input_candidates(sd, self.cfg.mic_index):
-                try:
-                    stream = sd.InputStream(samplerate=self.cfg.samplerate, channels=1,
-                                            device=device, dtype="float32", blocksize=1600,
-                                            callback=callback)
-                    stream.start()
-                    last = None
-                    break
-                except Exception as exc:
-                    last = exc
-                    stream = None
-            if stream is None:
-                raise RuntimeError(str(last))
-            while not self._stop_flag.is_set():
-                time.sleep(0.05)
-        except Exception:
-            log.warning("audio capture failed; continuing video-only", exc_info=True)
-            self.has_audio = False
-        finally:
-            try:
-                if stream is not None:
-                    stream.stop(); stream.close()
-            except Exception:
-                pass
-            try:
-                if writer is not None:
-                    writer.close()
-            except Exception:
-                pass
-
     # -- stop + mux ---------------------------------------------------------
     def stop(self) -> RecordingResult:
         if self.state in (STOPPED, CANCELLED):
-            return self._result("mp4")
-        was_recording = self.state in (RECORDING, PAUSED)
+            return self._result(self._fmt())
+        started = self.state != IDLE
         self._freeze_clock()
         self.state = STOPPED
         self._stop_flag.set()
         if self._vthread:
             self._vthread.join(timeout=10)
-        if self._athread:
-            self._athread.join(timeout=5)
-        if was_recording:
+        if self._audio is not None:
+            # always stop the audio capture — also after a video error, so the
+            # devices are released and the sound isn't lost
+            self._audio._discard = self._discard
+            try:
+                self._audio.stop()
+            except Exception:
+                log.exception("stopping the audio track failed")
+        wav = Path(self._tmp_wav)
+        self.has_audio = bool(self._audio is not None and wav.exists() and wav.stat().st_size > 1024)
+        if self._discard:
+            for p in (self._tmp_video, self._tmp_wav):
+                Path(p).unlink(missing_ok=True)
+        elif started:
             self._mux()
-        return self._result("wav" if self.output_path.lower().endswith(".wav") else "mp4")
+        return self._result(self._fmt())
+
+    def _fmt(self) -> str:
+        return "wav" if self.output_path.lower().endswith(".wav") else "mp4"
+
+    def _audio_offset(self) -> float:
+        """Seconds of audio recorded before the first video frame (> 0: trim it;
+        < 0: the audio started late, pad it) so both tracks start together."""
+        if self._audio is None or self._first_frame_elapsed is None:
+            return 0.0
+        a0 = self._audio._first_audio_elapsed
+        return 0.0 if a0 is None else float(self._first_frame_elapsed - a0)
 
     def _mux(self):
         import av
@@ -906,8 +1270,7 @@ class VideoRecorder(BaseRecorder):
                     log.exception("keeping the audio of a frameless recording")
             self.output_path = self._tmp_video
             return
-        if not (self.has_audio and Path(self._tmp_wav).exists()
-                and Path(self._tmp_wav).stat().st_size > 1024):
+        if not self.has_audio:
             # video only
             try:
                 Path(self._tmp_video).replace(self.output_path)
@@ -915,34 +1278,66 @@ class VideoRecorder(BaseRecorder):
                 self.output_path = self._tmp_video
             return
         try:
-            out = av.open(self.output_path, mode="w")
-            vin = av.open(self._tmp_video)
-            v_in = vin.streams.video[0]
-            v_out = out.add_stream_from_template(v_in)
-            ain = av.open(self._tmp_wav)
-            a_in = ain.streams.audio[0]
-            a_out = out.add_stream("aac", rate=self.cfg.samplerate)
-
-            for packet in vin.demux(v_in):
-                if packet.dts is None:
-                    continue
-                packet.stream = v_out
-                out.mux(packet)
-            for frame in ain.decode(a_in):
-                frame.pts = None
-                for p in a_out.encode(frame):
-                    out.mux(p)
-            for p in a_out.encode(None):
-                out.mux(p)
-            out.close(); vin.close(); ain.close()
+            self._mux_av(av)
             Path(self._tmp_video).unlink(missing_ok=True)
             Path(self._tmp_wav).unlink(missing_ok=True)
         except Exception:
             log.exception("muxing failed; keeping video-only file")
             try:
+                Path(self.output_path).unlink(missing_ok=True)
                 Path(self._tmp_video).replace(self.output_path)
             except OSError:
                 self.output_path = self._tmp_video
+
+    def _mux_av(self, av) -> None:
+        import numpy as np
+        import soundfile as sf
+        from fractions import Fraction
+        out = av.open(self.output_path, mode="w")
+        vin = av.open(self._tmp_video)
+        try:
+            v_in = vin.streams.video[0]
+            v_out = out.add_stream_from_template(v_in)
+            with sf.SoundFile(self._tmp_wav) as wav:
+                sr = int(wav.samplerate)
+                a_out = out.add_stream("aac", rate=sr)
+                a_out.layout = "mono"
+                off = int(round(self._audio_offset() * sr))
+                pad = 0
+                if off > 0:
+                    wav.seek(min(off, wav.frames))
+                elif off < 0:
+                    pad = -off
+
+                for packet in vin.demux(v_in):
+                    if packet.dts is None:
+                        continue
+                    packet.stream = v_out
+                    out.mux(packet)
+
+                pts = 0
+
+                def encode(mono):
+                    nonlocal pts
+                    pcm = (np.clip(mono, -1.0, 1.0) * 32767).astype(np.int16).reshape(1, -1)
+                    fr = av.AudioFrame.from_ndarray(pcm, format="s16", layout="mono")
+                    fr.sample_rate = sr
+                    fr.pts, fr.time_base = pts, Fraction(1, sr)
+                    pts += pcm.shape[1]
+                    for p in a_out.encode(fr):
+                        out.mux(p)
+
+                while pad > 0:
+                    n = min(pad, sr)
+                    encode(np.zeros(n, dtype="float32"))
+                    pad -= n
+                for blk in wav.blocks(blocksize=sr * 5, dtype="float32", always_2d=True):
+                    encode(blk.mean(axis=1) if blk.shape[1] > 1 else blk[:, 0])
+                for p in a_out.encode(None):
+                    out.mux(p)
+        finally:
+            out.close()
+            vin.close()
 
 
 def make_recorder(cfg: RecordingConfig) -> BaseRecorder:
