@@ -35,6 +35,41 @@ REDUCE_NOTES_BUDGET = 12000
 _MAX_MERGE_ROUNDS = 4
 
 
+# Finished part-notes, kept in memory so a Retry after a failure (or a Cancel)
+# part-way through a long meeting reuses every part that already completed
+# instead of starting over (M27). Keyed by model + the exact part prompt, so a
+# changed transcript, template or model never reuses stale notes. Bounded LRU.
+_PART_CACHE_MAX = 256
+_part_cache: dict[str, str] = {}                     # insertion-ordered (LRU)
+_part_lock = threading.Lock()
+
+
+def _part_key(model: str, prompt: str) -> str:
+    import hashlib
+    return hashlib.sha256(f"{model}\x00{prompt}".encode("utf-8")).hexdigest()
+
+
+def _cache_get(key: str) -> str | None:
+    with _part_lock:
+        val = _part_cache.pop(key, None)
+        if val is not None:
+            _part_cache[key] = val                   # mark most recently used
+        return val
+
+
+def _cache_put(key: str, value: str) -> None:
+    with _part_lock:
+        _part_cache.pop(key, None)
+        _part_cache[key] = value
+        while len(_part_cache) > _PART_CACHE_MAX:
+            _part_cache.pop(next(iter(_part_cache)))
+
+
+def clear_part_cache() -> None:
+    with _part_lock:
+        _part_cache.clear()
+
+
 class DeadlineExceeded(TimeoutError):
     """A bounded background call did not finish within its deadline."""
 
@@ -197,7 +232,14 @@ def run_minutes_pipeline(
         p = prompts.CHUNK_SUMMARY_PROMPT.format(idx=i, total=n).replace(
             prompts.TRANSCRIPT_TOKEN, ch
         )
-        notes.append(f"### Part {i}\n" + chat(p, cancel))
+        key = _part_key(model, p)
+        part = _cache_get(key)
+        if part is None:
+            part = chat(p, cancel)
+            _cache_put(key, part)                     # kept even if a later part fails
+        else:
+            log.info("reusing finished notes for part %d of %d", i, n)
+        notes.append(f"### Part {i}\n" + part)
 
     # --- Hierarchical merge when the notes are too long for one reduce ---
     budget = reduce_budget or max(REDUCE_NOTES_BUDGET, 2 * int(chunk_chars or 0))

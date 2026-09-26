@@ -160,6 +160,13 @@ UI_SCALES: list[tuple[str, float]] = [
 # MICO360 Connect AI platform — OpenAI-compatible surface. Hard-coded on purpose:
 # there is NO settings UI to change the endpoint; the user only picks the mode.
 MICO360_CONNECT_BASE_URL = "http://ai.mico360.com:5310/v1"
+# Encrypted endpoints tried automatically (certificate-verified). The first one
+# that answers over HTTPS is used for all Cloud traffic from then on; the plain
+# HTTP URL above is only a fallback until the server offers TLS (BUG_REPORT C5).
+MICO360_CONNECT_HTTPS_CANDIDATES = (
+    "https://ai.mico360.com/v1",
+    "https://ai.mico360.com:5310/v1",
+)
 # A model the fleet is expected to have (per the API guide). It is only a default —
 # the real list comes live from GET /v1/models and the user picks from it.
 MICO360_CONNECT_DEFAULT_MODEL = "llama3.1:latest"

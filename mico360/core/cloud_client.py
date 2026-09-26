@@ -27,7 +27,8 @@ from typing import Callable
 
 from .. import __app_name__, __version__
 from ..config import (
-    MICO360_CONNECT_BASE_URL, MICO360_CONNECT_DEFAULT_MODEL, connect_api_key,
+    MICO360_CONNECT_BASE_URL, MICO360_CONNECT_DEFAULT_MODEL, MICO360_CONNECT_HTTPS_CANDIDATES,
+    connect_api_key,
 )
 from . import prompts
 from .generation import ProgressCb, run_in_thread, run_minutes_pipeline
@@ -69,8 +70,55 @@ def _headers(key: str) -> dict:
     }
 
 
+# --- transport security (C5) ----------------------------------------------
+# The Connect server currently speaks plain HTTP only. As soon as it offers TLS
+# on one of MICO360_CONNECT_HTTPS_CANDIDATES, the app switches to it (verified
+# certificate) and never falls back to HTTP for the rest of the session.
+_secure_base: str | None = None
+_probe_started = False
+_probe_lock = threading.Lock()
+_probe_done = threading.Event()
+
+
+def _probe_https(timeout: float = 4.0) -> None:
+    global _secure_base
+    try:
+        for cand in MICO360_CONNECT_HTTPS_CANDIDATES:
+            try:
+                req = urllib.request.Request(cand.rstrip("/") + "/models",
+                                             headers={"User-Agent": f"{__app_name__}/{__version__}"})
+                urllib.request.urlopen(req, timeout=timeout).close()
+                ok = True
+            except urllib.error.HTTPError:
+                ok = True                  # TLS worked; the server answered (e.g. 401 without key)
+            except Exception:
+                ok = False                 # no TLS / not reachable / certificate invalid
+            if ok:
+                _secure_base = cand.rstrip("/")
+                log.info("MICO360 Connect: using encrypted endpoint %s", _secure_base)
+                invalidate_status_cache()
+                return
+    finally:
+        _probe_done.set()
+
+
+def start_https_probe() -> None:
+    """Look for an encrypted endpoint in the background (once per session)."""
+    global _probe_started
+    with _probe_lock:
+        if _probe_started:
+            return
+        _probe_started = True
+    threading.Thread(target=_probe_https, name="mico360-connect-tls", daemon=True).start()
+
+
+def is_encrypted() -> bool:
+    """True once Cloud traffic goes over a verified HTTPS endpoint."""
+    return _base().startswith("https://")
+
+
 def _base(base_url: str = "") -> str:
-    return (base_url or MICO360_CONNECT_BASE_URL).rstrip("/")
+    return (base_url or _secure_base or MICO360_CONNECT_BASE_URL).rstrip("/")
 
 
 _status_cache: dict[tuple, tuple[float, CloudStatus]] = {}
@@ -102,6 +150,8 @@ def check_cloud_status(base_url: str = "", key: str = "", use_cache: bool = True
     if not key:
         return CloudStatus(False, error="No MICO360 Connect API key configured "
                                         "(set MICO360_CONNECT_API_KEY).")
+    if not base_url:
+        start_https_probe()                 # upgrade to HTTPS as soon as it's offered
     url = _base(base_url) + "/models"
     ck = (url, hashlib.sha256(key.encode("utf-8")).hexdigest())
     if use_cache:
@@ -199,9 +249,14 @@ class CloudGenerator:
     """OpenAI-compatible minutes generator; same interface as OllamaGenerator."""
 
     def __init__(self, base_url: str = "", key: str = "", model: str = ""):
-        self.base_url = _base(base_url)
+        self._explicit_base = base_url
         self.key = key or connect_api_key()
         self.model = model or MICO360_CONNECT_DEFAULT_MODEL
+
+    @property
+    def base_url(self) -> str:
+        # resolved per request: switches to HTTPS as soon as it's discovered (C5)
+        return _base(self._explicit_base)
 
     def _request_once(self, body: bytes) -> dict:
         req = urllib.request.Request(

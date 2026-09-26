@@ -523,11 +523,32 @@ class SettingsPage(QWidget):
 
     def _provider_changed(self):
         key = self.provider_box.currentData()
+        prev = self.ctx.settings.get("ai_provider", "local")
+        if key == "cloud" and prev != "cloud" and not self._confirm_cloud_transport():
+            i = self.provider_box.findData(prev)             # user declined — stay put
+            self.provider_box.setCurrentIndex(i if i >= 0 else 0)
+            return
         self.ctx.settings.set("ai_provider", key)
         self._refresh_env()
         self.on_models_change()          # rebuild the New Meeting model list
         from ..config import AI_PROVIDERS
         self.toast.show_message(f"AI mode: {AI_PROVIDERS.get(key, key)}.", "success")
+
+    def _confirm_cloud_transport(self) -> bool:
+        """Cloud mode sends transcripts to the MICO360 Connect server. While that
+        connection is not encrypted, make the user choose it knowingly (C5)."""
+        from ..core import cloud_client
+        cloud_client.start_https_probe()
+        if cloud_client.is_encrypted():
+            return True
+        return QMessageBox.question(
+            self, "Switch to MICO360 Cloud?",
+            "In MICO360 Cloud mode your meeting transcripts are sent to the MICO360 "
+            "Connect server to write the minutes (audio never leaves this PC).\n\n"
+            "That connection is currently NOT encrypted, so on shared or public "
+            "networks others could read the transcripts. For confidential meetings "
+            "use Local (Ollama).\n\nSwitch to MICO360 Cloud anyway?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
 
     # -- environment + model installation -----------------------------------
     def _refresh_env(self):

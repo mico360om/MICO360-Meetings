@@ -281,10 +281,96 @@ def test_smtp_password_encrypted() -> None:
     check("an undecryptable value is treated as empty (no crash)", Settings(f).get("smtp_password") == "")
 
 # =============================================================================
+def test_resume_long_generation() -> None:
+    print("M27 — a failed long generation resumes instead of starting over")
+    from mico360.core import generation as G
+    G.clear_part_cache()
+    calls, state = [], {"fail": True}
+
+    def chat(prompt, cancel=None):
+        calls.append(prompt)
+        if "part 3 of" in prompt.lower() and state["fail"]:
+            raise ConnectionError("503 no node")
+        return "notes"
+
+    long = " ".join(f"Sentence number {i} about the budget." for i in range(3000))
+    tmpl = "T\nTranscript:\n[TRANSCRIPT_HERE]"
+    try:
+        G.run_minutes_pipeline(chat, "m", long, tmpl, chunk_chars=6000)
+    except ConnectionError:
+        pass
+    state["fail"] = False
+    calls.clear()
+    G.run_minutes_pipeline(chat, "m", long, tmpl, chunk_chars=6000)
+    parts = [c for c in calls if "summarizing PART" in c]
+    check("retry reuses the parts that already finished",
+          parts and "part 3 of" in parts[0].lower(), parts[0][:60] if parts else "no parts")
+    calls.clear()
+    G.run_minutes_pipeline(chat, "other-model", long, tmpl, chunk_chars=6000)
+    check("a different model never reuses cached notes",
+          sum("summarizing PART" in c for c in calls) > 3)
+
+
+# =============================================================================
+def test_cloud_transport_security() -> None:
+    print("C5 — Cloud mode upgrades to HTTPS when offered and asks before plain HTTP")
+    import importlib
+    import urllib.request
+    from mico360.core import cloud_client as CC
+    CC = importlib.reload(CC)                       # fresh probe state
+    CC.MICO360_CONNECT_HTTPS_CANDIDATES = ("https://127.0.0.1:9/v1",)   # nothing listens
+    CC._probe_https(timeout=1.0)
+    gen = CC.CloudGenerator(key="k")
+    check("without server TLS it stays on the configured URL (not encrypted)",
+          not CC.is_encrypted() and gen.base_url.startswith("http://"))
+    real = urllib.request.urlopen
+
+    class _Resp:
+        def close(self): pass
+    urllib.request.urlopen = lambda req, timeout=None: _Resp()          # TLS endpoint answers
+    try:
+        CC.MICO360_CONNECT_HTTPS_CANDIDATES = ("https://secure.example/v1",)
+        CC._probe_https(timeout=1.0)
+    finally:
+        urllib.request.urlopen = real
+    check("once HTTPS is offered, all Cloud traffic uses it",
+          CC.is_encrypted() and gen.base_url == "https://secure.example/v1")
+    # consent prompt when switching to Cloud while unencrypted
+    from PySide6.QtWidgets import QMessageBox
+    from mico360.ui.context import AppContext
+    from mico360.ui.settings_page import SettingsPage
+    CC = importlib.reload(CC)                       # back to "not encrypted"
+    CC.start_https_probe = lambda: None
+    ctx = AppContext()
+    ctx.settings.set("ai_provider", "local")
+
+    class _T:
+        def show_message(self, *a, **k): pass
+    sp = SettingsPage(ctx, _T(), lambda *a: None, lambda *a: None)
+    asked = []
+    real_q = QMessageBox.question
+    try:
+        QMessageBox.question = staticmethod(lambda *a, **k: (asked.append(1), QMessageBox.No)[1])
+        sp.provider_box.setCurrentIndex(sp.provider_box.findData("cloud"))
+        sp._provider_changed()
+        check("switching to Cloud asks first; declining keeps Local",
+              asked and ctx.settings.get("ai_provider") == "local"
+              and sp.provider_box.currentData() == "local")
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+        sp.provider_box.setCurrentIndex(sp.provider_box.findData("cloud"))
+        sp._provider_changed()
+        check("accepting switches to Cloud", ctx.settings.get("ai_provider") == "cloud")
+    finally:
+        QMessageBox.question = real_q
+        ctx.settings.set("ai_provider", "local")
+
+
+# =============================================================================
 def main() -> int:
     for fn in (test_remote_participants, test_background_crash,
                test_meeting_detection_in_builds, test_recordings_kept,
-               test_multi_installer_release, test_smtp_password_encrypted):
+               test_multi_installer_release, test_smtp_password_encrypted,
+               test_resume_long_generation, test_cloud_transport_security):
         try:
             fn()
         except Exception as exc:
