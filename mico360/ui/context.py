@@ -4,7 +4,9 @@ from __future__ import annotations
 from ..config import Settings, connect_api_key
 from ..core.history import History
 from ..core.cloud_client import CloudGenerator, check_cloud_status
+from ..core.cloud_client import invalidate_status_cache as invalidate_cloud_status
 from ..core.ollama_client import OllamaGenerator, check_status
+from ..core.ollama_client import invalidate_status_cache as invalidate_ollama_status
 from ..core.profiles import ProfileStore
 from ..core.prompts import PromptLibrary
 from ..core.transcription import TranscriptionEngine
@@ -37,19 +39,25 @@ class AppContext:
         """'local' (Ollama) or 'cloud' (MICO360 Connect)."""
         return self.settings.get("ai_provider", "local")
 
-    def ai_status(self, max_age: float = 4.0):
+    def ai_status(self, max_age: float | None = None, force: bool = False):
         """Reachability + model list for the active provider (uniform shape:
-        .running / .models / .error). Cached briefly so a page navigation that
-        reads it more than once doesn't make repeated (possibly remote) calls."""
-        import time
-        prov = self.provider()
-        cache = getattr(self, "_ai_status_cache", None)
-        if cache and cache[0] == prov and cache[1] > time.monotonic():
-            return cache[2]
-        st = (check_cloud_status(key=connect_api_key()) if prov == "cloud"
-              else check_status(self.settings.get("ollama_host")))
-        self._ai_status_cache = (prov, time.monotonic() + max_age, st)
-        return st
+        .running / .models / .error).
+
+        Cheap and bounded (H14): the provider checks use ~2-3 s network
+        timeouts with a hard wall-clock limit, and results are cached per
+        provider + host/key — a success for 30 s, a failure for 5 s — so page
+        navigations never make repeated (possibly remote) calls. ``force``
+        bypasses the cache; ``max_age`` is accepted for compatibility (0 forces).
+        """
+        use_cache = not force and not (max_age is not None and max_age <= 0)
+        if self.provider() == "cloud":
+            return check_cloud_status(key=connect_api_key(), use_cache=use_cache)
+        return check_status(self.settings.get("ollama_host"), use_cache=use_cache)
+
+    def invalidate_ai_status(self) -> None:
+        """Drop cached provider status (e.g. after the host, key or models change)."""
+        invalidate_cloud_status()
+        invalidate_ollama_status()
 
     def ai_model(self) -> str:
         """The model chosen for the active provider."""
@@ -61,8 +69,8 @@ class AppContext:
         self.settings.set("cloud_model" if self.provider() == "cloud" else "ollama_model", model)
 
     # -- ollama (local-only surfaces: install model, environment panel) -----
-    def ollama_status(self):
-        return check_status(self.settings.get("ollama_host"))
+    def ollama_status(self, force: bool = False):
+        return check_status(self.settings.get("ollama_host"), use_cache=not force)
 
     def generator(self):
         """A minutes generator for the active provider (both expose
