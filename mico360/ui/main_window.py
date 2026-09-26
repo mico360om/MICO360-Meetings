@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
     def __init__(self, ctx: AppContext):
         super().__init__()
         self.ctx = ctx
+        self._retired_threads: list = []        # stopped-but-not-finished QThreads kept alive
         self.setWindowTitle(f"{__app_name__}")
         # minimum chosen so no page overflows horizontally; everything above is responsive
         self.setMinimumSize(QSize(1080, 660))
@@ -127,13 +128,28 @@ class MainWindow(QMainWindow):
             self._watch.meetingDue.connect(self._on_meeting_due)
             self._watch.start()
         elif not on and self._watch is not None:
-            self._watch.stop(); self._watch.wait(3000); self._watch = None
+            w = self._watch
+            w.stop()
+            if not w.wait(3000):
+                # Still inside a slow Outlook/COM call — keep a reference until it
+                # really ends (dropping a running QThread aborts the process).
+                self._retired_threads.append(w)
+                w.finished.connect(lambda w=w: w in self._retired_threads
+                                   and self._retired_threads.remove(w))
+            self._watch = None
 
     def _begin_auto_record(self, label: str) -> bool:
         panel = self.new_page.recorder_panel
         if panel.is_recording():
             return True
         self._goto(self.new_page)
+        # Each detected meeting gets its own record: save whatever is on screen and
+        # start a fresh meeting, so the new transcript is never merged into (and
+        # saved over) the previous meeting.
+        if not self.new_page._new_meeting(quiet=True):
+            self.toast.show_message("Recording not started — a transcription is still running.",
+                                    "warn", 7000)
+            return False
         self.new_page.select_record_tab()                      # Record tab (by widget, not index)
         from ..core import recording as R
         source = "both" if R.system_audio_supported() else "mic"
@@ -251,13 +267,20 @@ class MainWindow(QMainWindow):
             add(f"Ctrl+{i + 1}", lambda idx=i: (self.nav_group.button(idx).setChecked(True),
                                                 self._navigate(idx)))
         add("Ctrl+N", lambda: (self._goto(self.new_page), self.new_page._new_meeting()))
-        add("Ctrl+G", lambda: self.new_page._generate())
-        add("Ctrl+E", lambda: self.new_page._export())
-        add("Ctrl+S", lambda: self.new_page._save_history())
-        add("Ctrl+Shift+C", lambda: self.new_page._copy())
+        # Meeting actions only apply while New Meeting is on screen (they used to
+        # fire on the hidden page from anywhere — e.g. Ctrl+S on Settings saved the
+        # meeting). Ctrl+G uses the same guarded path as the "Create meeting" button.
+        add("Ctrl+G", lambda: self._on_new_page(self.new_page._create_meeting))
+        add("Ctrl+E", lambda: self._on_new_page(self.new_page._export))
+        add("Ctrl+S", lambda: self._on_new_page(self.new_page._save_history))
+        add("Ctrl+Shift+C", lambda: self._on_new_page(self.new_page._copy))
         add(QKeySequence.Find, lambda: (self._goto(self.history_page),
                                         self.history_page.search.setFocus()))
         add("F1", lambda: self._goto(self.help_page))
+
+    def _on_new_page(self, fn):
+        if self.stack.currentWidget() is self.new_page:
+            fn()
 
     def _goto(self, page):
         idx = self.stack.indexOf(page)
@@ -329,7 +352,8 @@ class MainWindow(QMainWindow):
             self._update_status()
 
     def _open_meeting(self, meeting):
-        self.new_page.load_meeting(meeting)
+        if not self.new_page.load_meeting(meeting):   # user chose to keep the current work
+            return
         self.nav_group.button(0).setChecked(True)
         self.stack.setCurrentIndex(0)
 
@@ -373,11 +397,36 @@ class MainWindow(QMainWindow):
         self.toast._reposition()
 
     def closeEvent(self, e):
+        from PySide6.QtWidgets import QMessageBox
+        page = self.new_page
+        recording = page.recorder_panel.is_recording()
+        busy = page.is_busy()
+        if recording or busy:
+            what = ("a recording is in progress" if recording
+                    else "minutes are still being transcribed or generated")
+            if QMessageBox.question(
+                    self, "Quit MICO360 Meetings?",
+                    f"Quit now? {what[0].upper() + what[1:]}.\n\n"
+                    + ("The recording will be stopped and saved." if recording
+                       else "The unfinished work will be cancelled."),
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                e.ignore()
+                return
         # autosave the current meeting + flush any in-progress recording
         try:
-            self.new_page._autosave()
+            page._autosave()
         except Exception:
             pass
+        # Cancel background work and let the threads finish before Qt tears the
+        # widgets down — a QThread destroyed while running aborts the process.
+        for w in list(getattr(page, "_bg_workers", ())) + list(self._retired_threads):
+            try:
+                if w.isRunning():
+                    if hasattr(w, "cancel"):
+                        w.cancel()
+                    w.wait(10000)
+            except Exception:
+                pass
         try:
             self.new_page.recorder_panel.stop_if_active()
         except Exception:

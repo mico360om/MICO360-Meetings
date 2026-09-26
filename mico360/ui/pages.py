@@ -54,6 +54,13 @@ class NewMeetingPage(QWidget):
         self._loaded_from_history = False       # True while editing a record opened from History
         self._auto_generate = False             # chain generation after a one-click transcription
         self._last_saved_at = None              # timestamp of the last History save (for the indicator)
+        # Background-work ownership. `_job` changes whenever the form switches to
+        # another meeting, so results from work started for the previous meeting
+        # can never land in (and be saved over) the one now on screen.
+        self._job = 0
+        self._bg_workers: set = set()           # keeps QThreads alive until they really finish
+        self._live_draft = ""                   # last live transcript (to replace, not duplicate)
+        self._replace_on_transcribe: str | None = None
         # Wired by MainWindow so the readiness banner's actions can navigate.
         self.on_open_settings = None            # callable() -> open the Settings page
         self.on_install_model = None            # callable() -> Settings + focus the installer
@@ -404,6 +411,9 @@ class NewMeetingPage(QWidget):
         self.recorder_panel = RecordingPanel(self.toast, self.ctx)
         self.recorder_panel.recordingReady.connect(self._on_recording_ready)
         self.recorder_panel.liveTranscriptReady.connect(self._on_live_transcript)
+        # A failed (auto-)recording must not leave "generate on the next recording" armed.
+        self.recorder_panel.recordingFailed.connect(
+            lambda: setattr(self, "_auto_generate_pending", False))
         rl.addWidget(self.recorder_panel)
         self._record_tab = rec                        # referenced by widget, not index
         self.source_tabs.addTab(rec, "Record")
@@ -455,6 +465,11 @@ class NewMeetingPage(QWidget):
 
     def _on_recording_ready(self, path: str):
         """A finished recording -> queue it for transcription (shown in Upload tab)."""
+        cur = self.transcript.toPlainText().strip()
+        if self._live_draft and cur == self._live_draft.strip():
+            # Re-transcribing the recording behind the untouched live draft → the
+            # full transcript replaces the draft instead of duplicating the meeting.
+            self._replace_on_transcribe = path
         self._media_queue.append(path)
         self._add_queue_item(path, f"⏺  {Path(path).name}  (recorded)", True)
         self.source_tabs.setCurrentIndex(0)   # show the queue + action buttons
@@ -470,6 +485,7 @@ class NewMeetingPage(QWidget):
         it into the editor and jump to the Transcript step so the user can review."""
         cur = self.transcript.toPlainText().strip()
         self.transcript.setPlainText((cur + "\n\n" + text).strip() if cur else text)
+        self._live_draft = self.transcript.toPlainText()
         self._reached = max(self._reached, self.STEP_TRANSCRIPT)
         self._goto_step(self.STEP_TRANSCRIPT)
         if getattr(self, "_auto_generate_pending", False):     # auto-record → straight to minutes
@@ -477,9 +493,10 @@ class NewMeetingPage(QWidget):
             self.toast.show_message("Meeting ended — generating minutes…", "info", 5000)
             self._create_meeting()
             return
-        self.toast.show_message("Live transcript captured — review it, then continue. "
-                                "(Use the recording for a full re-transcribe if you want more accuracy.)",
-                                "success", 7000)
+        self.toast.show_message("Live transcript captured from your microphone — review it, then "
+                                "continue. To include other participants (system audio) or for "
+                                "more accuracy, click “Use for transcription” to transcribe the full "
+                                "recording; it replaces this draft.", "success", 9000)
 
     def _step2_transcript(self) -> QWidget:
         card, lay = self._card("Transcript")
@@ -907,23 +924,42 @@ class NewMeetingPage(QWidget):
         total = getattr(self, "_media_total", 1)
         prefix = f"File {self._media_done} of {total} · " if total > 1 else ""
         self.status.setText(f"{prefix}Transcribing {Path(path).name} …")
-        self._worker = TranscribeWorker(
+        w = self._worker = TranscribeWorker(
             engine, path, self.ctx.settings.get("language", "auto"),
             diarize=self.ctx.settings.get("diarize", False))
-        self._worker.progress.connect(self._on_progress)
-        self._worker.finished_ok.connect(self._on_transcribed)
-        self._worker.failed.connect(self._on_failed)
-        self._worker.start()
+        self._keep_alive(w)
+        job = self._job
+        w.progress.connect(lambda f, m, j=job: self._on_progress(f, m) if j == self._job else None)
+        w.finished_ok.connect(lambda r, j=job, p=path: self._on_transcribed(r, p)
+                              if j == self._job else None)
+        w.failed.connect(lambda msg, j=job, p=path: self._on_transcribe_failed(msg, p)
+                         if j == self._job else None)
+        w.start()
 
-    def _on_transcribed(self, result):
+    def _on_transcribed(self, result, path: str = ""):
         cur = self.transcript.toPlainText()
-        sep = "\n\n" if cur.strip() else ""
         text = result.as_speaker_text() if getattr(result, "speakers", 0) else result.as_plain()
-        self.transcript.setPlainText(cur + sep + text)
+        if path and path == self._replace_on_transcribe:
+            # Full re-transcribe of a live recording: replace the live draft
+            # rather than appending the same meeting a second time.
+            self._replace_on_transcribe = None
+            self.transcript.setPlainText(text)
+        else:
+            sep = "\n\n" if cur.strip() else ""
+            self.transcript.setPlainText(cur + sep + text)
         self._transcribe_next()
+
+    def _on_transcribe_failed(self, msg: str, path: str):
+        # Put the file back so Retry / Transcribe work again (it was popped when it started).
+        if path and path not in self._media_queue:
+            self._media_queue.insert(0, path)
+        self._on_failed(msg)
 
     # -- generation ---------------------------------------------------------
     def _generate(self):
+        if self._is_working():                        # e.g. Ctrl+G while a run is in progress
+            self.toast.show_message("Already working — wait for it to finish or Cancel.", "info")
+            return
         transcript = self.transcript.toPlainText().strip()
         if not transcript:
             self._busy(False)
@@ -971,15 +1007,27 @@ class NewMeetingPage(QWidget):
         self._busy(True, "Generating minutes…")
         self.stage_row.setVisible(True); self._update_gen_stage(0.0)
         self.cancel_btn.setVisible(True); self.generate_btn.setEnabled(False)
-        self._worker = GenerateWorker(
+        w = self._worker = GenerateWorker(
             gen, transcript_in, template, style,
             remove_fillers=self.ctx.settings.get("remove_fillers", True),
             chunk_chars=int(self.ctx.settings.get("chunk_chars", 6000)),
         )
-        self._worker.progress.connect(self._on_progress)
-        self._worker.finished_ok.connect(self._on_generated)
-        self._worker.failed.connect(self._on_failed)
-        self._worker.start()
+        self._keep_alive(w)
+        job = self._job
+        # Snapshot of the meeting this run belongs to (shared dict: its id is
+        # filled in if the meeting is first saved when the user switches away).
+        snap = w.snap = {
+            "id": self._current_id, "title": self.meeting_title.text().strip()
+            or self.meet_title.text().strip(), "style": style, "model": model,
+            "profile": self.ctx.settings.get("active_profile", ""),
+            "transcript": self.transcript.toPlainText(),
+        }
+        w.progress.connect(lambda f, m, j=job: self._on_progress(f, m) if j == self._job else None)
+        w.finished_ok.connect(lambda md, j=job, s=snap: self._on_generated(md)
+                              if j == self._job else self._save_detached_minutes(md, s))
+        w.failed.connect(lambda msg, j=job, s=snap: self._on_failed(msg)
+                         if j == self._job else self._on_detached_failed(msg, s))
+        w.start()
 
     def _on_generated(self, md: str):
         self.minutes.setPlainText(md)
@@ -1006,6 +1054,85 @@ class NewMeetingPage(QWidget):
         if self._worker:
             self._worker.cancel()
         self.status.setText("Cancelling…")
+
+    # -- background-work ownership -------------------------------------------
+    def _is_working(self) -> bool:
+        return bool(self._worker is not None and self._worker.isRunning())
+
+    def is_busy(self) -> bool:
+        """True while a transcription, generation, export or email is running."""
+        return self._is_working() or any(w.isRunning() for w in self._bg_workers)
+
+    def _keep_alive(self, w) -> None:
+        """Hold a reference until the thread has really finished — dropping the
+        last reference to a running QThread aborts the whole process."""
+        self._bg_workers.add(w)
+        w.finished.connect(lambda w=w: self._bg_workers.discard(w))
+
+    def _switch_away(self) -> bool:
+        """Prepare to show a different meeting. Saves what's on screen first. A
+        running transcription belongs to this form, so it is stopped (after
+        confirming); a running generation keeps going in the background and its
+        minutes are saved to the meeting it was started for. Returns False if the
+        user chose to stay."""
+        w = self._worker
+        running = w is not None and w.isRunning()
+        if running and isinstance(w, TranscribeWorker):
+            if QMessageBox.question(
+                    self, "Transcription in progress",
+                    "A file is still being transcribed for the current meeting.\n\n"
+                    "Stop the transcription and switch?",
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return False
+            w.cancel()
+        self._autosave()                              # keep unsaved edits to the meeting being left
+        if running and isinstance(w, GenerateWorker):
+            snap = getattr(w, "snap", None)
+            if snap is not None and not snap.get("id"):
+                snap["id"] = self._current_id         # just saved above → finish into that record
+            self.toast.show_message("Minutes for the previous meeting are still being generated — "
+                                    "they'll be saved to that meeting in History.", "info", 6000)
+        self._job += 1                                # results of old work no longer target this form
+        self._worker = None
+        self._auto_generate = False
+        self._auto_generate_pending = False
+        self._replace_on_transcribe = None
+        self._gen_active = False
+        self.cancel_btn.setVisible(False); self.generate_btn.setEnabled(True)
+        self.stage_row.setVisible(False); self.progress_row.setVisible(False)
+        self.gen_error.setVisible(False)
+        return True
+
+    def _save_detached_minutes(self, md: str, snap: dict):
+        """Minutes finished for a meeting the user has since switched away from:
+        store them in *that* meeting's record, never in the one now on screen."""
+        mid = snap.get("id")
+        if mid and mid == self._current_id:          # the same meeting was reopened meanwhile
+            self.minutes.setPlainText(md)
+            self._save_history(silent=True)
+            self.toast.show_message("Minutes generated and saved to History.", "success")
+            return
+        existing = self.ctx.history.get(mid) if mid else None
+        title = snap.get("title") or (existing.title if existing else "") or _title_from_minutes(md)
+        m = Meeting(
+            id=existing.id if existing else 0, title=title or "Meeting minutes",
+            created_at=0, updated_at=0,
+            source_type=existing.source_type if existing else "mixed",
+            source_path=existing.source_path if existing else "",
+            style=snap.get("style", ""), model=snap.get("model", ""),
+            profile_id=snap.get("profile", ""),
+            transcript=(existing.transcript if existing and existing.transcript
+                        else snap.get("transcript", "")),
+            minutes=md,
+        )
+        self.ctx.history.save(m)
+        self.toast.show_message(f"Minutes for “{m.title}” are ready — saved to History.",
+                                "success", 6000)
+
+    def _on_detached_failed(self, msg: str, snap: dict):
+        if msg and "cancel" not in msg.lower():
+            name = snap.get("title") or "the previous meeting"
+            self.toast.show_message(f"Generating minutes for {name} failed: {msg}", "error", 7000)
 
     # -- output actions -----------------------------------------------------
     def _on_minutes_tab(self, idx: int):
@@ -1109,14 +1236,8 @@ class NewMeetingPage(QWidget):
             return
         self._save_history(silent=True)              # updates _autosave_sig on success
 
-    def _new_meeting(self):
-        """Clear the form and start a fresh, unlinked meeting."""
-        if (self.transcript.toPlainText().strip() or self.minutes.toPlainText().strip()):
-            self._autosave()                          # keep what's there
-        self._current_id = None
-        self._loaded_from_history = False
-        self.context_lbl.setVisible(False)            # back to "new" context
-        self._autosave_sig = ""
+    def _reset_form(self):
+        """Clear every per-meeting field so nothing leaks into the next meeting."""
         self.transcript.clear()
         self.minutes.clear()
         self.meeting_title.clear()
@@ -1124,21 +1245,38 @@ class NewMeetingPage(QWidget):
             self.paste_box.clear()
         self._clear_files()
         self.meet_title.clear(); self.meet_date.clear(); self.meet_attendees.clear()
+        if hasattr(self, "minutes_preview"):
+            self.minutes_preview.clear()
+        self._live_draft = ""
+
+    def _new_meeting(self, quiet: bool = False) -> bool:
+        """Save what's on screen, then clear the form for a fresh, unlinked meeting.
+        Returns False if the user chose to keep a running transcription."""
+        if not self._switch_away():
+            return False
+        self._current_id = None
+        self._loaded_from_history = False
+        self.context_lbl.setVisible(False)            # back to "new" context
+        self._autosave_sig = ""
+        self._reset_form()
         self._reached = 0
         self._goto_step(self.STEP_SOURCE)
-        self.toast.show_message("Started a new meeting — the previous one is saved in History.",
-                                "success", 4000)
+        if not quiet:
+            self.toast.show_message("Started a new meeting — the previous one is saved in History.",
+                                    "success", 4000)
+        return True
 
     def _guess_title(self) -> str:
-        for line in self.minutes.toPlainText().splitlines():
-            if "Meeting Title:" in line:
-                t = line.split("Meeting Title:")[-1].replace("*", "").strip()
-                if t and t.lower() != "not specified":
-                    return t[:80]
+        t = _title_from_minutes(self.minutes.toPlainText())
+        if t:
+            return t
         return "Meeting " + (Path(self._media_queue[0]).stem if self._media_queue else "minutes")
 
     def _export(self):
         from ..export import service
+        ew = getattr(self, "_export_worker", None)
+        if ew is not None and ew.isRunning():         # e.g. Ctrl+E during an export
+            return
         md = self.minutes.toPlainText().strip()
         if not md:
             self.toast.show_message("Generate or write minutes first.", "warn")
@@ -1147,7 +1285,7 @@ class NewMeetingPage(QWidget):
             self, "Export minutes", "Meeting-Minutes", service.FILTERS)
         if not path:
             return
-        if "." not in Path(path).name:
+        if Path(path).suffix.lower() not in service.EXPORTERS:   # "Minutes v1.2" has a dot but no type
             ext = (".docx" if "Word" in selected else ".pdf" if "PDF" in selected
                    else ".md" if "Markdown" in selected else ".html" if "HTML" in selected
                    else ".txt")
@@ -1158,6 +1296,7 @@ class NewMeetingPage(QWidget):
         self.export_btn.setText("Exporting…")
         self._busy(True, f"Exporting to {Path(path).name}…")
         self._export_worker = ExportWorker(md, path, self.ctx.active_profile())
+        self._keep_alive(self._export_worker)
         self._export_worker.finished_ok.connect(self._on_exported)
         self._export_worker.failed.connect(self._on_export_failed)
         self._export_worker.start()
@@ -1212,6 +1351,7 @@ class NewMeetingPage(QWidget):
             cfg, v["to"], v["subject"], v["body"],
             html=render_document(md, self.ctx.active_profile()),
             attachments=attachments, cc=v["cc"])
+        self._keep_alive(self._email_worker)
         self._email_worker.finished_ok.connect(lambda: self._on_email_done(True))
         self._email_worker.failed.connect(lambda m: self._on_email_done(False, m))
         self._email_worker.start()
@@ -1349,7 +1489,13 @@ class NewMeetingPage(QWidget):
             QTimer.singleShot(1200, lambda: (self.progress_row.setVisible(False),
                                              self.stage_row.setVisible(False)))
 
-    def load_meeting(self, m: Meeting):
+    def load_meeting(self, m: Meeting) -> bool:
+        """Show a saved meeting. Saves the meeting currently on screen first and
+        makes sure no running work can write into the one being opened. Returns
+        False if the user chose to stay on the current meeting."""
+        if not self._switch_away():
+            return False
+        self._reset_form()                            # drop the previous meeting's setup/queue/preview
         self._current_id = m.id
         self._loaded_from_history = True
         self.context_lbl.setText(f"✎  Editing “{m.title}” — opened from History")
@@ -1370,6 +1516,17 @@ class NewMeetingPage(QWidget):
         if m.minutes:
             self._show_minutes_preview()
         self.toast.show_message(f"Loaded: {m.title}", "info")
+        return True
+
+
+def _title_from_minutes(md: str) -> str:
+    """The 'Meeting Title:' value from generated minutes, or ''."""
+    for line in md.splitlines():
+        if "Meeting Title:" in line:
+            t = line.split("Meeting Title:")[-1].replace("*", "").strip()
+            if t and t.lower() != "not specified":
+                return t[:80]
+    return ""
 
 
 # Other pages live in their own modules; re-exported so existing imports
