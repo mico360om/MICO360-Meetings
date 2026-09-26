@@ -19,6 +19,11 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("PYTHONUTF8", "1")
 ROOT = Path(__file__).resolve().parent.parent
+# Isolate BEFORE the app is imported: the suite must never write into the
+# developer's real data folder (settings, meetings, speakers, logs).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _isolation  # noqa: E402
+_isolation.isolate("e2e_")
 sys.path.insert(0, str(ROOT))
 TMP = Path(tempfile.gettempdir())
 
@@ -34,6 +39,7 @@ def main() -> int:
     from PySide6.QtWidgets import QApplication
     from PySide6.QtCore import QEventLoop, QTimer
     app = QApplication.instance() or QApplication([])
+    _isolation.assert_isolated()
 
     from mico360.ui.context import AppContext
     from mico360.ui.main_window import MainWindow
@@ -217,4 +223,5 @@ if __name__ == "__main__":
     # Python 3.14 intermittently crashes during interpreter teardown
     # (0xC0000409) AFTER tests pass, which would mask a clean result.
     sys.stdout.flush(); sys.stderr.flush()
+    _isolation.cleanup()
     os._exit(_rc)

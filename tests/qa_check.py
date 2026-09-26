@@ -17,6 +17,11 @@ import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Isolate BEFORE the app is imported: the suite must never write into the
+# developer's real data folder (settings, meetings, speakers, logs).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _isolation  # noqa: E402
+_isolation.isolate("qa_")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from PySide6.QtWidgets import QApplication, QScrollArea, QTabWidget  # noqa: E402
@@ -24,13 +29,23 @@ from PySide6.QtWidgets import QApplication, QScrollArea, QTabWidget  # noqa: E40
 results: list[tuple[str, bool, str]] = []
 
 
+skipped: list[tuple[str, str]] = []
+
+
 def check(name: str, cond: bool, detail: str = ""):
     results.append((name, bool(cond), detail))
     print(f"  [{'PASS' if cond else 'FAIL'}] {name}" + (f"  — {detail}" if detail else ""))
 
 
+def skip(name: str, why: str):
+    """A check that could not run here. Reported as SKIP - never counted as a pass."""
+    skipped.append((name, why))
+    print(f"  [SKIP] {name}  — {why}")
+
+
 def main() -> int:
     app = QApplication.instance() or QApplication([])
+    _isolation.assert_isolated()
     from mico360.ui.context import AppContext
     from mico360.ui.main_window import MainWindow
     from mico360.core import recording as R
@@ -276,7 +291,7 @@ def main() -> int:
         except Exception as e:
             check("Minutes generated from transcript (real LLM)", False, str(e))
     else:
-        check("Minutes generated from transcript (real LLM)", True, "SKIPPED (Ollama offline)")
+        skip("Minutes generated from transcript (real LLM)", "Ollama offline / no model")
 
     # ===================================================================
     # Crash resilience — rapid navigation, resize, repeated ops
@@ -389,7 +404,8 @@ def main() -> int:
 
     # tally
     passed = sum(1 for _, ok, _ in results if ok)
-    print(f"\n==== {passed}/{len(results)} checks passed ====")
+    extra = f" ({len(skipped)} skipped)" if skipped else ""
+    print(f"\n==== {passed}/{len(results)} checks passed{extra} ====")
     return 0 if passed == len(results) else 1
 
 
@@ -399,4 +415,5 @@ if __name__ == "__main__":
     # Python 3.14 intermittently crashes during interpreter teardown
     # (0xC0000409) AFTER tests pass, which would mask a clean result.
     sys.stdout.flush(); sys.stderr.flush()
+    _isolation.cleanup()
     os._exit(_rc)

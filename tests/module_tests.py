@@ -12,6 +12,11 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parent.parent
+# Isolate BEFORE the app is imported: the suite must never write into the
+# developer's real data folder (settings, meetings, speakers, logs).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _isolation  # noqa: E402
+_isolation.isolate("module_")
 sys.path.insert(0, str(ROOT))
 TMP = Path(tempfile.gettempdir())
 
@@ -40,6 +45,7 @@ def t(module: str, fn):
 def main():
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
+    _isolation.assert_isolated()
 
     # one shared offscreen window for UI modules
     from mico360.ui.context import AppContext
@@ -339,13 +345,16 @@ def main():
         dx = zipfile.ZipFile(paths[".docx"]).read("word/document.xml").decode("utf-8")
         assert "w:bidi" in dx and "w:rtl" in dx and "القرارات" in dx
         # PDF must actually carry Arabic glyphs (the pre-1.2.3 bug dropped them)
+        # (pypdf comes from requirements-dev.txt; without it this check cannot
+        # run, and that must not look like a pass)
         try:
             from pypdf import PdfReader
-            txt = "".join((pg.extract_text() or "") for pg in PdfReader(paths[".pdf"]).pages)
-            assert any(0x0600 <= ord(c) <= 0x06FF or 0xFB50 <= ord(c) <= 0xFEFF for c in txt), \
-                "no Arabic glyphs in PDF"
         except ImportError:
-            pass
+            raise AssertionError("pypdf not installed - pip install -r requirements-dev.txt "
+                                 "-c constraints.txt (needed to verify Arabic PDF glyphs)")
+        txt = "".join((pg.extract_text() or "") for pg in PdfReader(paths[".pdf"]).pages)
+        assert any(0x0600 <= ord(c) <= 0x06FF or 0xFB50 <= ord(c) <= 0xFEFF for c in txt), \
+            "no Arabic glyphs in PDF"
         for p in paths.values():
             Path(p).unlink(missing_ok=True)
         return "Arabic exports OK (RTL docx/html, shaped pdf)"
@@ -1307,4 +1316,5 @@ if __name__ == "__main__":
     # Python 3.14 intermittently crashes during interpreter teardown
     # (0xC0000409) AFTER tests pass, which would mask a clean result.
     sys.stdout.flush(); sys.stderr.flush()
+    _isolation.cleanup()
     os._exit(_rc)

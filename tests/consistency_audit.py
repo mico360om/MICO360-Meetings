@@ -11,6 +11,11 @@ import sys
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# Isolate BEFORE the app is imported: the suite must never write into the
+# developer's real data folder (settings, meetings, speakers, logs).
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _isolation  # noqa: E402
+_isolation.isolate("audit_")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 issues: list[str] = []
@@ -30,6 +35,7 @@ def ok(cond, label, detail=""):
 def main():
     from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QScrollArea
     app = QApplication.instance() or QApplication([])
+    _isolation.assert_isolated()
     from mico360 import __version__
     from mico360.ui.context import AppContext
     from mico360.ui.main_window import MainWindow
@@ -168,4 +174,5 @@ if __name__ == "__main__":
     # Python 3.14 intermittently crashes during interpreter teardown
     # (0xC0000409) AFTER tests pass, which would mask a clean result.
     sys.stdout.flush(); sys.stderr.flush()
+    _isolation.cleanup()
     os._exit(_rc)
