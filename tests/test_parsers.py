@@ -209,7 +209,10 @@ def test_ics():
     p = _write_ics(ics)
     d = parse_ics(p); os.unlink(p)
     check("ics: summary with colon kept whole", d["title"] == "Budget review: Q3", d["title"])
-    check("ics: timed DTSTART formatted", d["date"] == "2025-07-14 10:00", d["date"])
+    # DTSTART is UTC ("Z"): shown in the viewer's LOCAL time (BUG_REPORT M16)
+    from datetime import datetime as _dt, timezone as _tz
+    _want = _dt(2025, 7, 14, 10, 0, tzinfo=_tz.utc).astimezone().strftime("%Y-%m-%d %H:%M")
+    check("ics: timed UTC DTSTART shown in local time", d["date"] == _want, f"{d['date']} != {_want}")
     check("ics: organizer first, CN + mailto names parsed",
           d["attendees"] == ["Alice Boss", "Doe, John", "Mary Jane"], str(d["attendees"]))
 
