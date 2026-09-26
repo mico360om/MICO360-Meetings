@@ -944,18 +944,25 @@ def main():
     def _maintenance():
         from mico360.core.maintenance import purge_tmp
         d = TMP / "_purge_test"; d.mkdir(exist_ok=True)
-        old = d / "recording_1.wav"; old.write_bytes(b"x" * 100)
-        new = d / "recording_2.wav"; new.write_bytes(b"y" * 50)
+        old = d / "_src_mic_1.wav"; old.write_bytes(b"x" * 100)     # old intermediate
+        new = d / "_aud_2.wav"; new.write_bytes(b"y" * 50)          # recent intermediate
         keep = d / "meeting_notes.txt"; keep.write_bytes(b"z")     # not a temp pattern
+        rec = d / "recording_1.wav"; rec.write_bytes(b"r" * 10)    # a finished recording
         import os as _os
         _os.utime(old, (time.time() - 10 * 86400,) * 2)            # 10 days old
+        _os.utime(rec, (time.time() - 10 * 86400,) * 2)            # old, but the user's file
         removed, freed = purge_tmp(older_than_days=7, tmp_dir=d)
         assert removed == 1 and freed == 100
         assert not old.exists() and new.exists() and keep.exists()
+        assert rec.exists(), "finished recordings must never be auto-deleted"
         assert purge_tmp(older_than_days=0, tmp_dir=d) == (0, 0)   # disabled
         for f in d.glob("*"): f.unlink()
         d.rmdir()
-        return "age-based temp purge: removes old recordings, spares recent + non-temp"
+        from mico360.config import RECORDINGS_DIR, TMP_DIR
+        from mico360.core import recording as _R
+        a = _R.AudioRecorder(_R.RecordingConfig(kind="audio"))
+        assert Path(a.output_path).parent == RECORDINGS_DIR != TMP_DIR   # persistent, not temp
+        return "purges old intermediates only; finished recordings kept in RECORDINGS_DIR"
     t("core.maintenance", _maintenance)
 
     def _prompt_library():

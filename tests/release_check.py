@@ -7,6 +7,10 @@ Runs, in order:
   1. Module tests           (tests/module_tests.py)
   2. Integration QA         (tests/qa_check.py)
   3. Consistency audit      (tests/consistency_audit.py)
+  3b. Meeting isolation    (tests/workflow_isolation.py — switching meetings /
+                            auto-record never overwrite another meeting)
+  3c. Release fixes        (tests/release_fixes.py — remote audio, thread crashes,
+                            pywin32 in builds, recordings kept, multi-installer)
   4. Security scan          (no secrets in tracked files / source tree)
   5. Version coherence      (mico360.__version__ == installer.iss AppVersion)
   6. Built-app launch       (build/dist exe starts and stays up)   [skipped with --fast]
@@ -72,6 +76,12 @@ def main() -> int:
     run_suite("Integration QA", "tests/qa_check.py", r"\d+/\d+ checks passed")
     run_suite("Consistency audit", "tests/consistency_audit.py", r"\d+/\d+ consistency checks OK")
     run_suite("Parser tests", "tests/test_parsers.py", r"PARSERS: \d+/\d+ passed")
+    # Meeting isolation (switching meetings / auto-record must never overwrite
+    # another meeting). Isolated data folder + fake generator — runs anywhere.
+    run_suite("Meeting isolation", "tests/workflow_isolation.py", r"ISOLATION: (\d+)/\1 passed")
+    # Release-blocker regressions (remote audio in auto-record, background-thread
+    # crashes, pywin32 in builds, recordings kept, multi-installer releases).
+    run_suite("Release fixes", "tests/release_fixes.py", r"FIXES: (\d+)/\1 passed")
     if not fast:
         run_suite("E2E workflow", "tests/e2e_workflow.py", r"E2E: \d+/\d+ passed", timeout=600)
     else:

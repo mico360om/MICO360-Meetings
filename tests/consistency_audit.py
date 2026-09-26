@@ -67,6 +67,13 @@ def main():
     env = win.settings_page.env_lbl.text()
     em = re.search(r"(\d+)\s+installed", env)
     env_n = int(em.group(1)) if em else (0 if "No models" in env else -1)
+    if not st.running:
+        # Ollama offline (e.g. CI): consistent means every surface says "no models"
+        # — the chip reports offline and Settings shows no model count.
+        if chip_n == -1 and ("offline" in chip.lower() or "unavailable" in chip.lower()):
+            chip_n = 0
+        if env_n == -1 and "Models: —" in env:
+            env_n = 0
     win.new_page.refresh_models()
     dd = win.new_page.model_box
     dd_n = dd.count() if (dd.isEnabled() and not dd.currentText().startswith("⚠")) else 0

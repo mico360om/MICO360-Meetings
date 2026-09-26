@@ -18,9 +18,9 @@ dist/
 mico360/_build_key.py
 
 # App-generated
+# (samples/spoken_test.wav is a committed test fixture: a short synthetic speech clip)
 samples/out/
 samples/shots/
-samples/spoken_test.wav
 *.log
 
 # OS / editor

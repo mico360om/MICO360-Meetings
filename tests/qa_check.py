@@ -54,7 +54,11 @@ def main() -> int:
     # --- dropdowns/buttons after 'upload' ---
     np_._add_file("C:/fake/meeting.mp4")    # queues media (no transcription)
     app.processEvents()
-    check("Model dropdown usable after upload", np_.model_box.count() > 0 and np_.model_box.isEnabled())
+    if ctx.ai_status().running:
+        check("Model dropdown usable after upload", np_.model_box.count() > 0 and np_.model_box.isEnabled())
+    else:   # no Ollama (e.g. CI): the dropdown must say so rather than offer a bogus model
+        check("Model dropdown reports the AI is offline",
+              np_.model_box.currentText().startswith("⚠"), np_.model_box.currentText())
     check("Style dropdown has 5 styles after upload", np_.style_box.count() == 5)
     check("Prompt dropdown usable after upload", np_.prompt_box.count() > 0)
     tabs = np_.findChild(QTabWidget)
