@@ -397,7 +397,16 @@ class UpdatesPage(QWidget):
                         "and has been removed. Please download it again.")
                     return
             except Exception:
+                # Can't re-verify (file locked/unreadable): never run an
+                # unverified installer with admin rights — block instead.
                 log.warning("install-time hash re-check failed", exc_info=True)
+                self._set_status(updater.FAILED,
+                                 "Couldn't re-verify the downloaded installer — install blocked.")
+                QMessageBox.critical(
+                    self, "Update blocked",
+                    "The downloaded installer couldn't be re-checked against the published "
+                    "checksum, so it won't be run. Please download it again.")
+                return
         note = getattr(self, "_verify_note", "")
         caution = ""
         if "no published checksum" in note or "unsigned" in note:
@@ -610,7 +619,7 @@ class ActionItemsPage(QWidget):
             if status not in ("", "All statuses") and T.effective_status(it, today) != status:
                 return False
             if dl != self._DEADLINE_FILTERS[0]:
-                d = T.parse_deadline(it.deadline)
+                d = T.deadline_date(it)                  # year-less dates resolved like overdue
                 if dl == "Overdue" and not T.is_overdue(it, today):
                     return False
                 if dl == "Due today" and d != today:

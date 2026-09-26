@@ -73,13 +73,26 @@ def _connect(cfg: SmtpConfig, timeout: float = 25.0) -> smtplib.SMTP:
     return server
 
 
+def _split_addrs(value) -> list[str]:
+    """A string ("a@x.com; b@y.com" or "a@x.com, b@y.com") or a list -> addresses.
+    Semicolon-separated lists used to be treated as ONE header, so only the first
+    recipient got the email (M24)."""
+    from email.utils import formataddr, getaddresses
+    items = [value] if isinstance(value, str) else list(value or [])
+    out: list[str] = []
+    for name, addr in getaddresses([str(it).replace(";", ",") for it in items]):
+        if addr.strip():
+            out.append(formataddr((name, addr.strip())) if name else addr.strip())
+    return out
+
+
 def send_email(cfg: SmtpConfig, to, subject: str, body: str,
                html: str | None = None, attachments: list[str] | None = None,
                cc=None) -> None:
     """Send an email. `to`/`cc` may be a string or list. Raises on failure."""
     if not cfg.configured:
         raise ValueError("Email is not configured. Add SMTP settings in Settings → Email.")
-    to_list = [to] if isinstance(to, str) else list(to)
+    to_list = _split_addrs(to)
     to_list = [a.strip() for a in to_list if a.strip()]
     if not to_list:
         raise ValueError("No recipient address provided.")
@@ -88,7 +101,7 @@ def send_email(cfg: SmtpConfig, to, subject: str, body: str,
     msg["From"] = cfg.sender
     msg["To"] = ", ".join(to_list)
     if cc:
-        cc_list = [cc] if isinstance(cc, str) else list(cc)
+        cc_list = _split_addrs(cc)
         msg["Cc"] = ", ".join(a.strip() for a in cc_list if a.strip())
     msg["Subject"] = subject
     msg.set_content(body)
