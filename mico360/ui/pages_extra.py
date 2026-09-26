@@ -879,15 +879,14 @@ class HelpPage(QWidget):
                 f"<tr><td style='padding:3px 20px 3px 0; white-space:nowrap;'>"
                 f"<code>{k}</code></td><td style='padding:3px 0;'>{a}</td></tr>"
                 for k, a in pairs)
-        nav = rows((f"Ctrl+{i + 1}", label) for i, label in enumerate(
-            ["New Meeting", "History", "Action Items", "Company Profiles",
-             "Prompt Library", "Updates", "Help & About", "Settings"]))
+        from .main_window import NAV          # the real bindings (Ctrl+1..9 follow NAV order)
+        nav = rows((f"Ctrl+{i + 1}", label) for i, (label, _icon, _desc) in enumerate(NAV))
         actions = rows([
             ("Ctrl+N", "Start a new meeting"),
-            ("Ctrl+G", "Generate / create the minutes"),
-            ("Ctrl+E", "Export the minutes"),
-            ("Ctrl+S", "Save to History"),
-            ("Ctrl+Shift+C", "Copy the minutes (with formatting)"),
+            ("Ctrl+G", "Create the minutes (on New Meeting)"),
+            ("Ctrl+E", "Export the minutes (on New Meeting)"),
+            ("Ctrl+S", "Save to History (on New Meeting)"),
+            ("Ctrl+Shift+C", "Copy the minutes with formatting (on New Meeting)"),
             ("Ctrl+F", "Jump to History and search"),
             ("F1", "Open this Help page"),
         ])
@@ -990,16 +989,29 @@ class HelpPage(QWidget):
              anywhere. There are no user accounts.</p>
           <h3>Local storage</h3>
           <p>Recordings, transcripts, minutes, company profiles and history are stored
-             only in your local app-data folder. You can delete them at any time.</p>
+             only in your local app-data folder (recordings in its
+             <code>recordings</code> folder). They stay until you delete them; only
+             temporary working files created while recording or transcribing are
+             cleaned up automatically. Settings, including any email (SMTP) password
+             you enter, are stored unencrypted in that folder.</p>
           <h3>Network access</h3>
-          <p>The only optional network activity is: (1) the one-time download of a
-             Whisper or Ollama model you choose, (2) checking GitHub for application
-             updates when you click “Check for updates”, (3) the opt-in crash
-             reporter — if (and only if) you choose to report a problem, it opens a
-             pre-filled GitHub issue or email that you review and send yourself, and
-             (4) the <b>Email minutes</b> feature — if you use it, the minutes you
-             choose are sent through the SMTP/email server you configure in Settings
-             (e.g. Mailjet). Nothing is transmitted automatically.</p>
+          <p>{__app_name__} contacts other servers only for the following:</p>
+          <ul>
+            <li><b>Update check</b> — on start-up the app asks GitHub whether a newer
+                version exists (only the version is fetched; nothing about you or your
+                meetings is sent). Turn this off in Settings → Updates →
+                “Auto-check on startup”. Updates are never installed without your
+                confirmation.</li>
+            <li><b>Model downloads</b> — the one-time download of a Whisper or Ollama
+                model you choose.</li>
+            <li><b>Crash reports</b> — only if you choose to report a problem: it opens
+                a pre-filled GitHub issue or email that you review and send yourself.</li>
+            <li><b>Email minutes</b> — if you use it, the minutes you choose are sent
+                through the SMTP/email server you configure in Settings (e.g. Mailjet),
+                over an encrypted connection.</li>
+            <li><b>MICO360 Cloud</b> — only if you switch the AI mode to it (see
+                below).</li>
+          </ul>
           <h3>AI mode (local vs cloud)</h3>
           <p>Minutes are written by the <b>AI mode</b> you select in Settings.
              <b>Local (Ollama)</b>, the default, keeps everything on your computer.
@@ -1008,6 +1020,11 @@ class HelpPage(QWidget):
              returned to you — choose Local if you need minutes generation to stay
              on-device. <b>Transcription (Whisper) is always local in both modes</b>,
              so your audio and video never leave your computer regardless of AI mode.</p>
+          <p><b>Important:</b> the connection to the MICO360 Connect server is
+             currently <b>not encrypted</b> (plain HTTP). On a shared or untrusted
+             network (public Wi-Fi, hotels, some corporate proxies) other parties on
+             the network path could read the transcript and the minutes. Use
+             <b>Local (Ollama)</b> for confidential meetings.</p>
           <h3>Language</h3>
           <p>Your meeting language, including Arabic and other right-to-left
              languages, does not change any of the above: the same local-by-default

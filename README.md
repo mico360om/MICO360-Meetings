@@ -2,7 +2,10 @@
 
 **Offline AI meeting-minutes assistant.** Upload audio/video or paste a
 transcript, transcribe it locally with Whisper, and generate professional
-meeting minutes with a local Ollama model — **no data ever leaves your computer.**
+meeting minutes with a local Ollama model. **In the default Local mode your
+meetings never leave your computer.** An optional *MICO360 Cloud* AI mode sends
+the transcript (never the audio) to the MICO360 Connect server to write the
+minutes — see the in-app Privacy Policy for details.
 
 ![MICO360 Meetings](assets/logo_256.png)
 
