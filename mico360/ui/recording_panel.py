@@ -8,6 +8,7 @@ shows total duration, file name, format, size and save location.
 """
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
@@ -24,6 +25,8 @@ from PySide6.QtWidgets import (
 
 from ..core import recording as R
 from .components import Card, section_title, tip
+
+log = logging.getLogger("mico360.recording_panel")
 
 
 # ---------------------------------------------------------------------------
@@ -75,6 +78,7 @@ class RecordingPanel(QWidget):
     recordingReady = Signal(str)         # final media path -> queue for transcription
     liveTranscriptReady = Signal(str)    # full live transcript -> populate the transcript box
     recordingStateChanged = Signal(bool) # True while recording (drives the global indicator)
+    recordingFailed = Signal()           # recorder hit an error and was torn down
 
     def __init__(self, toast=None, ctx=None):
         super().__init__()
@@ -385,7 +389,8 @@ class RecordingPanel(QWidget):
                 self.toast.show_message(f"Could not start recording: {exc}", "error", 6000)
             return
         # Live transcription (audio recordings only, when enabled).
-        self._live_text = ""; self._live_worker = None
+        self._retire_live_worker(0)
+        self._live_text = ""
         live_on = (getattr(self, "live_check", None) is not None and self.live_check.isChecked()
                    and self.ctx is not None and kind == "audio")
         if live_on:
@@ -443,10 +448,21 @@ class RecordingPanel(QWidget):
         if not rec:
             return
         if rec.state == R.ERROR:
-            self._timer.stop(); self._blink_timer.stop()
-            if self.toast:
-                self.toast.show_message(f"Recording error: {rec.error}", "error", 6000)
+            # Fully tear the failed recording down: release the devices and the
+            # capture threads, stop the live worker, and clear the recording and
+            # auto-record state so nothing keeps running or triggers later.
+            err = rec.error
+            self._retire_live_worker(4000)
+            try:
+                rec.stop()
+            except Exception:
+                log.exception("stopping a failed recording")
+            self._rec = None
+            self._teardown()
             self.stack.setCurrentIndex(0)
+            self.recordingFailed.emit()
+            if self.toast:
+                self.toast.show_message(f"Recording error: {err}", "error", 6000)
             return
         secs = int(rec.elapsed())
         h, rem = divmod(secs, 3600); m, s = divmod(rem, 60)
@@ -482,9 +498,24 @@ class RecordingPanel(QWidget):
             self._rec.resume()
             self.pause_btn.setText("⏸ Pause")
 
+    def _retire_live_worker(self, wait_ms: int) -> None:
+        """Stop the live-transcription worker. If it's still finishing a chunk
+        after `wait_ms`, keep a reference until it really ends — dropping the last
+        reference to a running QThread aborts the whole process."""
+        w = getattr(self, "_live_worker", None)
+        self._live_worker = None
+        if w is None:
+            return
+        w.stop()
+        if wait_ms:
+            w.wait(wait_ms)
+        if w.isRunning():
+            retired = self.__dict__.setdefault("_retired_workers", [])
+            retired.append(w)
+            w.finished.connect(lambda w=w: w in retired and retired.remove(w))
+
     def _cancel(self):
-        if self._live_worker is not None:
-            self._live_worker.stop(); self._live_worker.wait(4000); self._live_worker = None
+        self._retire_live_worker(4000)
         if self._rec:
             self._rec.cancel()
         self._teardown()
@@ -503,18 +534,18 @@ class RecordingPanel(QWidget):
     def _finish_stop(self):
         rec = self._rec
         self._result = rec.stop()
-        # flush + stop the live worker, then hand the transcript to New Meeting
-        if self._live_worker is not None:
-            self._live_worker.stop()
-            self._live_worker.wait(6000)
-            self._live_worker = None
-            if self._live_text.strip():
-                self.liveTranscriptReady.emit(self._live_text.strip())
-        # Auto-record with no live text: hand the file straight to the queue so
-        # minutes still get generated without a click.
-        if getattr(self, "_auto_mode", False) and not self._live_text.strip() \
-                and self._result and Path(self._result.path).exists():
+        auto = getattr(self, "_auto_mode", False)
+        has_file = bool(self._result and Path(self._result.path).exists())
+        # flush + stop the live worker (its last chunk lands in _live_text)
+        self._retire_live_worker(6000)
+        live = self._live_text.strip()
+        if auto and has_file:
+            # Auto-record: transcribe the full recording. The live draft only hears
+            # the local microphone, so minutes built from it would leave out
+            # everything the other participants said (system audio).
             self.recordingReady.emit(self._result.path)
+        elif live:
+            self.liveTranscriptReady.emit(live)
         self._auto_mode = False
         self._teardown()
         self.stop_btn.setEnabled(True)
@@ -581,12 +612,10 @@ class RecordingPanel(QWidget):
 
     def stop_if_active(self):
         """Called on app close to flush an in-progress recording."""
-        if self._live_worker is not None:
-            try:
-                self._live_worker.stop(); self._live_worker.wait(3000)
-            except Exception:
-                pass
-            self._live_worker = None
+        try:
+            self._retire_live_worker(8000)
+        except Exception:
+            pass
         if self._rec and self._rec.state in (R.RECORDING, R.PAUSED):
             try:
                 self._rec.stop()

@@ -1,10 +1,13 @@
 """Housekeeping so the app stays light on storage over time.
 
-Recordings and their intermediate files live in the temp directory and are not
-referenced once a meeting's transcript/minutes are saved to history. Left alone
-they accumulate — a real problem on machines with little free disk. `purge_tmp`
-removes temp files older than a retention window; it is age-based so a file that
-is currently being written (recording in progress) is never touched.
+The recorder and audio pipeline leave intermediate files (per-source captures,
+temporary video/audio tracks, 16 kHz transcoding copies) in the temp directory.
+Left alone they accumulate — a real problem on machines with little free disk.
+`purge_tmp` removes those intermediates once they are older than a retention
+window; it is age-based so a file still being written is never touched.
+
+Finished recordings live in RECORDINGS_DIR and are NEVER purged here — they are
+the user's files and stay until the user deletes them.
 """
 from __future__ import annotations
 
@@ -12,14 +15,14 @@ import logging
 import time
 from pathlib import Path
 
-from ..config import TMP_DIR
+from ..config import RECORDINGS_DIR, TMP_DIR
 
 log = logging.getLogger("mico360.maintenance")
 
-# Temp artefacts produced by the recorder / audio pipeline (see core.recording,
-# core.audio). Only these prefixes are purged, so nothing unexpected is removed.
-_TMP_PATTERNS = ("recording_*.wav", "recording_*.mp3", "recording_*.mp4",
-                 "_src_*.wav", "_vid_*.mp4", "_aud_*.wav", "*_16k.wav")
+# Intermediate artefacts produced by the recorder / audio pipeline (see
+# core.recording, core.audio). Only these prefixes are purged, so nothing
+# unexpected is removed — and never a finished `recording_*` file.
+_TMP_PATTERNS = ("_src_*.wav", "_vid_*.mp4", "_aud_*.wav", "*_16k.wav")
 
 
 def purge_tmp(older_than_days: float = 7, tmp_dir: Path | None = None,
@@ -49,3 +52,30 @@ def purge_tmp(older_than_days: float = 7, tmp_dir: Path | None = None,
     if removed:
         log.info("purged %d stale temp file(s), freed %.1f MB", removed, freed / 1e6)
     return (removed, freed)
+
+
+def adopt_legacy_recordings(tmp_dir: Path | None = None,
+                            dest_dir: Path | None = None) -> int:
+    """Move finished recordings left in the temp folder by older versions
+    (which saved them there and auto-deleted them after a week) into the
+    permanent recordings folder. Returns how many were moved. Never raises."""
+    src = Path(tmp_dir) if tmp_dir is not None else TMP_DIR
+    dst = Path(dest_dir) if dest_dir is not None else RECORDINGS_DIR
+    moved = 0
+    try:
+        dst.mkdir(parents=True, exist_ok=True)
+        for pattern in ("recording_*.wav", "recording_*.mp3", "recording_*.mp4"):
+            for f in src.glob(pattern):
+                target = dst / f.name
+                if target.exists():
+                    continue
+                try:
+                    f.replace(target)
+                    moved += 1
+                except OSError:
+                    continue                 # in use — try again next start
+    except Exception:
+        log.warning("could not move legacy recordings", exc_info=True)
+    if moved:
+        log.info("moved %d recording(s) from the temp folder to %s", moved, dst)
+    return moved

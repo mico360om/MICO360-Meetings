@@ -41,13 +41,16 @@ PROMPTS_DIR = DATA_DIR / "prompts"
 EXPORT_DIR = DATA_DIR / "exports"
 MODELS_DIR = DATA_DIR / "whisper-models"
 TMP_DIR = DATA_DIR / "tmp"
+# Finished recordings. Kept until the user deletes them — never auto-purged
+# (only the recorder's intermediate files in TMP_DIR are cleaned up).
+RECORDINGS_DIR = DATA_DIR / "recordings"
 
 SETTINGS_FILE = DATA_DIR / "settings.json"
 DB_FILE = DATA_DIR / "mico360.db"
 
 _ALL_DIRS = [
     DATA_DIR, LOG_DIR, HISTORY_DIR, PROFILES_DIR,
-    PROMPTS_DIR, EXPORT_DIR, MODELS_DIR, TMP_DIR,
+    PROMPTS_DIR, EXPORT_DIR, MODELS_DIR, TMP_DIR, RECORDINGS_DIR,
 ]
 
 
@@ -159,7 +162,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "onboarded": False,                 # first-run guide shown
     "speaker_names": [],                # remembered names for speaker-naming autocomplete
     "live_transcription": False,        # transcribe from the mic while recording (beta)
-    "tmp_retention_days": 7,            # purge recorder temp files older than this at startup (0 = keep)
+    "tmp_retention_days": 7,            # purge recorder INTERMEDIATE files older than this (finished recordings are kept)
     "auto_record": False,               # offer to record detected / scheduled meetings
     "auto_record_lead_minutes": 3,      # prompt this many minutes before a calendar start
     "auto_record_ics": "",              # optional .ics calendar file to watch (Outlook is automatic)

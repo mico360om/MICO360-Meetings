@@ -22,7 +22,7 @@ import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..config import TMP_DIR
+from ..config import RECORDINGS_DIR, TMP_DIR
 
 log = logging.getLogger("mico360.recording")
 
@@ -321,7 +321,7 @@ class AudioRecorder(BaseRecorder):
     def __init__(self, cfg: RecordingConfig):
         super().__init__(cfg)
         ext = "mp3" if cfg.audio_format == "mp3" else "wav"
-        self.output_path = str(TMP_DIR / f"recording_{int(time.time())}.{ext}")
+        self.output_path = str(RECORDINGS_DIR / f"recording_{int(time.time())}.{ext}")
         self._rate = cfg.samplerate
         self._stop_flag = threading.Event()
         self._thread: threading.Thread | None = None
@@ -360,6 +360,7 @@ class AudioRecorder(BaseRecorder):
         # NEVER freeze the UI (some drivers/host APIs block on open). The UI
         # polls state/level; errors surface via state == ERROR.
         TMP_DIR.mkdir(parents=True, exist_ok=True)
+        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         # mic-only uses the proven single-stream path; system/both use the
         # multi-source capture+mix path.
         target = self._loop if self.cfg.source == "mic" else self._loop_sources
@@ -692,7 +693,7 @@ class VideoRecorder(BaseRecorder):
         super().__init__(cfg)
         self.kind = cfg.kind if cfg.kind in ("screen", "camera") else "screen"
         ts = int(time.time())
-        self.output_path = str(TMP_DIR / f"recording_{ts}.mp4")
+        self.output_path = str(RECORDINGS_DIR / f"recording_{ts}.mp4")
         self._tmp_video = str(TMP_DIR / f"_vid_{ts}.mp4")
         self._tmp_wav = str(TMP_DIR / f"_aud_{ts}.wav")
         self._frames = 0
@@ -713,6 +714,7 @@ class VideoRecorder(BaseRecorder):
 
     def start(self) -> None:
         TMP_DIR.mkdir(parents=True, exist_ok=True)
+        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
         # audio first so we can downgrade gracefully if no mic
         if self.cfg.include_audio and has_microphone():
             self.has_audio = True
@@ -884,12 +886,24 @@ class VideoRecorder(BaseRecorder):
             self._athread.join(timeout=5)
         if was_recording:
             self._mux()
-        return self._result("mp4")
+        return self._result("wav" if self.output_path.lower().endswith(".wav") else "mp4")
 
     def _mux(self):
         import av
         if not Path(self._tmp_video).exists() or self._frames == 0:
             log.error("no video frames captured")
+            # The camera/screen produced nothing, but the audio track may be fine:
+            # keep it as the recording rather than returning an empty video.
+            wav = Path(self._tmp_wav)
+            if self.has_audio and wav.exists() and wav.stat().st_size > 1024:
+                dest = Path(self.output_path).with_suffix(".wav")
+                try:
+                    wav.replace(dest)
+                    self.output_path = str(dest)
+                    self.kind = "audio"
+                    return
+                except OSError:
+                    log.exception("keeping the audio of a frameless recording")
             self.output_path = self._tmp_video
             return
         if not (self.has_audio and Path(self._tmp_wav).exists()
