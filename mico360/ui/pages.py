@@ -274,14 +274,14 @@ class NewMeetingPage(QWidget):
                 "ollama_down",
                 "Ollama isn't running, so minutes can't be generated. Start it "
                 "(open the Ollama app or run “ollama serve”), then Retry.",
-                primary=("Retry", self.refresh_models),
+                primary=("Retry", self._retry_ai_status),
                 secondary=("Open Settings", self._act_open_settings))
         else:  # running, but no models installed
             self._set_banner(
                 "no_model",
                 "No AI model is installed yet — you need one to generate minutes.",
                 primary=("Install a model", self._act_install_model),
-                secondary=("Retry", self.refresh_models))
+                secondary=("Retry", self._retry_ai_status))
 
     def _set_banner(self, sig, text="", primary=None, secondary=None):
         if sig is None:                         # ready → clear (and un-dismiss)
@@ -770,6 +770,14 @@ class NewMeetingPage(QWidget):
         return card
 
     # -- data refresh -------------------------------------------------------
+    def _retry_ai_status(self):
+        """Readiness-banner Retry: re-check the AI now instead of showing the
+        briefly cached failure."""
+        inv = getattr(self.ctx, "invalidate_ai_status", None)
+        if callable(inv):
+            inv()
+        self.refresh_models()
+
     def refresh_models(self):
         status = self.ctx.ai_status()
         cloud = self.ctx.provider() == "cloud"

@@ -232,6 +232,64 @@ DEFAULT_SETTINGS: dict[str, Any] = {
 }
 
 
+
+# ---------------------------------------------------------------------------
+# Secrets at rest (the SMTP password). On Windows they are encrypted with DPAPI,
+# tied to the current Windows user account, so settings.json never holds them in
+# plain text. Elsewhere (or if DPAPI is unavailable) they are stored as-is.
+# ---------------------------------------------------------------------------
+_SECRET_KEYS = frozenset({"smtp_password"})
+_SECRET_PREFIX = "dpapi:"
+
+
+def _dpapi(data: bytes, protect: bool) -> bytes:
+    import ctypes
+    from ctypes import wintypes
+
+    class _Blob(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    crypt32, kernel32 = ctypes.windll.crypt32, ctypes.windll.kernel32
+    buf = ctypes.create_string_buffer(data, len(data))
+    src = _Blob(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char)))
+    out = _Blob()
+    fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
+    flags = 0x1                                   # CRYPTPROTECT_UI_FORBIDDEN
+    ok = fn(ctypes.byref(src), None, None, None, None, flags, ctypes.byref(out))
+    if not ok:
+        raise OSError(ctypes.GetLastError(), "DPAPI call failed")
+    try:
+        return ctypes.string_at(out.pbData, out.cbData)
+    finally:
+        kernel32.LocalFree(out.pbData)
+
+
+def protect_secret(plain: str) -> str:
+    """Encrypt a secret for settings.json (returns it unchanged if impossible)."""
+    if not plain or sys.platform != "win32" or str(plain).startswith(_SECRET_PREFIX):
+        return plain
+    try:
+        import base64
+        return _SECRET_PREFIX + base64.b64encode(_dpapi(str(plain).encode("utf-8"), True)).decode("ascii")
+    except Exception:
+        logging.getLogger(__name__).warning("could not encrypt secret; storing as-is", exc_info=True)
+        return plain
+
+
+def unprotect_secret(stored: str) -> str:
+    """Decrypt a value written by protect_secret (plain values pass through)."""
+    if not stored or not str(stored).startswith(_SECRET_PREFIX):
+        return stored
+    try:
+        import base64
+        raw = base64.b64decode(str(stored)[len(_SECRET_PREFIX):])
+        return _dpapi(raw, False).decode("utf-8")
+    except Exception:
+        # e.g. settings copied from another Windows account/PC — can't decrypt
+        logging.getLogger(__name__).warning("could not decrypt a stored secret", exc_info=True)
+        return ""
+
+
 class Settings:
     """Tiny JSON-backed settings store with attribute-style access."""
 
@@ -263,6 +321,14 @@ class Settings:
         if not str(self._data.get("github_repo") or "").strip():
             self._data["github_repo"] = DEFAULT_REPO
             changed = True
+        # Older builds stored the SMTP password in plain text: encrypt it now.
+        for k in _SECRET_KEYS:
+            v = self._data.get(k)
+            if v and isinstance(v, str) and not v.startswith(_SECRET_PREFIX):
+                enc = protect_secret(v)
+                if enc != v:
+                    self._data[k] = enc
+                    changed = True
         if changed:
             self.save()
 
@@ -273,9 +339,14 @@ class Settings:
             logging.getLogger(__name__).warning("settings save failed", exc_info=True)
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, DEFAULT_SETTINGS.get(key, default))
+        value = self._data.get(key, DEFAULT_SETTINGS.get(key, default))
+        if key in _SECRET_KEYS and isinstance(value, str):
+            return unprotect_secret(value)
+        return value
 
     def set(self, key: str, value: Any) -> None:
+        if key in _SECRET_KEYS and isinstance(value, str):
+            value = protect_secret(value)
         self._data[key] = value
         self.save()
 

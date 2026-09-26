@@ -261,10 +261,30 @@ def test_multi_installer_release() -> None:
 
 
 # =============================================================================
+def test_smtp_password_encrypted() -> None:
+    print("L6 — the SMTP password is encrypted at rest")
+    import json
+    from mico360.config import Settings, _SECRET_PREFIX
+    f = _TMP / "secret_settings.json"
+    f.write_text(json.dumps({"smtp_password": " s3cret pass "}), encoding="utf-8")  # legacy plaintext
+    s = Settings(f)
+    on_disk = f.read_text(encoding="utf-8")
+    if sys.platform == "win32":
+        check("an old plaintext password is encrypted on load",
+              json.loads(on_disk)["smtp_password"].startswith(_SECRET_PREFIX) and "s3cret" not in on_disk)
+    check("the password reads back exactly (spaces kept)", s.get("smtp_password") == " s3cret pass ")
+    s.set("smtp_password", "new-Pa55")
+    check("a newly saved password is not stored in plain text",
+          "new-Pa55" not in f.read_text(encoding="utf-8") or sys.platform != "win32")
+    check("…and survives a reload", Settings(f).get("smtp_password") == "new-Pa55")
+    f.write_text(json.dumps({"smtp_password": _SECRET_PREFIX + "bm90LXJlYWw="}), encoding="utf-8")
+    check("an undecryptable value is treated as empty (no crash)", Settings(f).get("smtp_password") == "")
+
+# =============================================================================
 def main() -> int:
     for fn in (test_remote_participants, test_background_crash,
                test_meeting_detection_in_builds, test_recordings_kept,
-               test_multi_installer_release):
+               test_multi_installer_release, test_smtp_password_encrypted):
         try:
             fn()
         except Exception as exc:

@@ -1057,8 +1057,8 @@ class HelpPage(QWidget):
              only in your local app-data folder (recordings in its
              <code>recordings</code> folder). They stay until you delete them; only
              temporary working files created while recording or transcribing are
-             cleaned up automatically. Settings, including any email (SMTP) password
-             you enter, are stored unencrypted in that folder.</p>
+             cleaned up automatically. Settings are stored in that folder; the email
+             (SMTP) password is encrypted with your Windows user account.</p>
           <h3>Network access</h3>
           <p>{__app_name__} contacts other servers only for the following:</p>
           <ul>

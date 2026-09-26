@@ -357,8 +357,8 @@ class SettingsPage(QWidget):
         self.smtp_password.setEchoMode(QLineEdit.Password)
         self.smtp_password.setPlaceholderText("Mailjet Secret key")
         tip(self.smtp_password, "SMTP password — for Mailjet this is your Secret key. Stored only "
-                                "in your local settings file on this PC, never in the app or "
-                                "repository. Saved exactly as typed (spaces are kept)")
+                                "in your local settings file on this PC, encrypted with your "
+                                "Windows account. Saved exactly as typed (spaces are kept)")
         form.addRow("SMTP password / Secret", self.smtp_password)
         self.test_btn = QPushButton("Send test email")
         self.test_btn.clicked.connect(self._send_test_email)
@@ -570,6 +570,7 @@ class SettingsPage(QWidget):
         return _ollama.check_status(self._typed_host())
 
     def _refresh_clicked(self):
+        self._clear_status_cache()                   # an explicit Refresh must re-query now
         self._reload_models()
         self._refresh_env()
 
@@ -744,12 +745,9 @@ class SettingsPage(QWidget):
     def _clear_status_cache(self):
         """Forget the context's short-lived AI status so the next read queries
         the (possibly new) host instead of a stale cached answer."""
-        for attr in ("_ai_status_cache",):
-            if hasattr(self.ctx, attr):
-                try:
-                    setattr(self.ctx, attr, None)
-                except Exception:
-                    pass
+        inv = getattr(self.ctx, "invalidate_ai_status", None)
+        if callable(inv):
+            inv()
 
     def _save(self) -> bool:
         repo = normalize_repo(self.repo.text())

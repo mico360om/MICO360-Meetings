@@ -93,7 +93,7 @@ HOST_MODELS = {"http://127.0.0.1:11434": ["alpha", "beta"],
                "http://10.0.0.9:11434": ["remote-a", "remote-b"]}
 
 
-def fake_check_status(host: str = "http://127.0.0.1:11434"):
+def fake_check_status(host: str = "http://127.0.0.1:11434", **_kw):   # accepts use_cache= etc.
     HOSTS_ASKED.append(host)
     models = HOST_MODELS.get(host)
     if models is None:
@@ -390,14 +390,15 @@ def main() -> int:
           sp.install_btn.isEnabled() and sp.install_cancel_btn.isHidden()
           and "cancel" in sp.install_status.text().lower())
 
-    ctx._ai_status_cache = ("local", time.monotonic() + 999, NS(running=False, models=[], error=""))
+    invalidated = []
+    real_inv = ctx.invalidate_ai_status
+    ctx.invalidate_ai_status = lambda: (invalidated.append(True), real_inv())
     real_ai_status = ctx.ai_status
     del ctx.ai_status                                     # use the real (cached) implementation
     sp._save()
     check("Save stores the typed host", ctx.settings.get("ollama_host") == "http://10.0.0.9:11434")
-    check("Save clears the context's AI status cache",
-          getattr(ctx, "_ai_status_cache", None) is None
-          or ctx._ai_status_cache[2].running)
+    check("Save clears the context's AI status cache", bool(invalidated))
+    ctx.invalidate_ai_status = real_inv
     ctx.ai_status = real_ai_status
     sp.host.setText("http://127.0.0.1:11434"); sp._save()
 
