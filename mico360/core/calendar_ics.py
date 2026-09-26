@@ -4,40 +4,64 @@ an optional reminder. Pure logic — no Qt, no network.
 """
 from __future__ import annotations
 
-import uuid
-from datetime import date, datetime, timedelta
+import hashlib
+from datetime import date, datetime, timedelta, timezone
 
 from . import tasks as T
+
+# RFC 5545 §3.1: lines SHOULD NOT be longer than 75 OCTETS (excluding CRLF).
+_MAX_OCTETS = 75
 
 
 def dated_items(items) -> list:
     """Items whose deadline parses to a real date (the ones we can schedule)."""
-    return [it for it in items if T.parse_deadline(it.deadline) is not None]
+    return [it for it in items if T.deadline_date(it) is not None]
 
 
 def _esc(s: str) -> str:
     return (str(s or "").replace("\\", "\\\\").replace(";", "\\;")
-            .replace(",", "\\,").replace("\n", "\\n"))
+            .replace(",", "\\,").replace("\r\n", "\\n").replace("\n", "\\n")
+            .replace("\r", "\\n"))
 
 
 def _fold(line: str) -> str:
-    """RFC 5545 line folding: continuation lines start with a space."""
-    out = []
-    while len(line) > 73:
-        out.append(line[:73]); line = " " + line[73:]
-    out.append(line)
+    """RFC 5545 line folding by OCTETS (UTF-8), never splitting a character:
+    the first line holds at most 75 octets, each continuation line a leading
+    space plus at most 74. (Folding by character count produced 128-octet
+    Arabic lines.)"""
+    out: list[str] = []
+    cur: list[str] = []
+    size = 0
+    limit = _MAX_OCTETS
+    for ch in line:
+        n = len(ch.encode("utf-8"))
+        if size + n > limit:
+            out.append("".join(cur))
+            cur, size, limit = [" "], 1, _MAX_OCTETS    # continuation: space + 74
+        cur.append(ch)
+        size += n
+    out.append("".join(cur))
     return "\r\n".join(out)
+
+
+def event_uid(item) -> str:
+    """A UID that is STABLE across exports for the same action item, so
+    re-importing an updated .ics updates the event instead of duplicating it.
+    Based on the item's override key (meeting + original task text + row)."""
+    key = getattr(item, "okey", "") or item.key()
+    return hashlib.sha1(f"mico360-action:{key}".encode("utf-8")).hexdigest()[:24] + "@mico360"
 
 
 def build_ics(items, today: date | None = None, reminder_days: int = 1,
               calname: str = "MICO360 Action Items") -> str:
     today = today or date.today()
-    stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     lines = ["BEGIN:VCALENDAR", "VERSION:2.0",
              "PRODID:-//MICO360//Meetings//EN", "CALSCALE:GREGORIAN",
              "METHOD:PUBLISH", f"X-WR-CALNAME:{_esc(calname)}"]
+    seen: set[str] = set()
     for it in items:
-        d = T.parse_deadline(it.deadline)
+        d = T.deadline_date(it)
         if d is None:
             continue
         owner = (it.owner or "").strip()
@@ -51,8 +75,13 @@ def build_ics(items, today: date | None = None, reminder_days: int = 1,
         if it.priority:
             desc.append(f"Priority: {it.priority}")
         desc.append(f"Status: {T.normalize_status(it.status)}")
+        uid = event_uid(it)
+        n = 2
+        while uid in seen:                       # two identical ad-hoc items
+            uid = event_uid(it).replace("@", f"-{n}@"); n += 1
+        seen.add(uid)
         ev = ["BEGIN:VEVENT",
-              f"UID:{uuid.uuid4().hex}@mico360",
+              f"UID:{uid}",
               f"DTSTAMP:{stamp}",
               f"DTSTART;VALUE=DATE:{d.strftime('%Y%m%d')}",
               f"DTEND;VALUE=DATE:{(d + timedelta(days=1)).strftime('%Y%m%d')}",
