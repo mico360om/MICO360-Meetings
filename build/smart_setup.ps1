@@ -42,12 +42,41 @@ function Write-Log {
     Write-Host $line -ForegroundColor $colors[$Tag]
 }
 
+# Windows PowerShell 5.1 defaults to TLS 1.0 - enable TLS 1.2 for the HTTPS
+# checks and downloads below.
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {}
+
+# Online = the download host answers over HTTPS. (ICMP ping is blocked on many
+# corporate networks and would wrongly skip setup.) Any HTTP response - even an
+# error status - proves connectivity; only a network failure/timeout means offline.
+$script:OnlineCache = $null
 function Test-Online {
-    try { return (Test-Connection -ComputerName "ollama.com" -Count 1 -Quiet -ErrorAction Stop) }
-    catch { return $false }
+    if ($null -ne $script:OnlineCache) { return $script:OnlineCache }
+    $ok = $false
+    foreach ($url in @("https://ollama.com", "https://registry.ollama.ai")) {
+        try {
+            Invoke-WebRequest -Uri $url -Method Head -TimeoutSec 10 -UseBasicParsing -ErrorAction Stop | Out-Null
+            $ok = $true
+        } catch [System.Net.WebException] {
+            if ($_.Exception.Response) { $ok = $true }
+        } catch {
+            $ok = $false
+        }
+        if ($ok) { break }
+    }
+    if (-not $ok) { Write-Log "No HTTPS connection to ollama.com (offline, or blocked by a proxy/firewall)." "INFO" }
+    $script:OnlineCache = $ok
+    return $ok
 }
 
 Write-Log "===== MICO360 Meetings setup started =====" "STEP"
+try {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+    Write-Log ("Running as {0} (elevated: {1}); log: {2}" -f [Environment]::UserName, $isAdmin, $LogPath) "INFO"
+} catch {}
 
 # --- 0. Python (only needed for source/dev installs; the packaged app bundles
 #        its own Python, so this step is opt-in via -EnsurePython) ------------
@@ -186,7 +215,8 @@ if (Get-OllamaCmd) {
             Write-Log "Downloading OllamaSetup.exe ..." "INFO"
             Invoke-WebRequest -Uri "https://ollama.com/download/OllamaSetup.exe" -OutFile $setup -UseBasicParsing
             Write-Log "Running Ollama installer (silent) ..." "INFO"
-            Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/NORESTART" -Wait
+            $proc = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/NORESTART" -Wait -PassThru
+            if ($proc.ExitCode -ne 0) { Write-Log "Ollama installer returned exit code $($proc.ExitCode)." "INFO" }
             $ollamaDir = Join-Path $env:LOCALAPPDATA "Programs\Ollama"
             $env:Path = "$env:Path;$ollamaDir"
             if (Get-OllamaCmd) {

@@ -1,5 +1,8 @@
 # MICO360 Meetings — runtime dependencies
 # Tested on Python 3.11–3.14 (Windows). All packages ship binary wheels.
+# Exact tested versions are pinned in constraints.txt; install with:
+#     pip install -r requirements.txt -c constraints.txt
+# (builds and CI also add -r requirements-dev.txt for PyInstaller + test tools).
 
 # --- UI ---
 PySide6>=6.6,<6.12
@@ -25,7 +28,8 @@ soundcard>=0.4.3    # true WASAPI loopback (system-audio capture, no Stereo Mix 
 pywin32>=306; sys_platform == "win32"
 
 # --- Optional (text from PDFs / images) ---
-# pypdf>=4.0        # uncomment to enable PDF text import
+# pypdf>=4.0        # uncomment to enable PDF text import (the tests get it
+#                   # from requirements-dev.txt)
 # pytesseract>=0.3  # + Tesseract OCR engine, to read text from images
 
 # --- Export & profiles ---

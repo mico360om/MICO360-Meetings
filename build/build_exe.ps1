@@ -1,25 +1,14 @@
 <#
-  Builds the standalone MICO360 Meetings executable with PyInstaller.
-  Run from the project root:   powershell -ExecutionPolicy Bypass -File build\build_exe.ps1
+  Builds only the standalone MICO360 Meetings app with PyInstaller (no installer).
+  Run from the project root:
+      powershell -ExecutionPolicy Bypass -File build\build_exe.ps1 [-Python <path>]
+
+  This is build_all.ps1 -SkipInstaller, so it follows the same rules: pinned
+  dependencies (constraints.txt), Python 3.12 preferred, every step's exit code
+  checked, and the build-time key file removed afterwards.
+  Keep this file ASCII-only (Windows PowerShell 5.1 reads it as cp1252).
 #>
+param([string] $Python = "")
 $ErrorActionPreference = "Stop"
-$root = Split-Path -Parent $PSScriptRoot
-Set-Location $root
-
-Write-Host "==> Ensuring build tooling…" -ForegroundColor Cyan
-python -m pip install --upgrade pip pyinstaller | Out-Null
-python -m pip install -r requirements.txt | Out-Null
-
-Write-Host "==> Cleaning previous build…" -ForegroundColor Cyan
-Remove-Item -Recurse -Force "$root\build\dist","$root\build\work" -ErrorAction SilentlyContinue
-
-Write-Host "==> Running PyInstaller…" -ForegroundColor Cyan
-pyinstaller "build\mico360.spec" --noconfirm `
-    --distpath "build\dist" --workpath "build\work"
-
-$exe = "build\dist\MICO360Meetings\MICO360Meetings.exe"
-if (Test-Path $exe) {
-    Write-Host "==> Build OK -> $exe" -ForegroundColor Green
-} else {
-    Write-Error "Build failed: $exe not found"
-}
+& (Join-Path $PSScriptRoot "build_all.ps1") -Python $Python -SkipInstaller
+exit $LASTEXITCODE
