@@ -5,6 +5,7 @@ The logo keeps its aspect ratio and is drawn at the configured printed width.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -26,7 +27,8 @@ _ALIGN = {"left": TA_LEFT, "center": TA_CENTER, "right": TA_RIGHT}
 def _styles(accent: str):
     ss = getSampleStyleSheet()
     try:
-        accent_color = colors.HexColor(accent if str(accent).startswith("#") else "#8B1E1E")
+        a = str(accent or "").strip()
+        accent_color = colors.HexColor(a if re.match(r"^#[0-9A-Fa-f]{3,8}$", a) else "#8B1E1E")
     except (ValueError, TypeError):               # e.g. "#GG0000" from an imported profile
         accent_color = colors.HexColor("#8B1E1E")
     styles = {
@@ -34,11 +36,15 @@ def _styles(accent: str):
                                  textColor=accent_color, spaceAfter=10),
         "h2": ParagraphStyle("m_h2", parent=ss["Heading2"], fontSize=12.5,
                              textColor=accent_color, spaceBefore=10, spaceAfter=4),
+        "h3": ParagraphStyle("m_h3", parent=ss["Heading3"], fontSize=11,
+                             textColor=accent_color, spaceBefore=8, spaceAfter=3),
         "body": ParagraphStyle("m_body", parent=ss["BodyText"], fontSize=10.5,
                                leading=15, spaceAfter=4),
         "kv": ParagraphStyle("m_kv", parent=ss["BodyText"], fontSize=10.5, leading=15),
         "bullet": ParagraphStyle("m_bullet", parent=ss["BodyText"], fontSize=10.5,
                                  leading=15, leftIndent=12, bulletIndent=2, spaceAfter=2),
+        "olist": ParagraphStyle("m_olist", parent=ss["BodyText"], fontSize=10.5,
+                                leading=15, leftIndent=20, bulletIndent=2, spaceAfter=2),
         "cell": ParagraphStyle("m_cell", parent=ss["BodyText"], fontSize=9, leading=12),
         "cellh": ParagraphStyle("m_cellh", parent=ss["BodyText"], fontSize=9,
                                 leading=12, textColor=colors.white),
@@ -156,6 +162,12 @@ def export_pdf(minutes_md: str, path: str | Path,
             flow.append(_para(blk.text, styles["title"], body_w))
         elif blk.kind == "h2":
             flow.append(_para(blk.text, styles["h2"], body_w))
+        elif blk.kind == "h3":
+            flow.append(_para(blk.text, styles["h3"], body_w))
+        elif blk.kind == "olist":
+            for k, it in enumerate(blk.items):
+                flow.append(_para(it, styles["olist"], body_w,
+                                  bulletText=f"{blk.start + k}."))
         elif blk.kind == "kv":
             flow.append(_para(f"**{blk.key}:** {blk.text}", styles["kv"], body_w))
         elif blk.kind == "bullet":

@@ -36,11 +36,29 @@ def _rtl_paragraph(p, text: str) -> None:
 
 
 def _hex_rgb(color: str) -> RGBColor:
-    color = (color or "#8B1E1E").lstrip("#")
+    color = str(color or "#8B1E1E").strip().lstrip("#")
+    if len(color) in (3, 4):                       # #abc → #aabbcc
+        color = "".join(c * 2 for c in color[:3])
     try:
+        if len(color) < 6:
+            raise ValueError(color)
         return RGBColor(int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16))
     except Exception:
-        return RGBColor(0x2C, 0x7B, 0xE5)
+        return RGBColor(0x8B, 0x1E, 0x1E)
+
+
+def _x(s) -> str:
+    """Text safe for Word XML: control characters (e.g. \\x0b from pasted text)
+    raise 'All strings must be XML compatible' in python-docx."""
+    return md_blocks.clean_text(s)
+
+
+def _add_runs(p, text: str, force_bold: bool = False) -> None:
+    """Add `text` to paragraph `p`, rendering **bold** spans as bold runs (not
+    literal asterisks)."""
+    for txt, bold in md_blocks.runs(_x(text)):
+        if txt:
+            p.add_run(txt).bold = bold or force_bold
 
 
 def _add_field(paragraph, instr: str) -> None:
@@ -68,11 +86,11 @@ def _build_header(doc, profile: CompanyProfile) -> None:
 
     info = header.add_paragraph()
     info.alignment = _ALIGN.get(profile.logo_position, WD_ALIGN_PARAGRAPH.LEFT)
-    name_run = info.add_run(profile.name)
+    name_run = info.add_run(_x(profile.name))
     name_run.bold = True
     name_run.font.size = Pt(13)
     name_run.font.color.rgb = _hex_rgb(profile.accent_color)
-    contact_bits = [b for b in (profile.address, profile.phone, profile.email, profile.website) if b]
+    contact_bits = [_x(b) for b in (profile.address, profile.phone, profile.email, profile.website) if b]
     if contact_bits:
         cr = info.add_run("\n" + "  •  ".join(contact_bits))
         cr.font.size = Pt(8)
@@ -86,7 +104,7 @@ def _build_footer(doc, profile: CompanyProfile) -> None:
     p = footer.paragraphs[0]
     p.alignment = _ALIGN.get(profile.footer_alignment, WD_ALIGN_PARAGRAPH.CENTER)
     if profile.footer_text:
-        r = p.add_run(profile.footer_text)
+        r = p.add_run(_x(profile.footer_text))
         r.font.size = Pt(8)
         r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
 
@@ -104,7 +122,7 @@ def _build_footer(doc, profile: CompanyProfile) -> None:
             elif token == "{total}":
                 _add_field(pn, "NUMPAGES")
             elif token:
-                run = pn.add_run(token)
+                run = pn.add_run(_x(token))
                 run.font.size = Pt(8)
 
 
@@ -120,43 +138,54 @@ def export_docx(minutes_md: str, path: str | Path,
         _build_header(doc, profile)
         _build_footer(doc, profile)
 
+    accent = _hex_rgb(profile.accent_color if profile else "#8B1E1E")
     for blk in md_blocks.parse(minutes_md):
-        if blk.kind == "h1":
-            h = doc.add_heading(level=0)
-            run = h.add_run(blk.text)
-            run.font.color.rgb = _hex_rgb(profile.accent_color if profile else "#8B1E1E")
+        if blk.kind in ("h1", "h2", "h3"):
+            # h1 → Title, h2 → Heading 1, h3..h6 → Heading 2..5
+            level = 0 if blk.kind == "h1" else max(1, min((blk.level or 2) - 1, 9))
+            h = doc.add_heading(level=level)
+            _add_runs(h, blk.text)
+            if blk.kind == "h1":
+                for r in h.runs:
+                    r.font.color.rgb = accent
             _rtl_paragraph(h, blk.text)
-        elif blk.kind == "h2":
-            _rtl_paragraph(doc.add_heading(blk.text, level=1), blk.text)
         elif blk.kind == "kv":
             p = doc.add_paragraph()
-            p.add_run(f"{blk.key}: ").bold = True
-            p.add_run(blk.text)
+            _add_runs(p, blk.key + ": ", force_bold=True)
+            _add_runs(p, blk.text)
             _rtl_paragraph(p, f"{blk.key} {blk.text}")
         elif blk.kind == "bullet":
             for it in blk.items:
                 p = doc.add_paragraph(style="List Bullet")
-                for txt, bold in md_blocks.runs(it):
-                    p.add_run(txt).bold = bold
+                _add_runs(p, it)
+                _rtl_paragraph(p, it)
+        elif blk.kind == "olist":
+            # explicit numbers (Word's shared "List Number" numbering would
+            # continue from the previous list instead of restarting)
+            for k, it in enumerate(blk.items):
+                p = doc.add_paragraph()
+                p.paragraph_format.left_indent = Mm(6)
+                p.paragraph_format.first_line_indent = Mm(-6)
+                p.add_run(f"{blk.start + k}.\t")
+                _add_runs(p, it)
                 _rtl_paragraph(p, it)
         elif blk.kind == "table":
-            cols = len(blk.headers)
+            cols = max(len(blk.headers), 1)
             table = doc.add_table(rows=1, cols=cols)
             table.style = "Light Grid Accent 1"
             for j, htext in enumerate(blk.headers):
                 cell = table.rows[0].cells[j]
-                cell.paragraphs[0].add_run(htext).bold = True
+                _add_runs(cell.paragraphs[0], htext, force_bold=True)
                 _rtl_paragraph(cell.paragraphs[0], htext)
             for row in blk.rows:
                 cells = table.add_row().cells
                 for j in range(cols):
                     val = row[j] if j < len(row) else ""
-                    cells[j].text = val
+                    _add_runs(cells[j].paragraphs[0], val)
                     _rtl_paragraph(cells[j].paragraphs[0], val)
         elif blk.kind == "para":
             p = doc.add_paragraph()
-            for txt, bold in md_blocks.runs(blk.text):
-                p.add_run(txt).bold = bold
+            _add_runs(p, blk.text)
             _rtl_paragraph(p, blk.text)
 
     doc.save(str(path))

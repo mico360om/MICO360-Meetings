@@ -1,6 +1,9 @@
 """Dialogs: company-profile editor (with live layout preview) and prompt editor."""
 from __future__ import annotations
 
+import re
+from dataclasses import replace
+from email.utils import getaddresses
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QRectF, Signal
@@ -101,7 +104,11 @@ class ProfileDialog(QDialog):
     def __init__(self, store: ProfileStore, profile: CompanyProfile | None = None, parent=None):
         super().__init__(parent)
         self.store = store
-        self.profile = profile or CompanyProfile()
+        # edit a COPY: nothing about the caller's profile (or the saved file)
+        # changes until Save
+        self.profile = replace(profile) if profile else CompanyProfile()
+        self._saved_logo = self.profile.logo_path     # what the saved profile uses
+        self._pending_logo = ""                        # chosen, not yet copied in
         self.setWindowTitle("Company Profile")
         self.resize(820, 600)
 
@@ -222,9 +229,12 @@ class ProfileDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(
             self, "Choose logo", "", "Images (*.png *.jpg *.jpeg *.bmp *.gif)")
         if path:
-            saved = self.store.set_logo(self._collect(), path)
-            self._logo_path = saved.logo_path
-            self.logo_lbl.setText(Path(self._logo_path).name)
+            # Only remember the choice (the preview reads the file in place).
+            # It is copied into the profile store on Save — so Cancel leaves the
+            # saved profile and its logo file untouched.
+            self._pending_logo = path
+            self._logo_path = path
+            self.logo_lbl.setText(Path(path).name)
             self._refresh_preview()
 
     def _choose_color(self):
@@ -239,7 +249,21 @@ class ProfileDialog(QDialog):
             f"background:{self._accent}; color:white; border:none; border-radius:8px; padding:8px 14px;")
 
     def _save(self):
-        self.profile = self.store.save(self._collect())
+        p = self._collect()
+        if self._pending_logo:
+            try:
+                p = self.store.set_logo(p, self._pending_logo)   # new unique file
+            except Exception as exc:
+                QMessageBox.warning(self, "Logo not saved",
+                                    f"The logo could not be copied:\n{exc}")
+                p.logo_path = self._saved_logo
+        self.profile = self.store.save(p)
+        # the previous logo file is removed only now, and only if no other
+        # profile uses it
+        if self._saved_logo and self._saved_logo != self.profile.logo_path:
+            self.store.discard_logo(self._saved_logo, exclude_id=self.profile.id)
+        self._saved_logo = self.profile.logo_path
+        self._pending_logo = ""
         self.accept()
 
 
@@ -394,6 +418,44 @@ class ActionItemDialog(QDialog):
         }
 
 
+_ADDR_RE = re.compile(r"^[^@\s<>(),;:\"\[\]]+@[^@\s<>(),;:\"\[\]]+\.[^@\s<>(),;:\"\[\].]{2,}$")
+
+
+def parse_recipients(text: str) -> tuple[list[str], list[str]]:
+    """Split a recipients field on commas AND semicolons (Outlook style) and
+    validate each entry. Accepts 'a@x.com' and 'Name <a@x.com>'. Returns
+    (valid bare addresses, invalid entries as typed); duplicates are dropped."""
+    valid: list[str] = []
+    invalid: list[str] = []
+    pieces: list[str] = []
+    buf: list[str] = []
+    in_q = in_angle = False
+    for ch in (text or ""):                 # split on , ; outside "quotes" / <>
+        if ch == '"':
+            in_q = not in_q
+        elif ch == "<" and not in_q:
+            in_angle = True
+        elif ch == ">" and not in_q:
+            in_angle = False
+        if ch in ",;" and not in_q and not in_angle:
+            pieces.append("".join(buf)); buf = []
+        else:
+            buf.append(ch)
+    pieces.append("".join(buf))
+    for piece in pieces:
+        entry = piece.strip()
+        if not entry:
+            continue
+        pairs = getaddresses([entry])
+        addr = pairs[0][1].strip() if len(pairs) == 1 else ""
+        if addr and _ADDR_RE.match(addr):
+            if addr.lower() not in {v.lower() for v in valid}:
+                valid.append(addr)
+        else:
+            invalid.append(entry)
+    return valid, invalid
+
+
 class EmailComposeDialog(QDialog):
     """Compose an email (of the minutes, or a follow-up) — attachments optional."""
     def __init__(self, subject: str, body: str, to: str = "", parent=None,
@@ -404,9 +466,9 @@ class EmailComposeDialog(QDialog):
         lay = QVBoxLayout(self)
         form = QFormLayout()
         self.to = QLineEdit(to); self.to.setPlaceholderText("recipient@example.com, another@example.com")
-        tip(self.to, "Recipient address(es), separated by commas — required")
+        tip(self.to, "Recipient address(es), separated by commas or semicolons — required")
         self.cc = QLineEdit()
-        tip(self.cc, "Optional carbon-copy addresses, separated by commas")
+        tip(self.cc, "Optional carbon-copy addresses, separated by commas or semicolons")
         self.subject = QLineEdit(subject)
         form.addRow("To", self.to)
         form.addRow("Cc", self.cc)
@@ -437,7 +499,17 @@ class EmailComposeDialog(QDialog):
         lay.addWidget(bb)
 
     def _validate(self):
-        if not self.to.text().strip():
+        to, bad_to = parse_recipients(self.to.text())
+        cc, bad_cc = parse_recipients(self.cc.text())
+        bad = bad_to + bad_cc
+        if bad:
+            QMessageBox.warning(
+                self, "Invalid address",
+                "These don't look like email addresses:\n\n  " + "\n  ".join(bad)
+                + "\n\nSeparate several recipients with a comma or semicolon, "
+                  "e.g. a@example.com; b@example.com")
+            return
+        if not to:
             QMessageBox.warning(self, "Recipient required", "Enter at least one 'To' address.")
             return
         self.accept()
@@ -449,8 +521,8 @@ class EmailComposeDialog(QDialog):
         if self.att_docx.isChecked():
             fmts.append(".docx")
         return {
-            "to": [a.strip() for a in self.to.text().split(",") if a.strip()],
-            "cc": [a.strip() for a in self.cc.text().split(",") if a.strip()],
+            "to": parse_recipients(self.to.text())[0],
+            "cc": parse_recipients(self.cc.text())[0],
             "subject": self.subject.text().strip() or "Meeting Minutes",
             "body": self.body.toPlainText(),
             "formats": fmts,
