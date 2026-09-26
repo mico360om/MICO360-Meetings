@@ -73,5 +73,7 @@ def write_ics(path, items, **kw) -> int:
     """Write dated items to `path`; return how many events were written."""
     dated = dated_items(items)
     from pathlib import Path
-    Path(path).write_text(build_ics(dated, **kw), encoding="utf-8")
+    # Bytes, not text mode: build_ics already uses CRLF, and Windows text mode
+    # would turn each into "\r\r\n" (breaks folded lines / RFC 5545).
+    Path(path).write_bytes(build_ics(dated, **kw).encode("utf-8"))
     return len(dated)

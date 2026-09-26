@@ -51,7 +51,8 @@ class CompanyProfile:
     @classmethod
     def from_dict(cls, d: dict) -> "CompanyProfile":
         valid = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in d.items() if k in valid})
+        # coerce so a number stored in JSON (e.g. phone) can't crash exporters
+        return cls(**{k: _coerce(k, v) for k, v in d.items() if k in valid})
 
 
 class ProfileStore:
@@ -177,7 +178,11 @@ def _coerce(key: str, value):
             return float(value)
         except (TypeError, ValueError):
             return 35.0
-    return value
+    # Every other field is text. Excel/JSON can hand back numbers (a phone stored
+    # as a number) — keeping an int crashed every export that used the profile.
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)                     # 96824123456.0 -> "96824123456"
+    return str(value).strip()
 
 
 def _read_xlsx(path: Path) -> list[dict]:

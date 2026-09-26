@@ -25,7 +25,10 @@ _ALIGN = {"left": TA_LEFT, "center": TA_CENTER, "right": TA_RIGHT}
 
 def _styles(accent: str):
     ss = getSampleStyleSheet()
-    accent_color = colors.HexColor(accent if accent.startswith("#") else "#8B1E1E")
+    try:
+        accent_color = colors.HexColor(accent if str(accent).startswith("#") else "#8B1E1E")
+    except (ValueError, TypeError):               # e.g. "#GG0000" from an imported profile
+        accent_color = colors.HexColor("#8B1E1E")
     styles = {
         "title": ParagraphStyle("m_title", parent=ss["Title"], fontSize=18,
                                  textColor=accent_color, spaceAfter=10),
@@ -66,6 +69,50 @@ def _inline(text: str) -> str:
     return "".join(out)
 
 
+def _rtl_lines(text: str, font: str, size: float, width: float) -> list[str]:
+    """Wrap Arabic text into lines that fit `width`, in LOGICAL order, then
+    shape + bidi-reorder each line on its own.
+
+    Reordering a whole paragraph first and letting reportlab wrap the result
+    makes multi-line Arabic read bottom-to-top (the first visual line holds the
+    end of the text), so the wrapping has to happen before the reordering.
+    """
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+    out: list[str] = []
+    for src in text.splitlines() or [""]:
+        cur: list[str] = []
+        for word in src.split():
+            cand = cur + [word]
+            if cur and stringWidth(rtl.shape(" ".join(cand)), font, size) > width:
+                out.append(rtl.shape(" ".join(cur)))
+                cur = [word]
+            else:
+                cur = cand
+        if cur:
+            out.append(rtl.shape(" ".join(cur)))
+    return out or [""]
+
+
+def _para(text: str, style, width: float, **kw) -> Paragraph:
+    """A Paragraph for one piece of minutes text, laid out correctly for Arabic.
+
+    Non-Arabic text keeps the usual **bold** markup. Arabic text is wrapped with
+    `_rtl_lines` and emitted one visual line per <br/>, right-aligned, in the
+    Arabic font. (Inline bold is dropped inside Arabic lines: shaping each bold
+    run separately placed the runs in the wrong order — e.g. a "key: value"
+    line read value-first.)
+    """
+    reg, bold_font = rtl.pdf_arabic_font()
+    if not (reg and rtl.has_arabic(text)):
+        return Paragraph(_inline(text), style, **kw)
+    plain = "".join(t for t, _bold in md_blocks.runs(text))
+    font = bold_font if "Bold" in (style.fontName or "") else reg
+    avail = max(width - style.leftIndent - style.rightIndent, 40.0) * 0.96
+    lines = _rtl_lines(plain, font, style.fontSize, avail)
+    markup = "<br/>".join(f'<font name="{font}">{_esc(ln)}</font>' for ln in lines)
+    return Paragraph(markup, _rtl_style(style, text), **kw)
+
+
 def _rtl_style(style, text: str):
     """Right-align a paragraph style when its text is Arabic (else unchanged)."""
     if rtl.has_arabic(text):
@@ -101,28 +148,33 @@ def export_pdf(minutes_md: str, path: str | Path,
     top_margin = 38 * mm if profile else 20 * mm
     bottom_margin = 22 * mm if profile else 18 * mm
 
+    page_w, page_h = A4
+    body_w = page_w - 36 * mm - 12                # frame width: 18 mm margins, 6 pt frame padding each side
     flow = []
     for blk in md_blocks.parse(minutes_md):
         if blk.kind == "h1":
-            flow.append(Paragraph(_inline(blk.text), _rtl_style(styles["title"], blk.text)))
+            flow.append(_para(blk.text, styles["title"], body_w))
         elif blk.kind == "h2":
-            flow.append(Paragraph(_inline(blk.text), _rtl_style(styles["h2"], blk.text)))
+            flow.append(_para(blk.text, styles["h2"], body_w))
         elif blk.kind == "kv":
-            kv = f"{blk.key}: {blk.text}"
-            flow.append(Paragraph(f'{_inline("**" + blk.key + ":**")} {_inline(blk.text)}',
-                                  _rtl_style(styles["kv"], kv)))
+            flow.append(_para(f"**{blk.key}:** {blk.text}", styles["kv"], body_w))
         elif blk.kind == "bullet":
             for it in blk.items:
-                flow.append(Paragraph(_inline(it), _rtl_style(styles["bullet"], it),
-                                      bulletText="•"))
+                flow.append(_para(it, styles["bullet"], body_w, bulletText="•"))
         elif blk.kind == "para":
-            flow.append(Paragraph(_inline(blk.text), _rtl_style(styles["body"], blk.text)))
+            flow.append(_para(blk.text, styles["body"], body_w))
         elif blk.kind == "table":
-            data = [[Paragraph(_inline(h), styles["cellh"]) for h in blk.headers]]
+            n = max(len(blk.headers), 1)
+            col_w = body_w / n
+            cell_w = col_w - 11                    # minus left (5) + right (6) padding
+            data = [[_para(h, styles["cellh"], cell_w) for h in blk.headers]]
             for row in blk.rows:
                 cells = [row[j] if j < len(row) else "" for j in range(len(blk.headers))]
-                data.append([Paragraph(_inline(c), styles["cell"]) for c in cells])
-            tbl = Table(data, repeatRows=1, hAlign="LEFT")
+                data.append([_para(c, styles["cell"], cell_w) for c in cells])
+            # Explicit widths + splitInRow so a long cell flows onto the next page
+            # instead of failing the whole export with LayoutError.
+            tbl = Table(data, colWidths=[col_w] * n, repeatRows=1, hAlign="LEFT",
+                        splitInRow=1)
             tbl.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), accent_color),
                 ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#BBBBBB")),

@@ -106,17 +106,24 @@ def build_generation_prompt(template: str, style: str, transcript: str) -> str:
     return base
 
 
+REDUCE_NOTES_PREFIX = (
+    "[This meeting was long, so it was processed in parts. Below are factual notes "
+    "extracted from each consecutive part, in order. Treat them as the transcript: "
+    "merge them into one coherent result and do not add anything that is not in "
+    "the notes.]\n\n"
+)
+
+
 def build_reduce_prompt(template: str, style: str, partial_notes: str) -> str:
-    style_hint = OUTPUT_STYLES.get(style, "")
-    intro = (template.split("Transcript:")[0].strip()
-             if "Transcript:" in template else template.strip())
-    return (
-        f"{intro}\n\n{MINUTES_STRUCTURE}\n"
-        f"Style instruction: {style_hint}\n\n"
-        "Below are factual notes extracted from consecutive parts of one meeting. "
-        "Merge them into a single, coherent set of minutes. Do not add anything not "
-        "present in the notes.\n\nNotes:\n" + partial_notes
-    )
+    """Final step for long meetings: the SAME template the user chose, with the
+    merged part-notes in place of the transcript.
+
+    The whole template is kept — the text before AND after the transcript token,
+    and no extra minutes headings are forced in — so non-minutes templates
+    (TL;DR, follow-up email) and instructions such as "write the output in
+    Arabic" still apply to long meetings, exactly as they do to short ones.
+    """
+    return build_generation_prompt(template, style, REDUCE_NOTES_PREFIX + partial_notes)
 
 
 # ---------------------------------------------------------------------------
