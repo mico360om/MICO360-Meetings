@@ -126,6 +126,24 @@ def build_reduce_prompt(template: str, style: str, partial_notes: str) -> str:
     return build_generation_prompt(template, style, REDUCE_NOTES_PREFIX + partial_notes)
 
 
+# Hierarchical reduce (very long meetings): consecutive part-notes are first
+# merged in groups so the final reduce prompt fits the model's context.
+MERGE_NOTES_PROMPT = (
+    "You are condensing notes from a long meeting that was processed in parts. "
+    "Below are factual notes for parts {first} to {last} of {total}, in order. "
+    "Merge them into ONE set of concise notes in the same order. Keep every key "
+    "point, decision, action item (with owner and deadline if given), risk and "
+    "open issue; remove only exact repetition. Do not invent anything and do not "
+    "write minutes yet — output notes only.\n\n"
+    "Notes:\n" + TRANSCRIPT_TOKEN
+)
+
+
+def build_merge_notes_prompt(notes: str, first: int, last: int, total: int) -> str:
+    return MERGE_NOTES_PROMPT.format(first=first, last=last, total=total).replace(
+        TRANSCRIPT_TOKEN, notes)
+
+
 # ---------------------------------------------------------------------------
 # Prompt Library  (add / edit / view / delete)
 # ---------------------------------------------------------------------------

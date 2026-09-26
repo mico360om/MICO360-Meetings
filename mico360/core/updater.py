@@ -91,12 +91,48 @@ def is_newer(latest: str, current: str) -> bool:
     return _parse_version(latest) > _parse_version(current)
 
 
+_REPO_PART = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
+def normalize_repo(value: str) -> str:
+    """Reduce a pasted repository reference to ``owner/name`` (L7).
+
+    Accepts "owner/name", "https://github.com/owner/name(.git)(/…)",
+    "github.com/owner/name", "www.github.com/…" and "git@github.com:owner/name.git".
+    Anything that isn't a recognisable GitHub repo is returned stripped (so the
+    caller's "not configured" / error handling still applies).
+    """
+    s = (value or "").strip().strip("<>\"'").strip()
+    if not s:
+        return ""
+    low = s.lower()
+    if low.startswith("git@github.com:"):
+        s = s[len("git@github.com:"):]
+    else:
+        m = re.match(r"^(?:(?:https?|git|ssh)://)?(?:[^@/]+@)?(?:www\.)?github\.com[:/]+(.*)$",
+                     s, flags=re.IGNORECASE)
+        if m:
+            s = m.group(1)
+        elif "://" in s:
+            return s.strip("/")                          # some other host: leave as is
+    s = s.split("?", 1)[0].split("#", 1)[0].strip("/")
+    parts = [p for p in s.split("/") if p]
+    if len(parts) < 2:
+        return s
+    owner, name = parts[0], parts[1]
+    if name.lower().endswith(".git"):
+        name = name[:-4]
+    if not (_REPO_PART.match(owner) and _REPO_PART.match(name)):
+        return s
+    return f"{owner}/{name}"
+
+
 def repo_url(repo: str) -> str:
     """GitHub URL for a repo, falling back to the app's default repository."""
-    repo = (repo or "").strip().strip("/")
+    repo = normalize_repo(repo)
     if not repo:
         from ..config import DEFAULT_REPO
-        repo = DEFAULT_REPO.strip().strip("/")
+        repo = normalize_repo(DEFAULT_REPO)
     return f"https://github.com/{repo}" if repo else ""
 
 
@@ -161,20 +197,35 @@ def resolve_expected_sha256(info: "UpdateInfo") -> str:
     """Expected hash for the installer being downloaded.
 
     The checksum asset published next to the installer is authoritative; a hash
-    in the release notes is used only if it names this exact file and no asset
-    is available.
+    in the release notes is used only if it names this exact file.
+
+    M29: when the release DOES publish a checksum asset but it can't be fetched
+    or doesn't contain a hash for this installer, the download is unverifiable
+    and :class:`IntegrityError` is raised (the caller deletes the file and
+    refuses to install) — unless the release notes carry a hash naming this
+    exact installer, which is then enforced instead. Only a release that
+    publishes no checksum at all returns "" (nothing to verify against).
     """
     name = Path(info.download_url).name if info.download_url else ""
+    body_hash = info.expected_sha256.lower() if info.expected_sha256 else ""
     if info.checksum_url:
+        problem = ""
         try:
             txt = fetch_text(info.checksum_url)
-        except Exception:
+        except Exception as exc:
             log.warning("could not fetch checksum asset", exc_info=True)
-            txt = ""
+            txt, problem = "", f"could not be downloaded ({exc})"
         found = parse_checksum(txt, name, allow_bare=info.checksum_per_file)
         if found:
             return found
-    return info.expected_sha256.lower() if info.expected_sha256 else ""
+        if body_hash:
+            log.warning("checksum asset unusable; using the hash in the release notes")
+            return body_hash
+        raise IntegrityError(
+            "This update can't be verified: its published checksum file "
+            + (problem or f"has no SHA256 for {name or 'the installer'}")
+            + ". The download was not installed — please try again later.")
+    return body_hash
 
 
 def authenticode_status(path: str | Path) -> str:
@@ -290,8 +341,8 @@ def _pick_assets(assets: list, version: str) -> tuple[str, int, str, bool]:
 
 def check_for_updates(repo: str, timeout: float = 8.0) -> UpdateInfo:
     info = UpdateInfo(repo_url=repo_url(repo))
-    repo = (repo or "").strip().strip("/")
-    if not repo or "/" not in repo:
+    repo = normalize_repo(repo)
+    if not repo or repo.count("/") != 1:
         info.status = NOT_CONFIGURED
         info.error = ("GitHub repository is not configured yet. Add it in Settings "
                       "(owner/name) to enable automatic update checks.")
