@@ -1,0 +1,6 @@
+# MICO360 Meetings - build & test tooling (not shipped to users).
+# Install with the pinned versions:
+#     pip install -r requirements.txt -r requirements-dev.txt -c constraints.txt
+
+pyinstaller>=6.0     # builds the one-folder app (build/mico360.spec)
+pypdf>=4.0           # tests: read exported PDFs back (Arabic glyph check)

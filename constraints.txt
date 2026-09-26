@@ -1,0 +1,67 @@
+# MICO360 Meetings - pinned dependency versions (pip constraints file).
+#
+# requirements.txt says WHAT the app needs (with ranges); this file pins the
+# exact versions that were tested and shipped, so a CI/release build today
+# resolves the same packages as the one before it. Used by:
+#     pip install -r requirements.txt -r requirements-dev.txt -c constraints.txt
+# (.github/workflows/ci.yml, .github/workflows/release.yml, build/build_all.ps1,
+#  build/build_exe.ps1). Constraints never ADD a package - they only fix the
+# version of one that something else asks for.
+#
+# Every pin has a Windows x64 wheel for Python 3.12 (CI/release) and 3.14.
+# To upgrade: bump the pin here, run `python tests/release_check.py` on a
+# clean virtualenv, then commit both together.
+
+# --- UI ---
+PySide6==6.11.1
+PySide6_Essentials==6.11.1
+PySide6_Addons==6.11.1
+shiboken6==6.11.1
+
+# --- Speech-to-text ---
+faster-whisper==1.2.1
+ctranslate2==4.8.0
+tokenizers==0.23.1
+onnxruntime==1.26.0
+huggingface_hub==1.18.0
+hf-xet==1.5.1
+tqdm==4.68.1
+protobuf==7.35.0
+flatbuffers==25.12.19
+av==17.1.0
+
+# --- Local LLM client ---
+ollama==0.6.2
+httpx==0.28.1
+pydantic==2.13.4
+
+# --- Recording ---
+sounddevice==0.5.5
+soundfile==0.14.0
+numpy==2.4.4
+mss==10.2.0
+opencv-python==4.13.0.92
+soundcard==0.4.6
+cffi==2.0.0
+
+# --- Windows integrations ---
+pywin32==311; sys_platform == "win32"
+
+# --- Export & profiles ---
+python-docx==1.2.0
+lxml==6.1.0
+reportlab==4.5.1
+charset-normalizer==3.4.7
+arabic-reshaper==3.0.1
+python-bidi==0.6.11
+openpyxl==3.1.5
+et_xmlfile==2.0.0
+pillow==12.2.0
+
+# --- Build & test tooling (requirements-dev.txt) ---
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.7
+altgraph==0.17.5
+pefile==2024.8.26
+pywin32-ctypes==0.2.3
+pypdf==6.11.0

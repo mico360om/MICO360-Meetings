@@ -43,11 +43,17 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            constraints.txt
 
+      # Exact tested versions (constraints.txt), incl. a pinned PyInstaller from
+      # requirements-dev.txt, so every release resolves the same packages.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt -r requirements-dev.txt -c constraints.txt
 
       # Live-meeting detection and Outlook calendar need pywin32. It is imported
       # lazily (features silently turn off without it), so fail loudly here.
@@ -60,12 +66,15 @@ jobs:
         if: ${{ env.HAS_CONNECT_KEY == 'true' }}
         env:
           MICO360_CONNECT_API_KEY: ${{ secrets.MICO360_CONNECT_API_KEY }}
+        # Hex-encoded, so no character in the key can break the Python literal.
         run: |
-          "KEY = '$env:MICO360_CONNECT_API_KEY'" | Out-File -Encoding ascii mico360\_build_key.py
+          $key = "$env:MICO360_CONNECT_API_KEY".Trim()
+          $hex = -join ([System.Text.Encoding]::UTF8.GetBytes($key) | ForEach-Object { $_.ToString("x2") })
+          "KEY = bytes.fromhex('$hex').decode('utf-8')" | Out-File -Encoding ascii mico360\_build_key.py
           Write-Host "Injected MICO360 Connect key into the build."
 
       - name: Build app (PyInstaller)
-        run: pyinstaller build/mico360.spec --noconfirm --distpath build/dist --workpath build/work
+        run: python -m PyInstaller build/mico360.spec --noconfirm --distpath build/dist --workpath build/work
 
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
