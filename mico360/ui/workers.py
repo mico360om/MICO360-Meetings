@@ -88,6 +88,51 @@ class LiveTranscribeWorker(QThread):
         self._stop.set()
 
 
+class RecorderStopWorker(QThread):
+    """Stop (or cancel) a recorder off the GUI thread (M32): releasing the
+    devices, mixing mic + system audio and muxing/encoding a video can take a
+    long time for long recordings, which used to freeze the window.
+
+    After stopping, it also stops the live-transcription worker and (unless told
+    otherwise) waits for its last chunk, so the live draft is complete when
+    `done` is delivered."""
+    done = Signal(object, str)          # RecordingResult | None, error text ("" = ok)
+
+    def __init__(self, recorder, cancel: bool = False, live_worker=None,
+                 live_wait_ms: int = 6000, skip_live_wait_if_file: bool = False):
+        super().__init__()
+        self.recorder = recorder
+        self.cancel_mode = cancel
+        self.live_worker = live_worker
+        self.live_wait_ms = live_wait_ms
+        self.skip_live_wait_if_file = skip_live_wait_if_file
+        self.result = None
+        self.error = ""
+
+    def run(self):
+        res, err = None, ""
+        try:
+            if self.cancel_mode:
+                self.recorder.cancel()
+            else:
+                res = self.recorder.stop()
+        except Exception as exc:
+            log.exception("stopping the recorder failed")
+            err = str(exc) or exc.__class__.__name__
+        lw = self.live_worker
+        if lw is not None:
+            try:
+                lw.stop()
+                has_file = bool(res is not None and getattr(res, "path", "")
+                                and Path(res.path).exists())
+                if not self.cancel_mode and not (self.skip_live_wait_if_file and has_file):
+                    lw.wait(self.live_wait_ms)
+            except Exception:
+                log.debug("stopping the live worker failed", exc_info=True)
+        self.result, self.error = res, err
+        self.done.emit(res, err)
+
+
 class MeetingWatchWorker(QThread):
     """Background watcher for auto-record: polls for a live Teams/Meet/Zoom/Webex
     window and for calendar meetings that are about to start. Inputs are
@@ -96,8 +141,12 @@ class MeetingWatchWorker(QThread):
     meetingEnded = Signal()                 # window gone
     meetingDue = Signal(str, str)           # title, join_url      (calendar, once each)
 
+    # A desktop meeting window that is gone for this many polls has ended.
+    DESKTOP_MISSES = 2
+
     def __init__(self, titles_fn=None, calendar_fn=None, poll_seconds: float = 8.0,
-                 calendar_seconds: float = 60.0, lead_minutes: float = 3.0):
+                 calendar_seconds: float = 60.0, lead_minutes: float = 3.0,
+                 browser_grace_seconds: float = 900.0):
         super().__init__()
         from ..core import meeting_watch as MW
         self._MW = MW
@@ -106,25 +155,48 @@ class MeetingWatchWorker(QThread):
         self.poll_seconds = poll_seconds
         self.calendar_seconds = calendar_seconds
         self.lead_minutes = lead_minutes
+        # H12: a meeting in a browser tab is only visible while its tab is the
+        # active one, so switching tabs hides it. Only give up after this long
+        # without seeing it (or once that browser has been closed).
+        self.browser_grace_seconds = browser_grace_seconds
         import threading
         self._stop = threading.Event()
         self._live = None                               # (app, title) currently seen
+        self._live_info = None                          # meeting_watch.LiveMeeting
         self._misses = 0
+        self._last_seen = 0.0
         self._prompted: set[str] = set()
         self._last_cal = 0.0
 
+    def _meeting_over(self, titles, t_now: float) -> bool:
+        """Has the current live meeting ended, given it wasn't seen this poll?"""
+        info = self._live_info
+        if info is None or not info.in_browser:
+            return self._misses >= self.DESKTOP_MISSES   # debounce a flickering title
+        if self._misses >= self.DESKTOP_MISSES:
+            if not self._MW.browser_window_open(titles, info.browser):
+                return True                               # the browser itself was closed
+            if info.app == "Google Meet" and self._MW.meet_left(titles):
+                return True                               # the call was left (Meet home page)
+        return (t_now - self._last_seen) >= self.browser_grace_seconds
+
     def poll_once(self, now=None):
         """One detection round; emits transitions. Returns the live meeting or None."""
-        hit = self._MW.detect_live_meeting(self.titles_fn())
+        t_now = time.time() if now is None else now
+        titles = list(self.titles_fn() or [])
+        info = self._MW.find_live_meeting(titles)
+        hit = (info.app, info.title) if info else None
         if hit and not self._live:
-            self._live, self._misses = hit, 0
+            self._live, self._live_info, self._misses = hit, info, 0
+            self._last_seen = t_now
             self.meetingDetected.emit(*hit)
         elif hit:
             self._misses = 0
+            self._last_seen = t_now
         elif self._live:
             self._misses += 1
-            if self._misses >= 2:                       # debounce a flickering title
-                self._live = None
+            if self._meeting_over(titles, t_now):
+                self._live = self._live_info = None
                 self.meetingEnded.emit()
         # calendar (throttled)
         if self.calendar_fn and (now or time.time()) - self._last_cal >= self.calendar_seconds:
