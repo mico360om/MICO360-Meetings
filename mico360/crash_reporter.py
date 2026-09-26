@@ -33,15 +33,46 @@ _MAX_URL_BODY = 6000          # keep the GitHub URL under browser/length limits
 _settings = None
 _installed = False
 _in_handler = False           # guard against recursive crashes
+_bridge = None                # main-thread QObject that shows the dialog (see install)
+
+
+def _make_bridge():
+    """A QObject owned by the main thread. Emitting its signal from any thread
+    queues the crash dialog onto the GUI thread — Qt widgets must never be
+    created on a worker thread (doing so crashes the whole process)."""
+    try:
+        from PySide6.QtCore import QObject, Qt, Signal, Slot
+    except Exception:
+        return None
+
+    class _Bridge(QObject):
+        request = Signal(str, str, str)       # report, report path, one-line summary
+
+        def __init__(self):
+            super().__init__()
+            self.request.connect(self._show, Qt.QueuedConnection)
+
+        @Slot(str, str, str)
+        def _show(self, report, path, summary):
+            _show_dialog(report, Path(path), summary)
+
+    try:
+        return _Bridge()
+    except Exception:
+        log.exception("crash reporter: could not create GUI bridge")
+        return None
 
 
 # ---------------------------------------------------------------------------
 def install(settings) -> None:
     """Route unhandled exceptions through the crash reporter."""
-    global _settings, _installed
+    global _settings, _installed, _bridge
     _settings = settings
     if _installed:
         return
+    # Created here, on the main thread, so it lives there: worker threads hand
+    # the dialog to it instead of building widgets themselves.
+    _bridge = _make_bridge()
     sys.excepthook = _excepthook
     # also catch exceptions escaping Qt threads where possible
     try:
@@ -117,7 +148,8 @@ def github_issue_url(repo: str, title: str, body: str) -> str:
 
 def mailto_url(title: str, body: str) -> str:
     body = body if len(body) <= _MAX_URL_BODY else body[:_MAX_URL_BODY] + "\n…(truncated)"
-    q = urllib.parse.urlencode({"subject": title, "body": body})
+    # mailto: (RFC 6068) doesn't decode '+' as a space — percent-encode spaces.
+    q = urllib.parse.urlencode({"subject": title, "body": body}, quote_via=urllib.parse.quote)
     return f"mailto:{SUPPORT_EMAIL}?{q}"
 
 
@@ -131,9 +163,21 @@ def _maybe_show_dialog(report: str, path: Path, exc_type, exc_value) -> None:
         return
     if QApplication.instance() is None:         # no GUI (headless) — report already saved
         return
+    summary = f"{exc_type.__name__}: {exc_value}"
+    import threading
+    if threading.current_thread() is not threading.main_thread():
+        # Raised on a worker thread: never build widgets here. Queue the dialog
+        # onto the GUI thread (the report is already written to disk).
+        if _bridge is not None:
+            _bridge.request.emit(report, str(path), summary)
+        return
+    _show_dialog(report, path, summary)
+
+
+def _show_dialog(report: str, path: Path, summary: str) -> None:
     repo = _settings.get("github_repo", "") if _settings else ""
     try:
-        dlg = CrashDialog(report, path, repo, f"{exc_type.__name__}: {exc_value}")
+        dlg = CrashDialog(report, path, repo, summary)
         dlg.exec()
     except Exception:
         log.exception("could not show crash dialog")
