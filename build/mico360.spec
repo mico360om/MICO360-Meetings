@@ -5,7 +5,9 @@ Build:  pyinstaller build/mico360.spec --noconfirm
 Output: build/dist/MICO360Meetings/MICO360Meetings.exe  (one-folder)
 """
 from PyInstaller.utils.hooks import collect_all, collect_submodules
+import importlib.util
 import os
+import sys
 
 # SPECPATH is the directory containing this .spec (…/build); project root is its parent.
 ROOT = os.path.abspath(os.path.join(SPECPATH, os.pardir))
@@ -17,15 +19,52 @@ datas = [
 binaries = []
 hiddenimports = []
 
-# Bundle the heavyweight ML / media stacks completely.
-for pkg in ("faster_whisper", "ctranslate2", "av", "tokenizers",
-            "onnxruntime", "huggingface_hub", "ollama", "soundfile", "sounddevice",
-            "mss", "cv2", "numpy", "soundcard"):
+# Bundle the heavyweight ML / media stacks completely. Every one of these is in
+# requirements.txt: the app imports several of them lazily (a missing one only
+# switches a feature off at runtime), so a build without them would "succeed"
+# and ship broken. The build therefore FAILS if a required package is missing.
+REQUIRED_COLLECT = ("faster_whisper", "ctranslate2", "av", "tokenizers",
+                    "onnxruntime", "huggingface_hub", "ollama", "soundfile", "sounddevice",
+                    "mss", "cv2", "numpy", "soundcard")
+# Optional extras: bundled when installed, skipped (with a note) when not.
+OPTIONAL_COLLECT = ("pypdf",)           # PDF text import (Documents)
+# Required modules that PyInstaller finds through normal import analysis but
+# which must exist in the build environment.
+REQUIRED_IMPORTS = ("PySide6", "reportlab", "docx", "openpyxl", "PIL",
+                    "arabic_reshaper", "bidi")
+if sys.platform == "win32":
+    # live-meeting detection + Outlook calendar (pywin32)
+    REQUIRED_IMPORTS += ("win32gui", "pythoncom", "win32com")
+
+missing = []
+for pkg in REQUIRED_COLLECT + OPTIONAL_COLLECT:
+    required = pkg in REQUIRED_COLLECT
+    if importlib.util.find_spec(pkg) is None:
+        if required:
+            missing.append(pkg)
+        else:
+            print(f"[mico360.spec] optional package '{pkg}' not installed - not bundled")
+        continue
     try:
         d, b, h = collect_all(pkg)
-        datas += d; binaries += b; hiddenimports += h
-    except Exception:
-        pass
+    except Exception as exc:
+        if required:
+            missing.append(f"{pkg} (collect failed: {exc})")
+        else:
+            print(f"[mico360.spec] optional package '{pkg}' could not be collected: {exc}")
+        continue
+    datas += d; binaries += b; hiddenimports += h
+
+for mod in REQUIRED_IMPORTS:
+    if importlib.util.find_spec(mod) is None:
+        missing.append(mod)
+
+if missing:
+    raise SystemExit(
+        "mico360.spec: REQUIRED packages are missing from the build environment: "
+        + ", ".join(missing)
+        + "\nInstall them with:  python -m pip install -r requirements.txt "
+          "-r requirements-dev.txt -c constraints.txt")
 
 hiddenimports += collect_submodules("reportlab") + [
     "docx", "openpyxl", "PIL", "arabic_reshaper", "bidi", "bidi.algorithm"]
