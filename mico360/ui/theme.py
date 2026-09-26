@@ -24,6 +24,8 @@ DARK = {
     "warning": "#E0A23A",
     "warning_soft": "#352A18",
     "input_bg": "#1A181E",
+    "overdue_fg": "#F87171",    # overdue task text: a red that reads on dark surfaces
+    "overdue_bg": "#3A1E1E",    # overdue row tint (dark)
 }
 
 LIGHT = {
@@ -42,6 +44,8 @@ LIGHT = {
     "warning": "#B8760F",
     "warning_soft": "#FBF1E1",
     "input_bg": "#FFFFFF",
+    "overdue_fg": "#B91C1C",
+    "overdue_bg": "#FCEBEA",
 }
 
 # ---------------------------------------------------------------------------
@@ -188,9 +192,12 @@ QProgressBar {{
 QProgressBar::chunk {{ background: {accent}; border-radius: {r_sm}; }}
 
 /* ---- Tables ------------------------------------------------------------- */
-QTableWidget {{
+QTableWidget, QTableView {{
     background: {surface}; border: {bw} solid {border}; border-radius: {r_lg};
     gridline-color: transparent;
+    /* Without this, alternate rows take the *system* palette colour: near-white
+       rows with near-white text in the dark theme on light-mode Windows. */
+    alternate-background-color: {surface2};
 }}
 QHeaderView::section {{
     background: transparent; color: {muted}; border: none;
@@ -202,7 +209,7 @@ QTableWidget::item {{ padding: 0 6px; border-bottom: {bw} solid {border}; }}
 QTableWidget::item:selected {{ background: {accent}; color: {accent_text}; }}
 
 /* ---- Lists -------------------------------------------------------------- */
-QListWidget {{ background: {surface}; border: {bw} solid {border}; border-radius: {r_lg}; padding: 4px; }}
+QListWidget {{ alternate-background-color: {surface2}; background: {surface}; border: {bw} solid {border}; border-radius: {r_lg}; padding: 4px; }}
 QListWidget::item {{ padding: 10px 12px; border-radius: {r_sm}; margin: 1px 2px; }}
 QListWidget::item:hover {{ background: {surface2}; }}
 QListWidget::item:selected {{ background: {accent}; color: {accent_text}; }}

@@ -5,7 +5,7 @@ import logging
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QThread, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QGuiApplication, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QCompleter, QFileDialog, QFormLayout,
@@ -23,7 +23,7 @@ from ..core.transcription import WHISPER_MODELS
 from . import metrics as M
 from . import theme
 from .components import (
-    Card, CollapsibleSection, DropArea, EmptyState, StepIndicator, hint,
+    BidiPlainTextEdit, Card, CollapsibleSection, DropArea, EmptyState, StepIndicator, hint,
     scroll_area as _scroll, section_title, subtitle, tip,
 )
 from .context import AppContext
@@ -34,6 +34,36 @@ from .workers import GenerateWorker, TranscribeWorker
 log = logging.getLogger("mico360.pages")
 
 UPLOAD_EXTS = set(MEDIA_EXTS) | documents.DOC_EXTS | documents.IMAGE_EXTS
+
+
+class EmailPrepWorker(QThread):
+    """Builds the e-mail's PDF/DOCX attachments and HTML body off the UI thread
+    (reportlab / python-docx can take seconds on long minutes)."""
+    finished_ok = Signal(list, str)     # attachment paths, html body
+    failed = Signal(str)
+
+    def __init__(self, minutes_md: str, formats, profile, out_dir, base_name: str = "Meeting-Minutes"):
+        super().__init__()
+        self.minutes_md = minutes_md
+        self.formats = list(formats or [])
+        self.profile = profile
+        self.out_dir = Path(out_dir)
+        self.base_name = base_name
+
+    def run(self):
+        try:
+            from ..export import service
+            from ..export.html_export import render_document
+            paths = []
+            for ext in self.formats:
+                p = self.out_dir / f"{self.base_name}{ext}"
+                service.export(self.minutes_md, str(p), self.profile)
+                paths.append(str(p))
+            html = render_document(self.minutes_md, self.profile)
+            self.finished_ok.emit(paths, html)
+        except Exception as exc:
+            log.exception("preparing e-mail attachments failed")
+            self.failed.emit(str(exc) or exc.__class__.__name__)
 
 
 # ===========================================================================
@@ -61,6 +91,14 @@ class NewMeetingPage(QWidget):
         self._bg_workers: set = set()           # keeps QThreads alive until they really finish
         self._live_draft = ""                   # last live transcript (to replace, not duplicate)
         self._replace_on_transcribe: str | None = None
+        # Stored metadata (model/style/profile/source) of the meeting on screen:
+        # set when a meeting is opened from History or minutes are generated, so
+        # re-saving never overwrites it with whatever the Setup controls show.
+        self._meta: dict | None = None
+        # (id, meta) of a new meeting whose editors were emptied — if the same
+        # content comes back (Undo), it re-links to that record instead of
+        # forking a duplicate.
+        self._detached: tuple | None = None
         # Wired by MainWindow so the readiness banner's actions can navigate.
         self.on_open_settings = None            # callable() -> open the Settings page
         self.on_install_model = None            # callable() -> Settings + focus the installer
@@ -345,7 +383,7 @@ class NewMeetingPage(QWidget):
             caption="Drag & drop audio, video or documents",
             sub="MP3 · WAV · M4A · MP4 · MOV · MKV · PDF · DOCX · TXT · images — multiple files supported",
         )
-        self.drop.fileChosen.connect(self._add_file)
+        self.drop.filesChosen.connect(self._add_files)      # every dropped / browsed file
         self.files_list = QListWidget(); self.files_list.setMaximumHeight(92)
         self.files_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.files_list.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
@@ -390,7 +428,7 @@ class NewMeetingPage(QWidget):
         ptl.addWidget(hint("Already have the words? Paste meeting notes, an existing transcript, "
                            "or a chat log here and the AI will turn it straight into minutes — "
                            "no upload or recording needed."))
-        self.paste_box = QPlainTextEdit()
+        self.paste_box = BidiPlainTextEdit()          # Arabic lines right-aligned (L1)
         self.paste_box.setPlaceholderText("Paste your meeting notes, transcript or chat log here…")
         self.paste_box.setMinimumHeight(220)
         tip(self.paste_box, "Any meeting text works — notes, an exported transcript, or a chat log")
@@ -522,7 +560,7 @@ class NewMeetingPage(QWidget):
         self.speaker_panel.setVisible(False)
         lay.addWidget(self.speaker_panel)
 
-        self.transcript = QPlainTextEdit()
+        self.transcript = BidiPlainTextEdit()         # Arabic lines right-aligned (L1)
         self.transcript.setPlaceholderText("Paste or edit the meeting transcript here…")
         self.transcript.setMinimumHeight(150)
         self.transcript.textChanged.connect(self._update_counts)
@@ -531,7 +569,7 @@ class NewMeetingPage(QWidget):
                              "Ctrl+Z to undo. Autosaved to History every 20 seconds")
         self.transcript_count = QLabel("0 words"); self.transcript_count.setObjectName("Hint")
         row = QHBoxLayout()
-        clear = QPushButton("Clear"); clear.clicked.connect(lambda: self.transcript.clear())
+        clear = QPushButton("Clear"); clear.clicked.connect(lambda: _undoable_clear(self.transcript))
         tip(clear, "Clear the transcript text (Ctrl+Z restores it)")
         row.addWidget(self.transcript_count); row.addStretch(); row.addWidget(clear)
         lay.addWidget(self.transcript)
@@ -640,6 +678,7 @@ class NewMeetingPage(QWidget):
         controls = QHBoxLayout()
 
         self.model_box = QComboBox(); self.model_box.setMinimumWidth(130)
+        self.model_box.activated.connect(self._model_chosen)       # remember the choice (M3)
         self.style_box = QComboBox(); self.style_box.addItems(list(OUTPUT_STYLES.keys()))
         self.style_box.setCurrentText(self.ctx.settings.get("output_style"))
         self.prompt_box = QComboBox(); self.prompt_box.setMinimumWidth(130)
@@ -691,7 +730,7 @@ class NewMeetingPage(QWidget):
         lay.addLayout(trow)
 
         self.minutes_tabs = QTabWidget()
-        self.minutes = QPlainTextEdit()
+        self.minutes = BidiPlainTextEdit()            # Arabic lines right-aligned (L1)
         self.minutes.setPlaceholderText("Generated minutes will appear here. You can edit before exporting.")
         self.minutes.setMinimumHeight(240)
         self.minutes.textChanged.connect(self._update_minutes_status)
@@ -734,13 +773,20 @@ class NewMeetingPage(QWidget):
     def refresh_models(self):
         status = self.ctx.ai_status()
         cloud = self.ctx.provider() == "cloud"
+        current = self.model_box.currentText() if self.model_box.count() else ""
         self.model_box.clear()
         if status.running and status.models:
             self.model_box.setEnabled(True)
             self.model_box.addItems(status.models)
             saved = self.ctx.ai_model()
+            # The remembered choice wins (it is updated whenever the user picks a
+            # model here or saves a default in Settings); otherwise keep what was
+            # on screen; otherwise the first model.
             if saved in status.models:
                 self.model_box.setCurrentText(saved)
+            elif current in status.models:
+                self.model_box.setCurrentText(current)
+                self.ctx.set_ai_model(current)
             else:
                 self.ctx.set_ai_model(self.model_box.currentText())
         elif status.running:
@@ -752,14 +798,29 @@ class NewMeetingPage(QWidget):
             self.model_box.setEnabled(False)
         self.refresh_readiness()
 
+    def _model_chosen(self, *_):
+        """The user picked a model in Setup → remember it, so navigating away and
+        back (or a model-list refresh) doesn't reset it."""
+        m = self.model_box.currentText()
+        if m and not m.startswith("⚠") and self.model_box.isEnabled():
+            self.ctx.set_ai_model(m)
+
     def refresh_prompts(self):
+        """Reload the prompt list (e.g. after editing the Prompt Library) while
+        keeping the selected prompt and any one-off prompt being edited."""
+        prev_id = self.prompt_box.currentData() if self.prompt_box.count() else None
         self.prompt_box.blockSignals(True)
         self.prompt_box.clear()
         self._prompts: list[SavedPrompt] = self.ctx.prompts.list()
         for p in self._prompts:
             self.prompt_box.addItem(p.name, p.id)
+        if prev_id is not None:
+            i = self.prompt_box.findData(prev_id)
+            if i >= 0:
+                self.prompt_box.setCurrentIndex(i)
         self.prompt_box.blockSignals(False)
-        self._load_prompt_text()
+        if not (hasattr(self, "toggle_prompt") and self.toggle_prompt.isChecked()):
+            self._load_prompt_text()                  # "Edit prompt" on → keep the custom text
 
     def _load_prompt_text(self):
         idx = self.prompt_box.currentIndex()
@@ -832,6 +893,17 @@ class NewMeetingPage(QWidget):
         self._update_save_indicator()
 
     # -- file handling ------------------------------------------------------
+    def _add_files(self, paths):
+        """Several files dropped / browsed at once — add every one, in order."""
+        paths = [p for p in (paths or []) if p]
+        for p in paths:
+            self._add_file(p)
+        if len(paths) > 1:
+            n_media = sum(1 for p in paths if Path(p).suffix.lower() in MEDIA_EXTS)
+            self.toast.show_message(
+                f"Added {len(paths)} files" + (f" — {n_media} queued for transcription."
+                                               if n_media else "."), "success", 4000)
+
     def _add_file(self, path: str):
         p = Path(path)
         ext = p.suffix.lower()
@@ -924,8 +996,9 @@ class NewMeetingPage(QWidget):
         total = getattr(self, "_media_total", 1)
         prefix = f"File {self._media_done} of {total} · " if total > 1 else ""
         self.status.setText(f"{prefix}Transcribing {Path(path).name} …")
+        from .settings_page import normalize_language      # "AR" / "ar-SA" / "Arabic" → "ar"
         w = self._worker = TranscribeWorker(
-            engine, path, self.ctx.settings.get("language", "auto"),
+            engine, path, normalize_language(self.ctx.settings.get("language", "auto")),
             diarize=self.ctx.settings.get("diarize", False))
         self._keep_alive(w)
         job = self._job
@@ -1023,13 +1096,35 @@ class NewMeetingPage(QWidget):
             "transcript": self.transcript.toPlainText(),
         }
         w.progress.connect(lambda f, m, j=job: self._on_progress(f, m) if j == self._job else None)
-        w.finished_ok.connect(lambda md, j=job, s=snap: self._on_generated(md)
+        w.finished_ok.connect(lambda md, j=job, s=snap: self._on_generated(md, s)
                               if j == self._job else self._save_detached_minutes(md, s))
         w.failed.connect(lambda msg, j=job, s=snap: self._on_failed(msg)
                          if j == self._job else self._on_detached_failed(msg, s))
         w.start()
 
-    def _on_generated(self, md: str):
+    def _meta_from_snap(self, snap: dict | None) -> dict:
+        """Metadata for freshly generated minutes: the model/style/profile they
+        were generated with; the source is kept from the stored meeting."""
+        base = dict(self._meta or {})
+        if snap:
+            return {"model": snap.get("model", ""), "style": snap.get("style", ""),
+                    "profile_id": snap.get("profile", ""),
+                    "source_type": base.get("source_type") or "mixed",
+                    "source_path": base.get("source_path", "")}
+        return {"model": self._ui_model(), "style": self.style_box.currentText(),
+                "profile_id": self.ctx.settings.get("active_profile", ""),
+                "source_type": base.get("source_type") or "mixed",
+                "source_path": base.get("source_path", "")}
+
+    def _ui_model(self) -> str:
+        """The model shown in Setup, or "" for a placeholder like "⚠ Ollama not running"."""
+        m = self.model_box.currentText().strip()
+        if not m or m.startswith("⚠") or m.startswith("(") or not self.model_box.isEnabled():
+            return ""
+        return m
+
+    def _on_generated(self, md: str, snap: dict | None = None):
+        self._meta = self._meta_from_snap(snap)
         self.minutes.setPlainText(md)
         self._gen_active = False
         self._busy(False)
@@ -1108,6 +1203,7 @@ class NewMeetingPage(QWidget):
         store them in *that* meeting's record, never in the one now on screen."""
         mid = snap.get("id")
         if mid and mid == self._current_id:          # the same meeting was reopened meanwhile
+            self._meta = self._meta_from_snap(snap)
             self.minutes.setPlainText(md)
             self._save_history(silent=True)
             self.toast.show_message("Minutes generated and saved to History.", "success")
@@ -1173,12 +1269,22 @@ class NewMeetingPage(QWidget):
             if not silent:
                 self.toast.show_message("Nothing to save yet.", "warn")
             return None
+        self._reattach_if_restored()
         title = self.meeting_title.text().strip() or self._guess_title()
+        meta = self._meta
+        if meta is None:
+            # A new meeting whose minutes weren't generated here: take the Setup
+            # choices, but never a placeholder such as "⚠ Ollama not running".
+            meta = {"model": self._ui_model(), "style": self.style_box.currentText(),
+                    "profile_id": self.ctx.settings.get("active_profile", ""),
+                    "source_type": "mixed", "source_path": ""}
         m = Meeting(
             id=self._current_id or 0, title=title, created_at=0, updated_at=0,
-            source_type="mixed", style=self.style_box.currentText(),
-            model=self.model_box.currentText(),
-            profile_id=self.ctx.settings.get("active_profile", ""),
+            source_type=meta.get("source_type") or "mixed",
+            source_path=meta.get("source_path", "") or "",
+            style=meta.get("style", "") or "",
+            model=meta.get("model", "") or "",
+            profile_id=meta.get("profile_id", "") or "",
             transcript=self.transcript.toPlainText(),
             minutes=self.minutes.toPlainText(),
         )
@@ -1229,15 +1335,42 @@ class NewMeetingPage(QWidget):
             # clearing and retyping still edits that same record rather than
             # forking a duplicate.
             if not self._loaded_from_history:
+                if self._current_id:
+                    # remember it: Undo (Ctrl+Z) brings the same content back and
+                    # must re-link to this record, not create a duplicate (L3)
+                    self._detached = (self._current_id, self._meta)
                 self._current_id = None
+                self._meta = None
             self._autosave_sig = ""
             return
         if self._content_sig() == self._autosave_sig:   # nothing changed (title included)
             return
         self._save_history(silent=True)              # updates _autosave_sig on success
 
+    def _reattach_if_restored(self):
+        """After the editors were emptied (and the new meeting detached from its
+        record), content that is that record's content again — typically Undo —
+        re-links to the record instead of saving a duplicate."""
+        det = self._detached
+        if not det or self._current_id:
+            return
+        rid, meta = det
+        try:
+            rec = self.ctx.history.get(rid)
+        except Exception:
+            rec = None
+        if rec is None:
+            self._detached = None
+            return
+        t, mn = self.transcript.toPlainText(), self.minutes.toPlainText()
+        if (t.strip() and t == rec.transcript) or (mn.strip() and mn == rec.minutes):
+            self._current_id = rid
+            self._meta = meta
+            self._detached = None
+
     def _reset_form(self):
         """Clear every per-meeting field so nothing leaks into the next meeting."""
+        self._detached = None
         self.transcript.clear()
         self.minutes.clear()
         self.meeting_title.clear()
@@ -1255,6 +1388,7 @@ class NewMeetingPage(QWidget):
         if not self._switch_away():
             return False
         self._current_id = None
+        self._meta = None
         self._loaded_from_history = False
         self.context_lbl.setVisible(False)            # back to "new" context
         self._autosave_sig = ""
@@ -1312,8 +1446,20 @@ class NewMeetingPage(QWidget):
         QMessageBox.critical(self, "Export failed", msg)
 
     # -- email --------------------------------------------------------------
+    def _email_busy(self) -> bool:
+        return any(w is not None and w.isRunning()
+                   for w in (getattr(self, "_email_prep_worker", None),
+                             getattr(self, "_email_worker", None)))
+
+    def _email_title(self) -> str:
+        """The title the user gave this meeting (Minutes step, then Setup), else a guess."""
+        return (self.meeting_title.text().strip() or self.meet_title.text().strip()
+                or self._guess_title())
+
     def _email_minutes(self):
         from ..core.emailer import SmtpConfig
+        if self._email_busy():                        # already preparing / sending
+            return
         md = self.minutes.toPlainText().strip()
         if not md:
             self.toast.show_message("Generate or write minutes first.", "warn")
@@ -1324,7 +1470,7 @@ class NewMeetingPage(QWidget):
                                     "Add your email (SMTP) details in Settings → Email first.")
             return
         from .dialogs import EmailComposeDialog
-        title = self._guess_title()
+        title = self._email_title()                   # the edited title, not a guess (L2)
         prefill_to = ""  # attendee names aren't emails; leave blank
         body = ("Hi,\n\nPlease find the minutes for our meeting below.\n\n"
                 + md.replace("**", "") + "\n\n— Sent from MICO360 Meetings")
@@ -1332,25 +1478,27 @@ class NewMeetingPage(QWidget):
         if not dlg.exec():
             return
         v = dlg.values()
-        # export chosen attachment formats to temp
+        # Build the PDF/DOCX attachments + HTML body on a worker thread (they can
+        # take seconds), then send. The UI stays responsive throughout.
         from ..config import TMP_DIR
-        from ..export import service
-        attachments = []
-        try:
-            for ext in v["formats"]:
-                p = TMP_DIR / f"Meeting-Minutes{ext}"
-                service.export(md, str(p), self.ctx.active_profile())
-                attachments.append(str(p))
-        except Exception as exc:
-            QMessageBox.critical(self, "Attachment failed", str(exc)); return
+        self.email_btn.setEnabled(False); self.email_btn.setText("Preparing…")
+        w = self._email_prep_worker = EmailPrepWorker(
+            md, v.get("formats") or [], self.ctx.active_profile(), TMP_DIR)
+        self._keep_alive(w)
+        w.finished_ok.connect(lambda atts, html, c=cfg, vv=v: self._send_prepared_email(c, vv, atts, html))
+        w.failed.connect(self._on_email_prep_failed)
+        w.start()
 
-        from .workers import EmailWorker
-        from ..export.html_export import render_document
+    def _on_email_prep_failed(self, msg: str):
+        self.email_btn.setEnabled(True); self.email_btn.setText("📧 Email…")
+        QMessageBox.critical(self, "Attachment failed", msg)
+
+    def _send_prepared_email(self, cfg, v: dict, attachments: list, html: str):
+        from . import workers as _workers
         self.email_btn.setEnabled(False); self.email_btn.setText("Sending…")
-        self._email_worker = EmailWorker(
-            cfg, v["to"], v["subject"], v["body"],
-            html=render_document(md, self.ctx.active_profile()),
-            attachments=attachments, cc=v["cc"])
+        self._email_worker = _workers.EmailWorker(
+            cfg, v["to"], v["subject"], v["body"], html=html,
+            attachments=attachments, cc=v.get("cc"))
         self._keep_alive(self._email_worker)
         self._email_worker.finished_ok.connect(lambda: self._on_email_done(True))
         self._email_worker.failed.connect(lambda m: self._on_email_done(False, m))
@@ -1498,6 +1646,11 @@ class NewMeetingPage(QWidget):
         self._reset_form()                            # drop the previous meeting's setup/queue/preview
         self._current_id = m.id
         self._loaded_from_history = True
+        # Keep the record's own model/style/profile/source on re-save (M2).
+        self._meta = {"model": m.model or "", "style": m.style or "",
+                      "profile_id": m.profile_id or "",
+                      "source_type": m.source_type or "mixed",
+                      "source_path": getattr(m, "source_path", "") or ""}
         self.context_lbl.setText(f"✎  Editing “{m.title}” — opened from History")
         self.context_lbl.setVisible(True)
         self.meeting_title.setText(m.title)
@@ -1517,6 +1670,15 @@ class NewMeetingPage(QWidget):
             self._show_minutes_preview()
         self.toast.show_message(f"Loaded: {m.title}", "info")
         return True
+
+
+def _undoable_clear(editor) -> None:
+    """Empty a text editor as one undoable edit (QTextEdit.clear() also wipes
+    the undo history, so the "Ctrl+Z restores it" promise didn't hold)."""
+    from PySide6.QtGui import QTextCursor
+    cur = QTextCursor(editor.document())
+    cur.select(QTextCursor.Document)
+    cur.removeSelectedText()
 
 
 def _title_from_minutes(md: str) -> str:
