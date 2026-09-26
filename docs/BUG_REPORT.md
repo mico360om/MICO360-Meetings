@@ -10,6 +10,105 @@ Six reviewers each took one area of the codebase in parallel. They read it end t
 - **Confidence:** *Confirmed* means reproduced, or the full code path was traced. *Likely* means strong evidence but not executed (usually needs real hardware or a real network).
 - **Severity:** *Critical* = data loss, a crash in a common path, or a security exposure. *High* = a feature is broken in a realistic scenario. *Medium* = edge case or degraded behaviour. *Low* = minor or cosmetic.
 
+## Resolution status (27 September 2026)
+
+All 90 findings have been addressed. 89 are fully fixed; **C5** is fixed as far as the app can go and needs TLS on the MICO360 Connect server; for **H24** the repo owner still has to delete the stray v1.2.2 assets. Every fix is covered by the release gate (`python tests/release_check.py`: module, QA, consistency, parser, E2E, meeting-isolation, release-fixes and the four `fixes_*` suites, plus a real launch-and-quit of the built app).
+
+| ID | Status | Resolution | Verified by |
+|---|---|---|---|
+| C1 | ✅ Fixed | Runs bound to their meeting (job token); switching autosaves first | workflow_isolation |
+| C2 | ✅ Fixed | Auto-record starts a fresh meeting | workflow_isolation |
+| C3 | ✅ Fixed | Auto-record transcribes the full mic+system recording | release_fixes |
+| C4 | ✅ Fixed | Crash dialog queued to the GUI thread | release_fixes |
+| C5 | ⚠ Partial — needs server TLS | Server speaks HTTP only (verified). Client auto-switches to verified HTTPS when offered, never downgrades; Cloud mode asks for consent; disclosed in Privacy | release_fixes |
+| H1 | ✅ Fixed | Shortcuts scoped to New Meeting; guarded Ctrl+G | workflow_isolation |
+| H2 | ✅ Fixed | Autosave before opening another meeting | workflow_isolation |
+| H3 | ✅ Fixed | Every QThread kept until finished; cancel buttons; close waits | fixes_ui, fixes_capture |
+| H4 | ✅ Fixed | Failed transcription re-queued | — |
+| H5 | ✅ Fixed | History list returns has_transcript → Draft status/filter | fixes_data |
+| H6 | ✅ Fixed | Recordings in DATA_DIR/recordings, never auto-deleted; legacy moved | release_fixes |
+| H7 | ✅ Fixed | Recorder ERROR fully torn down | fixes_capture |
+| H8 | ✅ Fixed | Frameless video keeps its audio | fixes_capture |
+| H9 | ✅ Fixed | Screen/camera use the selected audio source | fixes_capture |
+| H10 | ✅ Fixed | Wall-clock frame timestamps; A/V aligned | fixes_capture |
+| H11 | ✅ Fixed | Vectorised clustering, capped, cancellable | fixes_capture |
+| H12 | ✅ Fixed | 15-min grace for browser meetings | fixes_capture |
+| H13 | ✅ Fixed | Stalled device detected, reopened or saved with a clear error | fixes_capture |
+| H14 | ✅ Fixed | Bounded status checks + cache; Ollama client timeouts | fixes_ai |
+| H15 | ✅ Fixed | num_ctx sized to the prompt; hierarchical reduce | fixes_ai |
+| H16 | ✅ Fixed | Reduce step keeps the whole template | release_fixes |
+| H17 | ✅ Fixed | STARTTLS required before login | — |
+| H18 | ✅ Fixed | .ics written as bytes | release_fixes |
+| H19 | ✅ Fixed | Profile fields coerced to text | release_fixes |
+| H20 | ✅ Fixed | Arabic wrapped in logical order, reordered per line | release_fixes |
+| H21 | ✅ Fixed | Arabic lines rendered in correct order | release_fixes |
+| H22 | ✅ Fixed | Explicit column widths + splitInRow | release_fixes |
+| H23 | ✅ Fixed | pywin32 in requirements; build fails without it (verified in CI) | release_fixes |
+| H24 | ✅ Fixed (code) · repo owner to delete stray assets | Updater picks the release's own installer + checksum; release notes corrected | release_fixes |
+| H25 | ✅ Fixed | [InstallDelete] of {app}\_internal | installer compile |
+| H26 | ✅ Fixed | CI green (fixture committed, Ollama-aware checks) | CI |
+| M1 | ✅ Fixed | Open/Ctrl+N reset setup fields, queue, preview | workflow_isolation |
+| M2 | ✅ Fixed | Stored model/style/profile kept on re-save | fixes_ui |
+| M3 | ✅ Fixed | Model/prompt selection preserved; custom prompt kept | fixes_ui |
+| M4 | ✅ Fixed | Multi-file drop and Browse | fixes_ui |
+| M5 | ✅ Fixed | Re-transcribe replaces the live draft | — |
+| M6 | ✅ Fixed | Unicode themes; created_at dates; no 500 cap | fixes_data |
+| M7 | ✅ Fixed | Export extension check by suffix | — |
+| M8 | ✅ Fixed | Alternate row colour + visible overdue rows | fixes_ui |
+| M9 | ✅ Fixed | Language combo + normalisation (UI and engine) | fixes_ui |
+| M10 | ✅ Fixed | Typed Ollama host used; cache invalidated on Save | fixes_ui |
+| M11 | ✅ Fixed | Unsaved-settings prompt; Ctrl+S saves settings | fixes_ui |
+| M12 | ✅ Fixed | Privacy/README/Help corrected | review |
+| M13 | ✅ Fixed | Unique per-row task overrides with migration | fixes_data |
+| M14 | ✅ Fixed | Year-less deadlines resolved against the meeting date | fixes_data |
+| M15 | ✅ Fixed | Stable UIDs; octet folding | fixes_data |
+| M16 | ✅ Fixed | Unescape, UTC→local, VALARM ignored | fixes_data |
+| M17 | ✅ Fixed | Escaped pipes, h3–h6, numbered lists, table after text | fixes_data |
+| M18 | ✅ Fixed | Accent validated; logo URI escaped | fixes_data |
+| M19 | ✅ Fixed | DOCX bold + control chars stripped | fixes_data |
+| M20 | ✅ Fixed | Logo deleted only if unused; imports get own copy | fixes_data |
+| M21 | ✅ Fixed | Bad meeting-type entries skipped, file kept | fixes_data |
+| M22 | ✅ Fixed | Atomic writes + .bad quarantine | fixes_data |
+| M23 | ✅ Fixed | Logo change only on Save | fixes_data |
+| M24 | ✅ Fixed | Recipients split on , and ; and validated | fixes_data |
+| M25 | ✅ Fixed | Conservative filler removal | fixes_ai |
+| M26 | ✅ Fixed | Unicode/newline sentence split, whitespace hard-split, overlap | fixes_ai |
+| M27 | ✅ Fixed | Retries with backoff + resume from finished parts | fixes_ai, release_fixes |
+| M28 | ✅ Fixed | Per-session named mutex | fixes_ai |
+| M29 | ✅ Fixed | Unverifiable updates refused (and blocked at install) | fixes_ai |
+| M30 | ✅ Fixed | CSV utf-8-sig + formula guard | fixes_data |
+| M31 | ✅ Fixed | Mix streamed to disk in blocks | fixes_capture |
+| M32 | ✅ Fixed | Stop/mux off the GUI thread | fixes_capture |
+| M33 | ✅ Fixed | CPU fallback remembered; live fallback added | fixes_capture |
+| M34 | ✅ Fixed | Mic fallback in Mic+System; warnings | fixes_capture |
+| M35 | ✅ Fixed | Locale-aware Outlook filter; no Outlook launch | fixes_capture |
+| M36 | ✅ Fixed | Teams section titles not meetings | fixes_capture |
+| M37 | ✅ Fixed | Pre-releases rank below finals; tag checks | release_fixes |
+| M38 | ✅ Fixed | Relaunch after silent update | release_check / build |
+| M39 | ✅ Fixed | smart_setup as original user, errors surfaced, HTTPS check | release_check / build |
+| M40 | ✅ Fixed | Secrets only in the steps that use them | release_check / build |
+| M41 | ✅ Fixed | Clean Output; exit codes checked; key file removed | release_check / build |
+| M42 | ✅ Fixed | constraints.txt + requirements-dev.txt | release_check / build |
+| M43 | ✅ Fixed | Suites use an isolated data folder | release_check / build |
+| M44 | ✅ Fixed | Gate: real launch/quit check, SKIP≠PASS, pypdf, mico_ secrets | release_check / build |
+| L1 | ✅ Fixed | Bidi-aware editors (right-aligned Arabic) | fixes_ui |
+| L2 | ✅ Fixed | Edited title as subject; attachments built off the UI thread | fixes_ui |
+| L3 | ✅ Fixed | Clear+Undo re-links instead of duplicating | fixes_ui |
+| L4 | ✅ Fixed | Help shortcuts generated from real navigation | — |
+| L5 | ✅ Fixed | Preset switches to matching/Custom | fixes_ui |
+| L6 | ✅ Fixed | SMTP password DPAPI-encrypted, not stripped | release_fixes |
+| L7 | ✅ Fixed | Repo field normalised to owner/name | fixes_ai, fixes_ui |
+| L8 | ✅ Fixed | Blank xlsx rows skipped; tolerant headers | fixes_data |
+| L9 | ✅ Fixed | Invalid accent colour falls back | release_fixes |
+| L10 | ✅ Fixed | Crash email spaces encoded | — |
+| L11 | ✅ Fixed | Build key always removed; hex-encoded | build |
+| L12 | ✅ Fixed | Release body from maintained notes | workflow |
+| L13 | ✅ Fixed | Uninstall asks about user data; mutex check | installer compile |
+| L14 | ✅ Fixed | Builds prefer Python 3.12; launch+quit gate check | release_check |
+| L15 | ✅ Fixed | Docs updated; spec fails on missing required packages | build |
+
+---
+
 ## Summary
 
 | Severity | Count |
