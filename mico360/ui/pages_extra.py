@@ -22,7 +22,8 @@ from ..core import updater
 from . import metrics as M
 from . import theme
 from .components import (
-    Card, EmptyState, scroll_area as _scroll, section_title, subtitle, tip,
+    Card, EmptyState, keep_alive as _keep_alive, running as _running,
+    scroll_area as _scroll, section_title, subtitle, tip,
 )
 from .context import AppContext
 from .workers import UpdateCheckWorker, UpdateDownloadWorker
@@ -49,6 +50,7 @@ class UpdatesPage(QWidget):
         self.toast = toast
         self._worker = None
         self._dl = None
+        self._bg_workers: set = set()       # running QThreads, kept until finished
         self._info: updater.UpdateInfo | None = None
 
         content = QWidget()
@@ -117,8 +119,12 @@ class UpdatesPage(QWidget):
         self.retry_btn = QPushButton("Retry"); self.retry_btn.clicked.connect(self.check)
         self.retry_btn.setVisible(False)
         tip(self.retry_btn, "Try the update check again — see the message above for what failed")
+        self.cancel_dl_btn = QPushButton("Cancel download"); self.cancel_dl_btn.setObjectName("Ghost")
+        self.cancel_dl_btn.clicked.connect(self._cancel_download); self.cancel_dl_btn.setVisible(False)
+        tip(self.cancel_dl_btn, "Stop downloading the update — nothing is installed")
         self.action_row.addStretch()
-        for b in (self.release_btn, self.retry_btn, self.download_btn, self.install_btn):
+        for b in (self.release_btn, self.retry_btn, self.cancel_dl_btn, self.download_btn,
+                  self.install_btn):
             self.action_row.addWidget(b)
         self.dl_layout.addLayout(self.action_row)
         self.v.addWidget(self.detail)
@@ -159,8 +165,11 @@ class UpdatesPage(QWidget):
 
     def _git_check(self):
         from .workers import GitUpdateWorker
+        if _running(self._git_worker):
+            return
         self.git_check_btn.setEnabled(False); self.git_status.setText("Checking the git remote…")
         self._git_worker = GitUpdateWorker("check")
+        _keep_alive(self, self._git_worker)
         self._git_worker.done.connect(self._on_git_check)
         self._git_worker.start()
 
@@ -180,8 +189,11 @@ class UpdatesPage(QWidget):
 
     def _git_pull(self):
         from .workers import GitUpdateWorker
+        if _running(self._git_worker):
+            return
         self.git_update_btn.setEnabled(False); self.git_status.setText("Updating from git…")
         self._git_worker = GitUpdateWorker("pull")
+        _keep_alive(self, self._git_worker)
         self._git_worker.done.connect(self._on_git_pull)
         self._git_worker.start()
 
@@ -215,12 +227,22 @@ class UpdatesPage(QWidget):
 
     # -- check --------------------------------------------------------------
     def check(self):
+        if _running(self._worker) or _running(self._dl):
+            return                          # a check or a download is already running
         repo = self.ctx.settings.get("github_repo", "")
+        try:                                # a pasted URL ("https://github.com/o/n") works too
+            from .settings_page import normalize_repo
+            norm = normalize_repo(repo)
+            if norm:
+                repo = norm
+        except Exception:
+            pass
         self._set_status(updater.CHECKING, "Checking for updates…")
         self.check_btn.setEnabled(False)
         for b in (self.download_btn, self.install_btn, self.release_btn, self.retry_btn):
             b.setVisible(False)
         self._worker = UpdateCheckWorker(repo)
+        _keep_alive(self, self._worker)
         self._worker.done.connect(self._on_checked)
         self._worker.start()
 
@@ -292,15 +314,32 @@ class UpdatesPage(QWidget):
     def _download(self):
         if not (self._info and self._info.download_url):
             return
+        if _running(self._dl):
+            return                          # never replace a running download
         dest = str(TMP_DIR / Path(self._info.download_url).name)
         self.progress.setVisible(True); self.progress.setValue(0)
         self.download_btn.setEnabled(False)
+        self.check_btn.setEnabled(False)
+        self.cancel_dl_btn.setEnabled(True); self.cancel_dl_btn.setText("Cancel download")
+        self.cancel_dl_btn.setVisible(True)
         self._set_status(updater.DOWNLOADING, "Downloading update…")
         self._dl = UpdateDownloadWorker(self._info, dest)
+        _keep_alive(self, self._dl)
         self._dl.progress.connect(self._on_dl_progress)
         self._dl.finished_ok.connect(self._on_dl_done)
         self._dl.failed.connect(self._on_dl_failed)
         self._dl.start()
+
+    def _cancel_download(self):
+        """Stop the running download. The worker stays referenced until its
+        thread has finished; its `failed("Download cancelled.")` resets the UI."""
+        if _running(self._dl):
+            self._dl.cancel()
+            self.cancel_dl_btn.setEnabled(False); self.cancel_dl_btn.setText("Cancelling…")
+            self._set_status(updater.DOWNLOADING, "Cancelling the download…")
+
+    def is_busy(self) -> bool:
+        return any(_running(w) for w in self._bg_workers)
 
     def _on_dl_progress(self, frac, read, total):
         self.progress.setValue(int(frac * 100))
@@ -313,6 +352,8 @@ class UpdatesPage(QWidget):
         self._verify_note = getattr(self._dl, "verify_note", "")
         self._verify_sha = getattr(self._dl, "expected_sha256", "")
         self.download_btn.setEnabled(True)
+        self.check_btn.setEnabled(True)
+        self.cancel_dl_btn.setVisible(False)
         self.progress.setValue(100)
         msg = (f"Download verified ({self._verify_note}). Ready to install."
                if self._verify_note else "Download complete. Ready to install.")
@@ -322,7 +363,13 @@ class UpdatesPage(QWidget):
 
     def _on_dl_failed(self, msg):
         self.download_btn.setEnabled(True)
+        self.check_btn.setEnabled(True)
+        self.cancel_dl_btn.setVisible(False)
         self.progress.setVisible(False)
+        if "cancel" in (msg or "").lower():
+            self._set_status(updater.AVAILABLE, "Download cancelled — you can download it again "
+                                                "at any time.")
+            return
         self._set_status(updater.FAILED, f"Download failed: {msg}")
         self.retry_btn.setVisible(True)
 
@@ -381,7 +428,13 @@ class UpdatesPage(QWidget):
 
     # -- links --------------------------------------------------------------
     def _open_repo(self):
-        url = updater.repo_url(self.ctx.settings.get("github_repo", ""))
+        repo = self.ctx.settings.get("github_repo", "")
+        try:
+            from .settings_page import normalize_repo
+            repo = normalize_repo(repo) or repo
+        except Exception:
+            pass
+        url = updater.repo_url(repo)
         if url:
             QDesktopServices.openUrl(QUrl(url))
         else:
@@ -585,6 +638,12 @@ class ActionItemsPage(QWidget):
         from ..core.tasks import STATUS_CYCLE, PRIORITIES
         from datetime import date
         today = date.today()
+        # Theme-aware overdue colours. The item stylesheet means Qt doesn't paint
+        # a background tint reliably, so overdue rows are marked by their text
+        # colour (plus ⚠ on the deadline) — readable in both themes.
+        pal = theme.palette(theme.CURRENT or self.ctx.settings.get("theme", "dark"))
+        overdue_fg = QColor(pal.get("overdue_fg", _STATUS_COLOR["Overdue"]))
+        overdue_bg = QColor(pal.get("overdue_bg", _OVERDUE_TINT))
         self.table.setRowCount(0)          # drop any prior cell widgets (widget→text switch)
         self.table.setRowCount(len(self._items))
         self._lite = len(self._items) > self._MAX_INLINE_ROWS
@@ -603,9 +662,10 @@ class ActionItemsPage(QWidget):
                 elif c in (self._COL_TASK, self._COL_MEETING, self._COL_OWNER):
                     item.setToolTip(val)          # full text when the cell elides
                 if overdue:
-                    item.setBackground(QColor(_OVERDUE_TINT))
-                    if c == self._COL_DUE:
-                        item.setForeground(QColor(_STATUS_COLOR["Overdue"]))
+                    item.setBackground(overdue_bg)
+                    item.setForeground(overdue_fg)
+                    if c in (self._COL_TASK, self._COL_DUE):
+                        f = item.font(); f.setBold(True); item.setFont(f)
                 self.table.setItem(r, c, item)
             shown = "Overdue" if overdue else it.status
             if self._lite:
@@ -618,7 +678,7 @@ class ActionItemsPage(QWidget):
                                    (sitem, "Double-click or right-click to change status")):
                     cell.setToolTip(tip_)
                     if overdue:
-                        cell.setBackground(QColor(_OVERDUE_TINT))
+                        cell.setBackground(overdue_bg)
                 self.table.setItem(r, self._COL_PRIO, pitem)
                 self.table.setItem(r, self._COL_STATUS, sitem)
                 continue
@@ -791,12 +851,17 @@ class ActionItemsPage(QWidget):
             return
         v = dlg.values()
         from .workers import EmailWorker
-        self._email_worker = EmailWorker(cfg, v["to"], v["subject"], v["body"], cc=v["cc"])
-        self._email_worker.finished_ok.connect(
+        # Several follow-ups can be sending at once (one per owner). Each worker is
+        # kept until its thread has really finished — replacing the only
+        # reference to a running QThread aborts the whole app.
+        w = EmailWorker(cfg, v["to"], v["subject"], v["body"], cc=v["cc"])
+        self._email_worker = w
+        _keep_alive(self, w)
+        w.finished_ok.connect(
             lambda o=owner: self.toast.show_message(f"Follow-up sent to {o}.", "success", 5000))
-        self._email_worker.failed.connect(
+        w.failed.connect(
             lambda msg: self.toast.show_message(f"Send failed: {msg}", "error", 6000))
-        self._email_worker.start()
+        w.start()
 
     # -- calendar export ----------------------------------------------------
     def _to_calendar(self):
@@ -885,7 +950,7 @@ class HelpPage(QWidget):
             ("Ctrl+N", "Start a new meeting"),
             ("Ctrl+G", "Create the minutes (on New Meeting)"),
             ("Ctrl+E", "Export the minutes (on New Meeting)"),
-            ("Ctrl+S", "Save to History (on New Meeting)"),
+            ("Ctrl+S", "Save to History (on New Meeting) · save settings (on Settings)"),
             ("Ctrl+Shift+C", "Copy the minutes with formatting (on New Meeting)"),
             ("Ctrl+F", "Jump to History and search"),
             ("F1", "Open this Help page"),

@@ -266,13 +266,13 @@ class MainWindow(QMainWindow):
         for i in range(len(NAV)):
             add(f"Ctrl+{i + 1}", lambda idx=i: (self.nav_group.button(idx).setChecked(True),
                                                 self._navigate(idx)))
-        add("Ctrl+N", lambda: (self._goto(self.new_page), self.new_page._new_meeting()))
+        add("Ctrl+N", lambda: self._goto(self.new_page) and self.new_page._new_meeting())
         # Meeting actions only apply while New Meeting is on screen (they used to
         # fire on the hidden page from anywhere — e.g. Ctrl+S on Settings saved the
         # meeting). Ctrl+G uses the same guarded path as the "Create meeting" button.
         add("Ctrl+G", lambda: self._on_new_page(self.new_page._create_meeting))
         add("Ctrl+E", lambda: self._on_new_page(self.new_page._export))
-        add("Ctrl+S", lambda: self._on_new_page(self.new_page._save_history))
+        add("Ctrl+S", self._save_shortcut)
         add("Ctrl+Shift+C", lambda: self._on_new_page(self.new_page._copy))
         add(QKeySequence.Find, lambda: (self._goto(self.history_page),
                                         self.history_page.search.setFocus()))
@@ -282,11 +282,22 @@ class MainWindow(QMainWindow):
         if self.stack.currentWidget() is self.new_page:
             fn()
 
-    def _goto(self, page):
+    def _save_shortcut(self):
+        """Ctrl+S saves whatever the current page edits: the meeting on New
+        Meeting, the settings on Settings (nothing elsewhere)."""
+        page = self.stack.currentWidget()
+        if page is self.new_page:
+            self.new_page._save_history()
+        elif page is self.settings_page:
+            self.settings_page._save()
+
+    def _goto(self, page) -> bool:
+        """Show `page`. Returns False if the user chose to stay where they are
+        (e.g. unsaved Settings → Cancel)."""
         idx = self.stack.indexOf(page)
-        if idx >= 0:
-            self.nav_group.button(idx).setChecked(True)
-            self._navigate(idx)
+        if idx < 0:
+            return False
+        return self._navigate(idx)
 
     # -- sidebar ------------------------------------------------------------
     def _build_sidebar(self) -> QWidget:
@@ -333,7 +344,17 @@ class MainWindow(QMainWindow):
         v.addWidget(ver)
         return side
 
-    def _navigate(self, idx: int):
+    def _navigate(self, idx: int) -> bool:
+        cur = self.stack.currentWidget()
+        target = self.stack.widget(idx)
+        if (cur is self.settings_page and target is not cur
+                and not self.settings_page.confirm_leave()):
+            # Stay on Settings (unsaved changes, user pressed Cancel): keep the
+            # sidebar highlight on Settings.
+            btn = self.nav_group.button(self.stack.indexOf(self.settings_page))
+            if btn is not None:
+                btn.setChecked(True)
+            return False
         self.stack.setCurrentIndex(idx)
         btn = self.nav_group.button(idx)          # keep the sidebar highlight in sync
         if btn is not None:
@@ -350,6 +371,7 @@ class MainWindow(QMainWindow):
         elif page is self.new_page:
             self.new_page.refresh_models()
             self._update_status()
+        return True
 
     def _open_meeting(self, meeting):
         if not self.new_page.load_meeting(meeting):   # user chose to keep the current work
@@ -391,19 +413,36 @@ class MainWindow(QMainWindow):
             self._apply_brand_logo(name)
         if hasattr(self, "insights_page"):          # painted charts pick up the new palette
             self.insights_page.reload()
+        if hasattr(self, "actions_page") and self.stack.currentWidget() is self.actions_page:
+            self.actions_page.reload()              # overdue colours follow the theme
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
         self.toast._reposition()
 
+    def _background_workers(self) -> list:
+        """Every QThread the pages keep alive (New Meeting, Settings: model
+        install / test email, Updates: check / download, Action Items: e-mails)."""
+        out = []
+        for p in (self.new_page, self.settings_page, self.updates_page, self.actions_page):
+            out += list(getattr(p, "_bg_workers", ()) or ())
+        return out + list(self._retired_threads)
+
     def closeEvent(self, e):
         from PySide6.QtWidgets import QMessageBox
         page = self.new_page
+        # Unsaved Settings: Save / Discard / Cancel (Cancel keeps the app open).
+        if not self.settings_page.confirm_leave():
+            e.ignore()
+            return
         recording = page.recorder_panel.is_recording()
         busy = page.is_busy()
-        if recording or busy:
+        other_busy = any(w is not None and w.isRunning() for w in self._background_workers()
+                         if w not in getattr(page, "_bg_workers", ()))
+        if recording or busy or other_busy:
             what = ("a recording is in progress" if recording
-                    else "minutes are still being transcribed or generated")
+                    else "minutes are still being transcribed or generated" if busy
+                    else "a download or e-mail is still in progress")
             if QMessageBox.question(
                     self, "Quit MICO360 Meetings?",
                     f"Quit now? {what[0].upper() + what[1:]}.\n\n"
@@ -419,12 +458,18 @@ class MainWindow(QMainWindow):
             pass
         # Cancel background work and let the threads finish before Qt tears the
         # widgets down — a QThread destroyed while running aborts the process.
-        for w in list(getattr(page, "_bg_workers", ())) + list(self._retired_threads):
+        workers = self._background_workers()
+        for w in workers:                          # ask everything to stop first …
+            try:
+                if w.isRunning() and hasattr(w, "cancel"):
+                    w.cancel()
+            except Exception:
+                pass
+        for w in workers:                          # … then wait for each to finish
             try:
                 if w.isRunning():
-                    if hasattr(w, "cancel"):
-                        w.cancel()
-                    w.wait(10000)
+                    # workers without cancel() (e-mail, update check) get longer
+                    w.wait(10000 if hasattr(w, "cancel") else 30000)
             except Exception:
                 pass
         try:

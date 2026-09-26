@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..core import documents
+from ..core import ollama_client as _ollama
 from ..core.audio import MEDIA_EXTS
 from ..core.history import Meeting
 from ..core.prompts import OUTPUT_STYLES, SavedPrompt
@@ -24,6 +25,7 @@ from . import metrics as M
 from . import theme
 from .components import (
     Card, CollapsibleSection, DropArea, EmptyState, StepIndicator, hint,
+    keep_alive as _keep_alive, running as _running,
     scroll_area as _scroll, section_title, subtitle, tip,
 )
 from .context import AppContext
@@ -35,6 +37,112 @@ log = logging.getLogger("mico360.pages")
 
 UPLOAD_EXTS = set(MEDIA_EXTS) | documents.DOC_EXTS | documents.IMAGE_EXTS
 
+DEFAULT_OLLAMA_HOST = "http://127.0.0.1:11434"
+
+
+# ===========================================================================
+# Transcription language: "auto" + the languages Whisper knows
+# ===========================================================================
+# Display names for Whisper's language codes (the code list itself comes from
+# faster_whisper when it is installed; this table is the fallback list too).
+LANGUAGE_NAMES: dict[str, str] = {
+    "en": "English", "zh": "Chinese", "de": "German", "es": "Spanish", "ru": "Russian",
+    "ko": "Korean", "fr": "French", "ja": "Japanese", "pt": "Portuguese", "tr": "Turkish",
+    "pl": "Polish", "ca": "Catalan", "nl": "Dutch", "ar": "Arabic", "sv": "Swedish",
+    "it": "Italian", "id": "Indonesian", "hi": "Hindi", "fi": "Finnish", "vi": "Vietnamese",
+    "he": "Hebrew", "uk": "Ukrainian", "el": "Greek", "ms": "Malay", "cs": "Czech",
+    "ro": "Romanian", "da": "Danish", "hu": "Hungarian", "ta": "Tamil", "no": "Norwegian",
+    "th": "Thai", "ur": "Urdu", "hr": "Croatian", "bg": "Bulgarian", "lt": "Lithuanian",
+    "la": "Latin", "mi": "Maori", "ml": "Malayalam", "cy": "Welsh", "sk": "Slovak",
+    "te": "Telugu", "fa": "Persian", "lv": "Latvian", "bn": "Bengali", "sr": "Serbian",
+    "az": "Azerbaijani", "sl": "Slovenian", "kn": "Kannada", "et": "Estonian",
+    "mk": "Macedonian", "br": "Breton", "eu": "Basque", "is": "Icelandic", "hy": "Armenian",
+    "ne": "Nepali", "mn": "Mongolian", "bs": "Bosnian", "kk": "Kazakh", "sq": "Albanian",
+    "sw": "Swahili", "gl": "Galician", "mr": "Marathi", "pa": "Punjabi", "si": "Sinhala",
+    "km": "Khmer", "sn": "Shona", "yo": "Yoruba", "so": "Somali", "af": "Afrikaans",
+    "oc": "Occitan", "ka": "Georgian", "be": "Belarusian", "tg": "Tajik", "sd": "Sindhi",
+    "gu": "Gujarati", "am": "Amharic", "yi": "Yiddish", "lo": "Lao", "uz": "Uzbek",
+    "fo": "Faroese", "ht": "Haitian Creole", "ps": "Pashto", "tk": "Turkmen",
+    "nn": "Norwegian Nynorsk", "mt": "Maltese", "sa": "Sanskrit", "lb": "Luxembourgish",
+    "my": "Myanmar (Burmese)", "bo": "Tibetan", "tl": "Tagalog", "mg": "Malagasy",
+    "as": "Assamese", "tt": "Tatar", "haw": "Hawaiian", "ln": "Lingala", "ha": "Hausa",
+    "ba": "Bashkir", "jw": "Javanese", "su": "Sundanese", "yue": "Cantonese",
+}
+# Common alternative spellings / ISO-639 codes users type.
+_LANG_ALIASES = {
+    "iw": "he", "jv": "jw", "fil": "tl", "nb": "no", "in": "id",
+    "eng": "en", "ara": "ar", "urd": "ur", "fra": "fr", "fre": "fr", "deu": "de",
+    "ger": "de", "spa": "es", "hin": "hi", "zho": "zh", "chi": "zh", "fas": "fa",
+    "per": "fa", "tur": "tr", "rus": "ru", "por": "pt", "ita": "it", "jpn": "ja",
+    "kor": "ko", "farsi": "fa", "mandarin": "zh", "filipino": "tl", "burmese": "my",
+}
+_AUTO_WORDS = {"", "auto", "automatic", "auto-detect", "autodetect", "auto detect",
+               "detect", "any", "none"}
+
+
+def language_codes() -> list[str]:
+    """Whisper's language codes (from faster_whisper if available)."""
+    try:
+        from faster_whisper.tokenizer import _LANGUAGE_CODES
+        codes = [str(c).lower() for c in _LANGUAGE_CODES]
+        if codes:
+            return codes
+    except Exception:
+        pass
+    return list(LANGUAGE_NAMES)
+
+
+def language_name(code: str) -> str:
+    return LANGUAGE_NAMES.get(code, code.upper())
+
+
+def normalize_language(value) -> str:
+    """Turn whatever is stored or typed ("AR", "ar-SA", "Arabic", "Auto", "")
+    into a code Whisper accepts ("ar") — or "auto" if it isn't a language."""
+    v = str(value or "").strip().lower().replace("_", "-")
+    if v in _AUTO_WORDS:
+        return "auto"
+    codes = language_codes()
+    if v in codes:
+        return v
+    base = v.split("-")[0].split(" ")[0].strip()
+    for cand in (v, base):
+        cand = _LANG_ALIASES.get(cand, cand)
+        if cand in codes:
+            return cand
+    for code in codes:                                  # a language name ("Arabic")
+        name = LANGUAGE_NAMES.get(code, "").lower()
+        if name and (v == name or v.split("(")[0].strip() == name):
+            return code
+    return "auto"
+
+
+# ===========================================================================
+# GitHub repository field: always stored as "owner/name"
+# ===========================================================================
+_OWNER_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
+_NAME_RE = re.compile(r"[A-Za-z0-9._-]{1,100}")
+
+
+def normalize_repo(text) -> str | None:
+    """"owner/name", a github.com URL (…/releases, .git, ?tab=…) or an SSH remote
+    → "owner/name". "" for an empty field; None if it isn't a GitHub repo."""
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"^git@github\.com:", "", s, flags=re.I)
+    s = re.sub(r"^(?:https?://)?(?:www\.)?github\.com/", "", s, flags=re.I)
+    s = s.split("?")[0].split("#")[0].strip().strip("/")
+    parts = [p for p in s.split("/") if p]
+    if len(parts) < 2:
+        return None
+    owner, name = parts[0], parts[1]
+    if name.lower().endswith(".git"):
+        name = name[:-4]
+    if not (_OWNER_RE.fullmatch(owner) and _NAME_RE.fullmatch(name)) or name in (".", ".."):
+        return None
+    return f"{owner}/{name}"
+
 
 # ===========================================================================
 # Settings
@@ -44,6 +152,10 @@ class SettingsPage(QWidget):
         super().__init__()
         self.ctx = ctx; self.toast = toast
         self.on_theme_change = on_theme_change; self.on_models_change = on_models_change
+        self._bg_workers: set = set()          # running QThreads, kept until finished
+        self._pull_worker = None
+        self._test_worker = None
+        self._migrate_stored_values()
         outer = QVBoxLayout(self); outer.setContentsMargins(*M.PAGE_MARGINS); outer.setSpacing(M.PAGE_GAP)
 
         # Header: page title + always-visible Text-size and Appearance selectors.
@@ -97,15 +209,17 @@ class SettingsPage(QWidget):
                          "locally with Whisper — switching mode never sends your audio anywhere."))
         self.host = QLineEdit(ctx.settings.get("ollama_host"))
         tip(self.host, "Address of your local Ollama server. Leave the default "
-                       "http://127.0.0.1:11434 unless you run Ollama elsewhere")
+                       "http://127.0.0.1:11434 unless you run Ollama elsewhere. Refresh and "
+                       "Install use the address typed here")
         form.addRow("Ollama host", self.host)
         self.model = QComboBox(); self._reload_models()
         self.model.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.model.setMinimumContentsLength(16)
         tip(self.model, "The Ollama model pre-selected for new meetings — you can still switch "
                         "per-meeting in Step 3")
-        refresh = QPushButton("Refresh models"); refresh.clicked.connect(self._reload_models)
-        tip(refresh, "Re-query Ollama for installed models — use after installing or removing one")
+        refresh = QPushButton("Refresh models"); refresh.clicked.connect(self._refresh_clicked)
+        tip(refresh, "Re-query the Ollama host above for installed models — use after "
+                     "installing or removing one, or after changing the host")
         mrow = QHBoxLayout(); mrow.addWidget(self.model, 1); mrow.addWidget(refresh)
         mwrap = QWidget(); mwrap.setLayout(mrow)
         form.addRow("Default Ollama model", mwrap)
@@ -124,14 +238,19 @@ class SettingsPage(QWidget):
         self.install_btn.clicked.connect(self._install_model)
         tip(self.install_btn, "Download and install the selected AI model through Ollama. "
                               "Needs internet once; already-installed models are skipped")
-        irow = QHBoxLayout(); irow.addWidget(self.install_model_box, 1); irow.addWidget(self.install_btn)
+        self.install_cancel_btn = QPushButton("Cancel")
+        self.install_cancel_btn.setObjectName("Ghost")
+        self.install_cancel_btn.setVisible(False)
+        self.install_cancel_btn.clicked.connect(self._cancel_install)
+        tip(self.install_cancel_btn, "Stop downloading this model")
+        irow = QHBoxLayout(); irow.addWidget(self.install_model_box, 1)
+        irow.addWidget(self.install_btn); irow.addWidget(self.install_cancel_btn)
         iwrap = QWidget(); iwrap.setLayout(irow)
         form.addRow("Install AI model", iwrap)
         self.install_progress = QProgressBar(); self.install_progress.setVisible(False)
         form.addRow("", self.install_progress)
         self.install_status = QLabel(""); self.install_status.setObjectName("Hint"); self.install_status.setWordWrap(True)
         form.addRow("", self.install_status)
-        self._pull_worker = None
         self._refresh_env()
         self._ai_tab_index = self._tabs.addTab(ai_sa, "AI")
 
@@ -154,11 +273,13 @@ class SettingsPage(QWidget):
         for i in range(self.whisper.count()):
             if self.whisper.itemData(i) == cur:
                 self.whisper.setCurrentIndex(i); break
+        self.whisper.activated.connect(self._whisper_fields_changed)
         tip(self.whisper, "Speech-to-text model size: tiny is fastest, large-v3 most accurate. "
                           "Downloads once on first use (size shown per model)")
         form.addRow("Whisper model", self.whisper)
         self.compute = QComboBox(); self.compute.addItems(["int8", "int8_float16", "float16", "float32"])
         self.compute.setCurrentText(ctx.settings.get("whisper_compute"))
+        self.compute.activated.connect(self._whisper_fields_changed)
         tip(self.compute, "Numeric precision for transcription — int8 is best for most CPUs; "
                           "float16 only helps on a GPU")
         form.addRow("Whisper compute", self.compute)
@@ -167,10 +288,15 @@ class SettingsPage(QWidget):
         tip(self.device, "Where transcription runs. 'auto' uses the CPU (safe everywhere); "
                          "'cuda' needs an NVIDIA GPU with CUDA libraries — falls back to CPU if unavailable")
         form.addRow("Whisper device", self.device)
-        self.lang = QLineEdit(ctx.settings.get("language"))
-        self.lang.setPlaceholderText("auto, or a code like en / ur / ar")
-        tip(self.lang, "Spoken language of your meetings. 'auto' detects it; a fixed code "
-                       "(en, ur, ar…) is faster and more reliable")
+        # A fixed list (auto + every language Whisper knows) — free text such as
+        # "Arabic", "AR" or "ar-SA" used to break transcription.
+        self.lang = QComboBox()
+        self.lang.addItem("Auto-detect", "auto")
+        for code in sorted(language_codes(), key=lambda c: language_name(c).lower()):
+            self.lang.addItem(f"{language_name(code)}  ({code})", code)
+        self._set_lang(ctx.settings.get("language"))
+        tip(self.lang, "Spoken language of your meetings. 'Auto-detect' works for any language; "
+                       "choosing the language (English, Urdu, Arabic…) is faster and more reliable")
         form.addRow("Language", self.lang)
         self.fillers = QCheckBox("Remove filler words")
         self.fillers.setChecked(ctx.settings.get("remove_fillers", True))
@@ -231,20 +357,23 @@ class SettingsPage(QWidget):
         self.smtp_password.setEchoMode(QLineEdit.Password)
         self.smtp_password.setPlaceholderText("Mailjet Secret key")
         tip(self.smtp_password, "SMTP password — for Mailjet this is your Secret key. Stored only "
-                                "in your local settings file, never in the app or repository")
+                                "in your local settings file on this PC, never in the app or "
+                                "repository. Saved exactly as typed (spaces are kept)")
         form.addRow("SMTP password / Secret", self.smtp_password)
-        test_btn = QPushButton("Send test email")
-        test_btn.clicked.connect(self._send_test_email)
-        tip(test_btn, "Send a test message to the From address to confirm these settings work")
-        form.addRow("", test_btn)
+        self.test_btn = QPushButton("Send test email")
+        self.test_btn.clicked.connect(self._send_test_email)
+        tip(self.test_btn, "Send a test message to the From address to confirm these settings work")
+        form.addRow("", self.test_btn)
         self._tabs.addTab(em_sa, "Email")
 
         # ---- Updates tab --------------------------------------------------
         up_sa, form = self._tab_form()
+        self._updates_scroll = up_sa
         self.repo = QLineEdit(ctx.settings.get("github_repo", ""))
         self.repo.setPlaceholderText("owner/name  (e.g. mico360om/MICO360-Meetings)")
-        tip(self.repo, "GitHub repository checked for new releases (owner/name). Also used by "
-                       "the crash reporter's 'Report on GitHub' button")
+        tip(self.repo, "GitHub repository checked for new releases (owner/name — a pasted "
+                       "github.com link is converted). Also used by the crash reporter's "
+                       "'Report on GitHub' button")
         form.addRow("GitHub repo (for updates)", self.repo)
         self.auto_check = QCheckBox("Auto-check on startup")
         self.auto_check.setChecked(ctx.settings.get("auto_check_updates", True))
@@ -261,7 +390,7 @@ class SettingsPage(QWidget):
         tip(report_btn, "Open a problem report with the recent app log — review/edit it, then "
                         "send via GitHub or email if you choose")
         form.addRow("", report_btn)
-        self._tabs.addTab(up_sa, "Updates")
+        self._updates_tab_index = self._tabs.addTab(up_sa, "Updates")
 
         # ---- Data tab -----------------------------------------------------
         da_sa, form = self._tab_form()
@@ -277,9 +406,126 @@ class SettingsPage(QWidget):
         # ---- global Save --------------------------------------------------
         save_row = QHBoxLayout(); save_row.addStretch()
         save = QPushButton("Save settings"); save.setObjectName("Primary"); save.clicked.connect(self._save)
-        tip(save, "Save all settings across every tab — model and appearance changes apply immediately")
+        tip(save, "Save all settings across every tab (Ctrl+S) — appearance, text size and "
+                  "AI mode apply immediately")
         save_row.addWidget(save)
         outer.addLayout(save_row)
+        self._built = True
+        self._mark_clean()
+
+    # -- stored-value migration ---------------------------------------------
+    def _migrate_stored_values(self):
+        """Heal values older builds accepted as free text, so transcription
+        (including live transcription, which reads the setting directly) and
+        update checks work before the user ever opens this page."""
+        s = self.ctx.settings
+        stored = s.get("language", "auto")
+        norm = normalize_language(stored)
+        if norm != stored:
+            s.set("language", norm)
+        repo = s.get("github_repo", "")
+        nrepo = normalize_repo(repo)
+        if nrepo and nrepo != repo:
+            s.set("github_repo", nrepo)
+
+    def _set_lang(self, value):
+        code = normalize_language(value)
+        i = self.lang.findData(code)
+        self.lang.setCurrentIndex(i if i >= 0 else 0)
+
+    # -- unsaved-changes tracking (M11) --------------------------------------
+    def _form_state(self) -> dict:
+        """Everything that is applied only by "Save settings" (theme, text size
+        and AI mode apply immediately and are not part of this)."""
+        model = self.model.currentText()
+        return {
+            "ollama_host": self.host.text().strip(),
+            "ollama_model": "" if model.startswith("(") else model,
+            "whisper_model": self.whisper.currentData(),
+            "whisper_compute": self.compute.currentText(),
+            "whisper_device": self.device.currentText(),
+            "language": self.lang.currentData(),
+            "remove_fillers": self.fillers.isChecked(),
+            "diarize": self.diarize.isChecked(),
+            "auto_record": self.auto_record.isChecked(),
+            "quality_preset": self.preset.currentText(),
+            "chunk_chars": self.chunk.value(),
+            "github_repo": self.repo.text().strip(),
+            "auto_check_updates": self.auto_check.isChecked(),
+            "crash_reporter": self.crash_reporter.isChecked(),
+            "smtp_host": self.smtp_host.text().strip(),
+            "smtp_port": self.smtp_port.value(),
+            "email_from": self.email_from.text().strip(),
+            "smtp_user": self.smtp_user.text().strip(),
+            "smtp_password": self.smtp_password.text(),
+        }
+
+    def _mark_clean(self, *keys):
+        """Take the current form as the saved baseline (all keys, or just `keys`)."""
+        if not getattr(self, "_built", False):
+            return                                     # still constructing the form
+        state = self._form_state()
+        if not keys or not hasattr(self, "_baseline"):
+            self._baseline = state
+        else:
+            for k in keys:
+                self._baseline[k] = state[k]
+
+    def dirty_fields(self) -> list[str]:
+        if not hasattr(self, "_baseline"):
+            return []
+        state = self._form_state()
+        return [k for k, v in state.items() if self._baseline.get(k) != v]
+
+    def is_dirty(self) -> bool:
+        return bool(self.dirty_fields())
+
+    def revert(self):
+        """Discard unsaved edits: put every field back to the stored settings."""
+        s = self.ctx.settings
+        self.host.setText(s.get("ollama_host") or "")
+        self._reload_models(prefer_saved=True)
+        cur = s.get("whisper_model")
+        for i in range(self.whisper.count()):
+            if self.whisper.itemData(i) == cur:
+                self.whisper.setCurrentIndex(i); break
+        self.compute.setCurrentText(s.get("whisper_compute"))
+        self.device.setCurrentText(s.get("whisper_device"))
+        self._set_lang(s.get("language"))
+        self.fillers.setChecked(s.get("remove_fillers", True))
+        self.diarize.setChecked(s.get("diarize", False))
+        self.auto_record.blockSignals(True)            # no consent notice for a revert
+        self.auto_record.setChecked(bool(s.get("auto_record", False)))
+        self.auto_record.blockSignals(False)
+        self.preset.setCurrentText(s.get("quality_preset", "Balanced"))
+        self.chunk.setValue(int(s.get("chunk_chars", 6000)))
+        self.repo.setText(s.get("github_repo", ""))
+        self.auto_check.setChecked(s.get("auto_check_updates", True))
+        self.crash_reporter.setChecked(s.get("crash_reporter", True))
+        self.smtp_host.setText(s.get("smtp_host", "in-v3.mailjet.com"))
+        self.smtp_port.setValue(int(s.get("smtp_port", 587)))
+        self.email_from.setText(s.get("email_from", ""))
+        self.smtp_user.setText(s.get("smtp_user", ""))
+        self.smtp_password.setText(s.get("smtp_password", ""))
+        self._refresh_env()
+        self._mark_clean()
+
+    def confirm_leave(self) -> bool:
+        """Called before navigating away / closing. Unsaved changes → ask to
+        Save, Discard or stay. Returns True if it's OK to leave."""
+        if not self.is_dirty():
+            return True
+        r = QMessageBox.question(
+            self, "Unsaved settings",
+            "You have changed settings that haven't been saved yet.\n\n"
+            "Save them now?",
+            QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel, QMessageBox.Save)
+        if r == QMessageBox.Save:
+            return bool(self._save())
+        if r == QMessageBox.Discard:
+            self.revert()
+            return True
+        return False
 
     def _auto_record_toggled(self, on: bool):
         """First-time consent notice when auto-record is switched on."""
@@ -315,16 +561,35 @@ class SettingsPage(QWidget):
         except Exception:
             pass
 
-    def _reload_models(self):
-        status = self.ctx.ollama_status()
+    # -- Ollama host (M10): the field's value, not the last saved one --------
+    def _typed_host(self) -> str:
+        return self.host.text().strip() or DEFAULT_OLLAMA_HOST
+
+    def _host_status(self):
+        """Reachability + models of the Ollama host typed in the field."""
+        return _ollama.check_status(self._typed_host())
+
+    def _refresh_clicked(self):
+        self._reload_models()
+        self._refresh_env()
+
+    def _reload_models(self, prefer_saved: bool = False):
+        was_clean = "ollama_model" not in self.dirty_fields()
+        current = self.model.currentText() if self.model.count() else ""
+        status = self._host_status()
         self.model.clear()
         if status.running and status.models:
             self.model.addItems(status.models)
             saved = self.ctx.settings.get("ollama_model")
-            if saved in status.models:
+            # keep the user's (unsaved) choice across a refresh, else the saved one
+            if not prefer_saved and current in status.models:
+                self.model.setCurrentText(current)
+            elif saved in status.models:
                 self.model.setCurrentText(saved)
         else:
             self.model.addItem("(Ollama not running)")
+        if was_clean:
+            self._mark_clean("ollama_model")
 
     def _provider_changed(self):
         key = self.provider_box.currentData()
@@ -352,7 +617,7 @@ class SettingsPage(QWidget):
                 f"{py} &nbsp;•&nbsp; {cloud_txt} &nbsp;•&nbsp; {MICO360_CONNECT_BASE_URL} "
                 f"&nbsp;•&nbsp; Models: {models_txt}")
             return
-        st = self.ctx.ollama_status()
+        st = self._host_status()
         if not st.running:
             ollama_txt = "<span style='color:#EF4444'>Ollama not running</span>"
             models_txt = "—"
@@ -366,11 +631,14 @@ class SettingsPage(QWidget):
         self.env_lbl.setText(f"{py} &nbsp;•&nbsp; {ollama_txt} &nbsp;•&nbsp; Models: {models_txt}")
 
     def _install_model(self):
-        st = self.ctx.ollama_status()
+        if _running(self._pull_worker):
+            return                                       # one install at a time
+        st = self._host_status()
         if not st.running:
             QMessageBox.warning(self, "Ollama not running",
-                                "Ollama must be running to install a model.\n\n"
-                                "Start it (open the Ollama app or run 'ollama serve') and try again.")
+                                f"Ollama must be running at {self._typed_host()} to install a "
+                                "model.\n\nStart it (open the Ollama app or run 'ollama serve') "
+                                "and try again.")
             return
         # Resolve the model: if the box shows a recommended label, use its data;
         # otherwise treat whatever the user typed as the literal model name.
@@ -386,15 +654,28 @@ class SettingsPage(QWidget):
             self.install_status.setText(f"“{model}” is already installed — skipped.")
             self.toast.show_message(f"{model} already installed.", "info")
             return
-        from .workers import ModelPullWorker
+        from . import workers as _workers
         self.install_btn.setEnabled(False)
+        self.install_cancel_btn.setEnabled(True); self.install_cancel_btn.setText("Cancel")
+        self.install_cancel_btn.setVisible(True)
         self.install_progress.setVisible(True); self.install_progress.setRange(0, 100)
         self.install_status.setText(f"Installing “{model}”…")
-        self._pull_worker = ModelPullWorker(self.ctx.settings.get("ollama_host"), model)
-        self._pull_worker.progress.connect(self._on_pull_progress)
-        self._pull_worker.finished_ok.connect(self._on_pull_done)
-        self._pull_worker.failed.connect(self._on_pull_failed)
-        self._pull_worker.start()
+        w = self._pull_worker = _workers.ModelPullWorker(self._typed_host(), model)
+        _keep_alive(self, w)                             # never dropped while running
+        w.progress.connect(self._on_pull_progress)
+        w.finished_ok.connect(self._on_pull_done)
+        w.failed.connect(self._on_pull_failed)
+        w.start()
+
+    def _cancel_install(self):
+        if _running(self._pull_worker):
+            self._pull_worker.cancel()                   # finishes via failed("Cancelled.")
+            self.install_cancel_btn.setEnabled(False); self.install_cancel_btn.setText("Cancelling…")
+            self.install_status.setText("Cancelling…")
+
+    def _install_finished_ui(self):
+        self.install_btn.setEnabled(True)
+        self.install_cancel_btn.setVisible(False)
 
     def _on_pull_progress(self, frac: float, status: str):
         if frac < 0:
@@ -405,20 +686,26 @@ class SettingsPage(QWidget):
         self.install_status.setText(status)
 
     def _on_pull_done(self, model: str):
-        self.install_btn.setEnabled(True)
+        self._install_finished_ui()
         self.install_progress.setRange(0, 100); self.install_progress.setValue(100)
         self.install_status.setText(f"✓ Installed “{model}”.")
         self.toast.show_message(f"Model “{model}” installed.", "success", 5000)
+        self._clear_status_cache()
         self._reload_models(); self._refresh_env()
         self.on_models_change()
 
     def _on_pull_failed(self, msg: str):
-        self.install_btn.setEnabled(True)
+        self._install_finished_ui()
         self.install_progress.setVisible(False)
+        if "cancel" in msg.lower():
+            self.install_status.setText("Install cancelled.")
+            return
         self.install_status.setText(f"Install failed: {msg}")
-        if "cancel" not in msg.lower():
-            QMessageBox.critical(self, "Model install failed",
-                                 f"{msg}\n\nIf you are offline, connect to the internet and retry.")
+        QMessageBox.critical(self, "Model install failed",
+                             f"{msg}\n\nIf you are offline, connect to the internet and retry.")
+
+    def is_busy(self) -> bool:
+        return any(_running(w) for w in self._bg_workers)
 
     def _theme_changed(self, name: str):
         self.ctx.settings.set("theme", name)
@@ -433,26 +720,58 @@ class SettingsPage(QWidget):
         name = self.preset.currentText()
         if name not in QUALITY_PRESETS:
             return
-        apply_quality_preset(self.ctx.settings, name)
+        apply_quality_preset(self.ctx.settings, name)    # stored immediately
         # reflect the preset's Whisper model/compute in the combos
         target = QUALITY_PRESETS[name]["whisper_model"]
         for i in range(self.whisper.count()):
             if self.whisper.itemData(i) == target:
                 self.whisper.setCurrentIndex(i); break
         self.compute.setCurrentText(QUALITY_PRESETS[name]["whisper_compute"])
+        self._mark_clean("quality_preset", "whisper_model", "whisper_compute")
         self.toast.show_message(f"{name} preset applied.", "success")
 
-    def _save(self):
+    def _whisper_fields_changed(self, *_):
+        """L5: editing Whisper model/compute by hand no longer matches the named
+        preset → show the preset that matches them, or "Custom"."""
+        from ..config import QUALITY_PRESETS
+        size, compute = self.whisper.currentData(), self.compute.currentText()
+        match = next((n for n, p in QUALITY_PRESETS.items()
+                      if p.get("whisper_model") == size and p.get("whisper_compute") == compute),
+                     "Custom")
+        if self.preset.currentText() != match:
+            self.preset.setCurrentText(match)
+
+    def _clear_status_cache(self):
+        """Forget the context's short-lived AI status so the next read queries
+        the (possibly new) host instead of a stale cached answer."""
+        for attr in ("_ai_status_cache",):
+            if hasattr(self.ctx, attr):
+                try:
+                    setattr(self.ctx, attr, None)
+                except Exception:
+                    pass
+
+    def _save(self) -> bool:
+        repo = normalize_repo(self.repo.text())
+        if repo is None:
+            self._tabs.setCurrentIndex(self._updates_tab_index)
+            self.repo.setFocus(Qt.OtherFocusReason)
+            QMessageBox.warning(
+                self, "GitHub repo not recognised",
+                "The GitHub repo must look like owner/name (for example "
+                "mico360om/MICO360-Meetings) or be a github.com link to the repository.\n\n"
+                "Nothing was saved — fix the repo field (or clear it) and save again.")
+            return False
         s = self.ctx.settings
         s.set("ui_scale", float(self.scale_box.currentData()))
         s.set("ai_provider", self.provider_box.currentData())
-        s.set("ollama_host", self.host.text().strip() or "http://127.0.0.1:11434")
+        s.set("ollama_host", self._typed_host())
         if not self.model.currentText().startswith("("):
             s.set("ollama_model", self.model.currentText())
         s.set("whisper_model", self.whisper.currentData())
         s.set("whisper_compute", self.compute.currentText())
         s.set("whisper_device", self.device.currentText())
-        s.set("language", self.lang.text().strip() or "auto")
+        s.set("language", normalize_language(self.lang.currentData()))
         s.set("remove_fillers", self.fillers.isChecked())
         s.set("diarize", self.diarize.isChecked())
         s.set("auto_record", self.auto_record.isChecked())
@@ -461,40 +780,57 @@ class SettingsPage(QWidget):
             cb(self.auto_record.isChecked())
         s.set("quality_preset", self.preset.currentText())
         s.set("chunk_chars", self.chunk.value())
-        s.set("github_repo", self.repo.text().strip().strip("/"))
+        self.repo.setText(repo)                          # show the normalised form
+        s.set("github_repo", repo)
         s.set("auto_check_updates", self.auto_check.isChecked())
         s.set("crash_reporter", self.crash_reporter.isChecked())
         s.set("smtp_host", self.smtp_host.text().strip() or "in-v3.mailjet.com")
         s.set("smtp_port", self.smtp_port.value())
         s.set("email_from", self.email_from.text().strip())
         s.set("smtp_user", self.smtp_user.text().strip())
-        s.set("smtp_password", self.smtp_password.text().strip())
+        # Passwords may legitimately start/end with spaces — store exactly as typed.
+        s.set("smtp_password", self.smtp_password.text())
+        self.host.setText(self._typed_host())
+        # A changed host (or anything else) must show up now, not after 4 s.
+        self._clear_status_cache()
+        self._reload_models(prefer_saved=True)
+        self._refresh_env()
+        self._mark_clean()
         self.toast.show_message("Settings saved.", "success")
         self.on_models_change()
+        return True
 
     def _send_test_email(self):
-        from ..core.emailer import SmtpConfig, send_test
+        if _running(self._test_worker):
+            return                                       # a test is already being sent
+        from ..core.emailer import SmtpConfig
         cfg = SmtpConfig(host=self.smtp_host.text().strip() or "in-v3.mailjet.com",
                          port=self.smtp_port.value(),
                          user=self.smtp_user.text().strip(),
-                         password=self.smtp_password.text().strip(),
+                         password=self.smtp_password.text(),
                          sender=self.email_from.text().strip())
         if not cfg.configured:
             QMessageBox.information(self, "Incomplete", "Fill in host, from, user and password first.")
             return
         self.toast.show_message("Sending test email…", "info")
 
-        from .workers import EmailWorker
-        self._test_worker = EmailWorker(cfg, cfg.sender, "MICO360 Meetings - test email",
-                                        "This is a test email from MICO360 Meetings. "
-                                        "Your SMTP settings work.")
-        self._test_worker.finished_ok.connect(
+        from . import workers as _workers
+        self.test_btn.setEnabled(False); self.test_btn.setText("Sending…")
+        w = self._test_worker = _workers.EmailWorker(
+            cfg, cfg.sender, "MICO360 Meetings - test email",
+            "This is a test email from MICO360 Meetings. Your SMTP settings work.")
+        _keep_alive(self, w)                             # kept until the thread has finished
+        w.finished.connect(self._test_email_finished)
+        w.finished_ok.connect(
             lambda: self.toast.show_message(f"Test email sent to {cfg.sender}.", "success", 6000))
-        self._test_worker.failed.connect(
+        w.failed.connect(
             lambda m: QMessageBox.critical(self, "Test failed",
                                            f"{m}\n\nCheck host/port/user/password and that the "
                                            "sender is a validated Mailjet sender."))
-        self._test_worker.start()
+        w.start()
+
+    def _test_email_finished(self):
+        self.test_btn.setEnabled(True); self.test_btn.setText("Send test email")
 
     def _report_problem(self):
         """Open the crash-reporter dialog with the current log (no crash needed)."""

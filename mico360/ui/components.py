@@ -7,11 +7,62 @@ from typing import Callable
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
-    QToolButton, QVBoxLayout, QWidget,
+    QTextEdit, QToolButton, QVBoxLayout, QWidget,
 )
 
 from ..core.audio import MEDIA_EXTS
 from . import metrics as M
+
+
+def keep_alive(owner, worker) -> None:
+    """Hold a reference to a QThread on ``owner._bg_workers`` until the thread
+    has really finished. Dropping (or replacing) the last reference to a running
+    QThread aborts the whole process; MainWindow.closeEvent also cancels and
+    waits for everything in these sets before the window is torn down."""
+    bag = getattr(owner, "_bg_workers", None)
+    if bag is None:
+        bag = owner._bg_workers = set()
+    bag.add(worker)
+    worker.finished.connect(lambda w=worker, b=bag: b.discard(w))
+
+
+def running(worker) -> bool:
+    """True while ``worker`` (a QThread or None) is still running."""
+    try:
+        return bool(worker is not None and worker.isRunning())
+    except RuntimeError:                               # C++ object already deleted
+        return False
+
+
+class BidiPlainTextEdit(QTextEdit):
+    """A plain-text editor whose paragraphs follow their own writing direction:
+    Arabic / Urdu lines are right-aligned, English lines left-aligned, in the
+    same text. (QPlainTextEdit's layout never resolves the visual alignment per
+    paragraph, so right-to-left lines always sat on the left.) Rich text is
+    never accepted — pasting from Word/Outlook inserts the plain text only — and
+    the API used by the pages (setPlainText / toPlainText / textChanged /
+    placeholder / undo) is the same as QPlainTextEdit's."""
+
+    def __init__(self, text: str = "", parent=None):
+        super().__init__(parent)
+        self.setAcceptRichText(False)
+        self.setLineWrapMode(QTextEdit.WidgetWidth)
+        if text:
+            self.setPlainText(text)
+
+    def appendPlainText(self, text: str):             # QPlainTextEdit compatibility
+        from PySide6.QtGui import QTextCursor
+        cur = QTextCursor(self.document())
+        cur.movePosition(QTextCursor.End)
+        if not self.document().isEmpty():
+            cur.insertBlock()
+        cur.insertText(text)
+
+    def insertFromMimeData(self, source):
+        if source is not None and source.hasText():
+            self.textCursor().insertText(source.text())
+        else:
+            super().insertFromMimeData(source)
 
 
 class Card(QFrame):
@@ -234,17 +285,24 @@ def scroll_area(inner: QWidget, max_width: int = 1440) -> QScrollArea:
 
 
 class DropArea(QFrame):
-    """Drag-and-drop + click-to-browse area for media/document files."""
+    """Drag-and-drop + click-to-browse area for media/document files.
+
+    With ``multiple=True`` (the default) every dropped or browsed file is
+    reported: ``fileChosen`` fires once per file, then ``filesChosen`` once
+    with the whole list."""
     fileChosen = Signal(str)
+    filesChosen = Signal(list)
 
     def __init__(self, accept_exts: set[str] | None = None,
                  caption: str = "Drag & drop a file here",
-                 sub: str = "Audio, video or document — or click to browse"):
+                 sub: str = "Audio, video or document — or click to browse",
+                 multiple: bool = True):
         super().__init__()
         self.setObjectName("Drop")
         self.setAcceptDrops(True)
         self.setProperty("hover", "false")
         self._accept = accept_exts or set(MEDIA_EXTS)
+        self._multiple = bool(multiple)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(M.XL, M.XXL, M.XL, M.XXL)
@@ -279,9 +337,22 @@ class DropArea(QFrame):
         return f"Supported files ({exts});;All files (*.*)"
 
     def _browse(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Choose a file", "", self._filter())
-        if path:
-            self.fileChosen.emit(path)
+        if self._multiple:
+            paths, _ = QFileDialog.getOpenFileNames(self, "Choose files", "", self._filter())
+        else:
+            path, _ = QFileDialog.getOpenFileName(self, "Choose a file", "", self._filter())
+            paths = [path] if path else []
+        self._emit_paths(paths)
+
+    def _emit_paths(self, paths):
+        """One fileChosen per file (in the order given), plus one filesChosen."""
+        paths = [p for p in paths if p]
+        if not self._multiple:
+            paths = paths[:1]
+        for p in paths:
+            self.fileChosen.emit(p)
+        if paths:
+            self.filesChosen.emit(list(paths))
 
     def _ok(self, path: str) -> bool:
         return Path(path).suffix.lower() in self._accept or not self._accept
@@ -296,11 +367,8 @@ class DropArea(QFrame):
 
     def dropEvent(self, e):
         self.setProperty("hover", "false"); self._restyle()
-        for url in e.mimeData().urls():
-            p = url.toLocalFile()
-            if p:
-                self.fileChosen.emit(p)
-                break
+        # Every dropped file is added (the caption promises "multiple files").
+        self._emit_paths([url.toLocalFile() for url in e.mimeData().urls()])
 
     def _restyle(self):
         self.style().unpolish(self); self.style().polish(self)
