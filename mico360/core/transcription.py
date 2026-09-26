@@ -48,6 +48,15 @@ def model_cached(size: str) -> bool:
     return False
 
 
+def _whisper_lang(language) -> str | None:
+    """Setting value -> faster-whisper code, or None for auto-detect. Accepts
+    "AR", "ar-SA", "Arabic", "Auto" (the engine used to receive these raw and
+    faster-whisper rejected them, failing every transcription)."""
+    from .languages import normalize_language
+    code = normalize_language(language)
+    return None if code == "auto" else code
+
+
 @dataclass
 class Segment:
     start: float
@@ -202,7 +211,7 @@ class TranscriptionEngine:
             progress(0.05, "Preparing audio…")
         usable, duration = audio.prepare_for_whisper(path)
 
-        lang = None if (not language or language == "auto") else language
+        lang = _whisper_lang(language)
         if progress:
             progress(0.08, "Transcribing…")
 
@@ -238,7 +247,7 @@ class TranscriptionEngine:
         (fast: greedy decoding, VAD-filtered, no progress/diarisation). Falls back
         to CPU like transcribe_file when the GPU turns out to be unusable."""
         self.load()
-        lang = None if (not language or language == "auto") else language
+        lang = _whisper_lang(language)
         try:
             return self._run_array(audio_f32, lang)
         except Exception as exc:
