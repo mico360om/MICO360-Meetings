@@ -53,6 +53,9 @@ from mico360.ui import pages as P                     # noqa: E402
 from mico360.ui.context import AppContext             # noqa: E402
 
 results: list[tuple[str, bool, str]] = []
+# Qt objects kept alive until os._exit: letting Python garbage-collect live
+# widgets/threads while Qt still runs can crash at shutdown (seen in CI).
+_KEEP: list = []
 
 
 def check(name: str, cond: bool, detail: str = "") -> None:
@@ -160,6 +163,7 @@ def main() -> int:
     ctx = make_ctx()
     H = ctx.history
     page = P.NewMeetingPage(ctx, _Toast())
+    _KEEP.extend([ctx, page])
     prep_page(page)
 
     # ---- C1a: open another meeting from History while generating ------------
@@ -225,6 +229,7 @@ def main() -> int:
     print("C2 — auto-record must start a new meeting")
     from mico360.ui.main_window import MainWindow
     win = MainWindow(ctx)
+    _KEEP.append(win)
     wp = win.new_page
     prep_page(wp)
     panel = wp.recorder_panel
