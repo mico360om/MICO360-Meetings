@@ -76,6 +76,27 @@ jobs:
       - name: Build app (PyInstaller)
         run: python -m PyInstaller build/mico360.spec --noconfirm --distpath build/dist --workpath build/work
 
+      # Never publish a broken build: run the built-in self-test INSIDE the frozen
+      # exe (bundled libraries, codecs, assets, exports incl. Arabic, history,
+      # meeting detection, every UI page, ...). For tagged releases the Cloud key
+      # must also be present in the build (reported as yes/no, never the value).
+      - name: Self-test the built app
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          $exe = "build\dist\MICO360Meetings\MICO360Meetings.exe"
+          $rep = Join-Path $env:RUNNER_TEMP "selftest.json"
+          $p = Start-Process -FilePath $exe -ArgumentList @('--self-test', '--report', "`"$rep`"", '--audio', 'samples\spoken_test.wav') -Wait -PassThru
+          if (-not (Test-Path $rep)) { Write-Error "The built app wrote no self-test report (exit code $($p.ExitCode))."; exit 1 }
+          $d = Get-Content $rep -Raw -Encoding UTF8 | ConvertFrom-Json
+          $d.results | ForEach-Object { Write-Host ("{0,-5} {1} - {2}" -f $_.status.ToUpper(), $_.name, $_.detail) }
+          if (-not $d.ok -or -not $d.frozen) { Write-Error "Built-app self-test failed ($($d.failed) required check(s))."; exit 1 }
+          $key = $d.results | Where-Object { $_.name -eq 'MICO360 Cloud key bundled' }
+          if ("${{ github.ref_type }}" -eq "tag" -and $key.status -ne 'pass') {
+            Write-Error "Tagged release but the Cloud key is not in the build."; exit 1
+          }
+          Write-Host "Self-test: $($d.passed) passed, $($d.skipped) skipped, $($d.failed) failed."
+
       - name: Install Inno Setup
         run: choco install innosetup --no-progress -y
 

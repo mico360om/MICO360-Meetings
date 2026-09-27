@@ -260,6 +260,15 @@ def _checks(audio: str | None) -> None:
         return "encrypted" if enc != "pa ss" else "stored as-is (no DPAPI)"
     _check("email password encryption", _secret)
 
+    def _cloud_key():
+        # Only reports WHETHER a key was bundled at build time — never its value.
+        try:
+            from mico360 import _build_key          # type: ignore[attr-defined]
+        except Exception:
+            return "SKIP: no MICO360 Connect key in this build (Cloud mode inactive)"
+        return "bundled (Cloud mode available)" if str(getattr(_build_key, "KEY", "")).strip()             else "SKIP: key file present but empty"
+    _check("MICO360 Cloud key bundled", _cloud_key, required=False)
+
     def _updater():
         from mico360.core import updater as U
         assert U.is_newer("1.3.0", "1.3.0-rc1") and U.normalize_repo(
