@@ -120,6 +120,44 @@ def _fmt_rc(rc) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Built-app self-test: run the feature checks INSIDE the frozen exe
+# ---------------------------------------------------------------------------
+def check_built_selftest(exe: Path, timeout_s: int = 900) -> None:
+    """`MICO360Meetings.exe --self-test` exercises every major feature with the
+    libraries, codecs and assets actually bundled in the build (see
+    mico360/selftest.py). Uses a throwaway data folder inside the app."""
+    import json
+    import tempfile
+    name = "Built-app self-test"
+    report = Path(tempfile.gettempdir()) / f"mico360_selftest_{os.getpid()}.json"
+    report.unlink(missing_ok=True)
+    wav = ROOT / "samples" / "spoken_test.wav"
+    cmd = [str(exe), "--self-test", "--report", str(report)]
+    if wav.exists():
+        cmd += ["--audio", str(wav)]
+    t0 = time.time()
+    try:
+        subprocess.run(cmd, timeout=timeout_s, capture_output=True)
+    except subprocess.TimeoutExpired:
+        record(name, "FAIL", f"no result after {timeout_s}s")
+        return
+    if not report.exists():
+        record(name, "FAIL", "the exe wrote no self-test report")
+        return
+    data = json.loads(report.read_text(encoding="utf-8"))
+    report.unlink(missing_ok=True)
+    bad = [r for r in data["results"] if r["status"] == "fail" and r.get("required", True)]
+    skipped = [r["name"] for r in data["results"] if r["status"] == "skip"]
+    detail = (f"{data['passed']} passed, {data['failed']} failed, {data['skipped']} skipped "
+              f"in {time.time() - t0:.0f}s (frozen={data.get('frozen')})")
+    if skipped:
+        detail += " — skipped: " + ", ".join(skipped)
+    if bad:
+        detail += "\n" + "\n".join(f"      FAIL {r['name']}: {r['detail']}" for r in bad)
+    record(name, "PASS" if data.get("ok") and not bad and data.get("frozen") else "FAIL", detail)
+
+
+# ---------------------------------------------------------------------------
 # Built-app launch + quit (Windows)
 # ---------------------------------------------------------------------------
 def _process_windows(pid: int) -> list[tuple[int, str, int, int]]:
@@ -300,6 +338,7 @@ def main() -> int:
         record("Built-app launch + quit", "WARN", "no build present — run build_all.ps1")
     else:
         check_built_app(exe)
+        check_built_selftest(exe)
 
     # 7: integration liveness (warn-only — environment, not code)
     try:

@@ -1,53 +1,49 @@
 # MICO360 Meetings v1.2.3
 
-The biggest release yet. Still **offline by default** — audio is transcribed
-locally with Whisper and minutes are written by a local Ollama model, with
-MICO360 Cloud available as an optional mode.
+The biggest release yet — new hands-free recording features plus a full code review with 90 fixes. Still offline by default: audio is transcribed on your PC with Whisper and minutes are written by a local Ollama model; MICO360 Cloud remains optional.
 
 ## New features
 
-- **Auto-record live meetings, hands-free.** Detects a live Teams, Google Meet,
-  Zoom, or Webex meeting and records it automatically — no manual start needed.
-- **Live transcription while recording (beta).** Watch the transcript appear as
-  the meeting happens.
-- **Speaker identification & naming.** Segments are attributed to speakers you
-  can label, and the names flow through into the minutes.
-- **Cross-meeting Insights dashboard.** See trends, recurring topics, and action
-  items across all your meetings in one place.
-- **Reminders, follow-ups & calendar sync.** Overdue reminders, per-owner
-  follow-ups, and calendar (`.ics`) export for action items.
-- **Paste text as a source.** Start a new meeting from pasted notes or a
-  transcript — a first-class option alongside audio and file uploads.
-- **Arabic (and RTL) export.** Arabic minutes now export correctly to every
-  format: the PDF shapes and right-to-left–orders Arabic (previously it was
-  dropped entirely), and DOCX/HTML are marked RTL so they render natively.
-  Transcription already accepted Arabic (set Language to `ar`, or `auto`).
+- **Auto-record live meetings:** detects a live Teams, Google Meet, Zoom or Webex meeting and records it — every detected meeting gets its own record, and the minutes include everyone on the call (microphone + system audio).
+- **Live transcription while recording (beta):** watch the transcript appear as the meeting happens.
+- **Speaker identification & naming:** segments are attributed to speakers you can rename; names flow into the minutes.
+- **Insights dashboard:** trends, recurring topics (now in any language, including Arabic) and action-item health across all meetings.
+- **Reminders, follow-ups & calendar:** overdue reminders, per-owner follow-ups and calendar (.ics) export that updates events instead of duplicating them.
+- **Paste text as a source:** start a meeting from pasted notes or a transcript.
+- **Arabic / right-to-left:** Arabic minutes display and export correctly in PDF, Word and HTML.
+- **Per-user install:** `Setup.exe /CURRENTUSER` installs without administrator rights.
 
 ## Experience overhaul
 
-- **Unified design system** across every page.
-- **New Meeting** redesigned as a proper progress stepper; Step 1 fits on one
-  screen; single clear **Transcribe** action.
-- **Action Items** overhauled: statuses, filters, overdue highlighting, edit
-  every field, and quick actions in place.
-- **Meeting History** with sort, filter, preview, and status.
-- **Prompt Library** redesigned with search, favourites, and duplicate.
-- **Company Profiles** as cards with safer actions.
-- **Navigation:** grouped sidebar with synced active state; responsive layout
-  that uses wide screens while keeping tables readable.
+- Unified design system; New Meeting is a clear step-by-step wizard.
+- Action Items: statuses, filters, overdue highlighting (readable in dark theme), edit-in-place, Excel-friendly CSV.
+- Meeting History with sort, filter, preview and correct Draft status.
+- Settings: language picker, unsaved-changes prompt, Cancel buttons for model and update downloads.
 
-## Fixes & hardening
+## Fixes
 
-- **Low-resource hardening:** lazy transcripts, a lighter task table, and temp
-  file cleanup keep memory and disk use down on modest machines.
-- **UI audit fixes:** status/priority dropdowns are visible again, chart labels
-  are readable in dark theme, the toast no longer covers the header, and the
-  Task column is readable.
-- **Reliable release gate:** no longer crashes on a legacy console code page or a
-  flaky test-runner exit.
+- Switching meetings while minutes are generating no longer writes them into the wrong meeting; your unsaved edits are saved first.
+- Auto-record no longer merges a new meeting into the one that was open.
+- Recordings are kept in your Recordings folder and are never deleted automatically.
+- An error in a background task no longer closes the app.
+- Screen and camera recordings capture the selected audio source; video and audio stay in sync; unplugged microphones are detected.
+- Long meetings: the AI keeps the whole meeting in context, keeps your template's instructions, and a retry resumes from where it stopped.
+- Filler-word removal no longer changes the meaning of sentences; Arabic transcripts are split cleanly.
+- Exports handle tables with long cells, pipes inside cells, numbered lists, sub-headings and numeric profile fields.
+- Calendar import/export: correct line endings, local times, stable events, no alarm text in titles.
+- Action items with identical text are tracked separately; dates without a year resolve correctly.
+- Settings, profiles and task edits are saved atomically — a crash mid-save can no longer wipe them.
+- The app stays responsive when Ollama or the Cloud server is slow or unreachable.
+- Updates install the right file even when a release carries more than one installer, and the app reopens after an in-app update.
+
+## Security
+
+- The email (SMTP) password is stored encrypted with your Windows account.
+- Email login is refused unless the connection is encrypted (STARTTLS).
+- Updates that can't be verified against their published checksum are never installed.
+- MICO360 Cloud switches to an encrypted connection automatically as soon as the server offers one, and asks for confirmation while it doesn't.
 
 ## Under the hood
 
-- All test suites (module, QA, consistency, parser, end-to-end) pass through the
-  one-command release gate.
-- Installer is SHA256-verified for the in-app updater.
+- New release gate: 11 test suites plus a self-test that runs inside the built app (`MICO360Meetings.exe --self-test`).
+- Pinned, tested dependency versions; upgrades replace the whole runtime folder.

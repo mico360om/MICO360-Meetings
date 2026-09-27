@@ -84,7 +84,11 @@ try {
     if (-not $SkipInstaller) { $clean += "build\Output" }
     foreach ($d in $clean) {
         $p = Join-Path $root $d
-        if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+        # Retry: sync clients (the repo may live in Dropbox/OneDrive) briefly lock
+        # a folder right after its contents are deleted.
+        for ($i = 0; ($i -lt 6) -and (Test-Path $p); $i++) {
+            try { Remove-Item -Recurse -Force $p -ErrorAction Stop } catch { Start-Sleep -Seconds 2 }
+        }
         if (Test-Path $p) { throw "Could not remove $p (is the app or installer still running?)" }
     }
 

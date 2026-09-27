@@ -48,6 +48,10 @@ SolidCompression=yes
 WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
+; Default: an all-users install (asks for admin). `Setup.exe /CURRENTUSER` installs
+; for the current user only, without admin rights (into %LOCALAPPDATA%\Programs);
+; later updates keep the same mode (UsePreviousPrivileges).
+PrivilegesRequiredOverridesAllowed=commandline
 DisableProgramGroupPage=yes
 ; Writes %TEMP%\Setup Log <date>.txt - the first thing to ask for in a bug report.
 SetupLogging=yes

@@ -29,3 +29,6 @@ Thumbs.db
 .idea/
 .vscode/
 installers/
+
+# Final installer handed over locally (built by build/build_all.ps1; not versioned)
+Installer/
