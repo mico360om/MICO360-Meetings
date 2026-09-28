@@ -294,7 +294,8 @@ def main() -> int:
     run_suite("Release fixes", "tests/release_fixes.py", r"FIXES: (\d+)/\1 passed")
     # Per-area fix suites (docs/BUG_REPORT.md). Each prints
     # "==== <AREA>: X/Y passed ====" and must pass all of its checks.
-    for area, script in (("CAPTURE", "tests/fixes_capture.py"), ("AI", "tests/fixes_ai.py"),
+    for area, script in (("CAPTURE", "tests/fixes_capture.py"), ("CAPTURE2", "tests/fixes_capture2.py"),
+                         ("AI", "tests/fixes_ai.py"),
                          ("DATA", "tests/fixes_data.py"), ("UI", "tests/fixes_ui.py")):
         run_suite(f"Fixes: {area.lower()}", script, rf"==== {area}: (\d+)/\1 passed ====",
                   optional=True)

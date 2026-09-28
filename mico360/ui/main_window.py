@@ -442,8 +442,13 @@ class MainWindow(QMainWindow):
         # Quiet housekeeping threads (the silent startup update check, git check,
         # a meeting watcher still finishing) are just waited for — they're not
         # "a download or e-mail" the user needs to be asked about.
-        from .workers import GitUpdateWorker, MeetingWatchWorker, UpdateCheckWorker
-        quiet = (UpdateCheckWorker, GitUpdateWorker, MeetingWatchWorker)
+        # A recording's own stop/live-transcription threads finishing after the
+        # recording ended are housekeeping too (the recording prompt covers them
+        # while it's still running).
+        from .workers import (GitUpdateWorker, LiveTranscribeWorker, MeetingWatchWorker,
+                              RecorderStopWorker, UpdateCheckWorker)
+        quiet = (UpdateCheckWorker, GitUpdateWorker, MeetingWatchWorker,
+                 LiveTranscribeWorker, RecorderStopWorker)
         other_busy = any(w is not None and w.isRunning() and not isinstance(w, quiet)
                          for w in self._background_workers()
                          if w not in getattr(page, "_bg_workers", ()))
