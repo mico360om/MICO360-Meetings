@@ -48,7 +48,7 @@ def _is_empty_media(path) -> bool:
             import soundfile as sf
             return sf.info(str(p)).frames == 0
         except Exception:
-            return size <= 44
+            return False            # unreadable: not provably empty — never delete it
     return False
 
 
@@ -524,6 +524,7 @@ class RecordingPanel(QWidget):
                     self._rec, engine, self.ctx.settings.get("language", "auto"))
                 self._live_source = self._live_worker
                 self._live_worker.partial.connect(self._on_live_partial)
+                self._live_worker._mico360_partial_connected = True
                 self._live_worker.start()
                 self.live_box.clear(); self.live_box.setVisible(True)
             except Exception:
@@ -662,12 +663,12 @@ class RecordingPanel(QWidget):
                 w.finished.connect(lambda w=w: w in retired and retired.remove(w))
 
     def _disconnect_partial(self, w) -> None:
-        sig = getattr(w, "partial", None)
-        if sig is None:
+        if not getattr(w, "_mico360_partial_connected", False):
             return
+        w._mico360_partial_connected = False
         try:
-            sig.disconnect(self._on_live_partial)
-        except (RuntimeError, TypeError, SystemError):
+            w.partial.disconnect(self._on_live_partial)
+        except (RuntimeError, TypeError, SystemError, AttributeError):
             pass                                  # not connected (any more)
 
     def _release_live_source(self) -> None:
