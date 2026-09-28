@@ -409,6 +409,10 @@ class BaseRecorder:
     def __init__(self, cfg: RecordingConfig):
         self.cfg = cfg
         self.state = IDLE
+        # K10: `started_at` is wall-clock time, for display only; the recording
+        # clock (`_t0`, pauses, device watchdogs) runs on time.monotonic() so an
+        # NTP / manual clock change can't stretch the video against the
+        # sample-counted audio.
         self.started_at = 0.0
         self._t0 = 0.0
         self._paused_total = 0.0
@@ -430,14 +434,14 @@ class BaseRecorder:
             return self._pause_at - self._t0 - self._paused_total
         if self.state in (STOPPED, CANCELLED, ERROR):
             return self._final_elapsed
-        return time.time() - self._t0 - self._paused_total
+        return time.monotonic() - self._t0 - self._paused_total
 
     def _freeze_clock(self) -> None:
         """Capture elapsed time while still running, before flipping to STOPPED."""
         if self.state == PAUSED:
             self._final_elapsed = self._pause_at - self._t0 - self._paused_total
         elif self.state == RECORDING:
-            self._final_elapsed = time.time() - self._t0 - self._paused_total
+            self._final_elapsed = time.monotonic() - self._t0 - self._paused_total
 
     def _fail(self, message: str) -> None:
         """Enter ERROR from a capture thread (clock frozen so the duration is kept)."""
@@ -463,12 +467,12 @@ class BaseRecorder:
 
     def pause(self) -> None:
         if self.state == RECORDING:
-            self._pause_at = time.time()
+            self._pause_at = time.monotonic()
             self.state = PAUSED
 
     def resume(self) -> None:
         if self.state == PAUSED:
-            self._paused_total += time.time() - self._pause_at
+            self._paused_total += time.monotonic() - self._pause_at
             self.state = RECORDING
 
     def cancel(self) -> None:
@@ -523,7 +527,7 @@ class AudioRecorder(BaseRecorder):
         self._frames_captured = 0
         # what was actually written, per source: {"mic"|"sys": (frames, rate)}
         self._written: dict[str, tuple[int, int]] = {}
-        self._last_cb: dict[str, float] = {}         # source -> time of last device callback
+        self._last_cb: dict[str, float] = {}         # source -> monotonic time of last device callback
         self._first_audio_elapsed: float | None = None
         self._failed_sources: dict[str, str] = {}
         self._temps: list[str] = []
@@ -576,7 +580,7 @@ class AudioRecorder(BaseRecorder):
         last = self._last_cb.get(src)
         return (last is not None and self._written.get(src, (0, 0))[0] > 0
                 and self.state in (RECORDING, PAUSED)
-                and time.time() - last > _STALL_SECONDS)
+                and time.monotonic() - last > _STALL_SECONDS)
 
     def _result(self, fmt: str) -> RecordingResult:
         res = super()._result(fmt)
@@ -606,8 +610,8 @@ class AudioRecorder(BaseRecorder):
         # multi-source capture+mix path.
         target = self._loop if self.cfg.source == "mic" else self._loop_sources
         self._thread = threading.Thread(target=target, daemon=True)
-        self._t0 = time.time()
-        self.started_at = self._t0
+        self._t0 = time.monotonic()
+        self.started_at = time.time()
         self.state = RECORDING
         self._thread.start()
 
@@ -678,13 +682,13 @@ class AudioRecorder(BaseRecorder):
         another — at the SAME rate so the file stays consistent. Returns
         (stream, device, rate) or None."""
         closed = self._close_with_timeout(dead_stream)
-        deadline = time.time() + _REOPEN_SECONDS
-        while not self._stop_flag.is_set() and time.time() < deadline:
+        deadline = time.monotonic() + _REOPEN_SECONDS
+        while not self._stop_flag.is_set() and time.monotonic() < deadline:
             if closed:
                 _refresh_portaudio(sd)
             try:
                 got = self._open_mic(sd, callback, (rate,), timeout=4.0)
-                self._last_cb["mic"] = time.time()
+                self._last_cb["mic"] = time.monotonic()
                 self.reopened += 1
                 log.warning("microphone lost and reopened on device %s @ %sHz", got[1], rate)
                 return got
@@ -719,7 +723,7 @@ class AudioRecorder(BaseRecorder):
         # mixed. Mic uses sounddevice; system uses true WASAPI loopback (soundcard)
         # so it works WITHOUT the user enabling "Stereo Mix".
         self._frames_captured = 0
-        ts = int(self._t0)
+        ts = int(self.started_at)
         temps, threads = [], []
         try:
             plan = self._source_plan()
@@ -734,7 +738,7 @@ class AudioRecorder(BaseRecorder):
                 threads.append(th)
             self._temps = list(temps)
 
-            start = time.time()
+            start = time.monotonic()
             while not self._stop_flag.is_set():
                 time.sleep(0.1)
                 if self._stop_flag.is_set():
@@ -744,7 +748,7 @@ class AudioRecorder(BaseRecorder):
                     why = "; ".join(self._failed_sources.values())
                     raise RuntimeError(why or "Audio capture stopped unexpectedly.")
                 if (self.state == RECORDING and self._frames_captured == 0
-                        and time.time() - start > 6.0):
+                        and time.monotonic() - start > 6.0):
                     raise RuntimeError("No audio is being received. For system audio make "
                                        "sure something is playing; for the mic check it isn't muted.")
         except Exception as exc:
@@ -794,7 +798,7 @@ class AudioRecorder(BaseRecorder):
                                          subtype="PCM_16")
 
         def cb(indata, frames, time_info, status):  # noqa: ARG001
-            self._last_cb["mic"] = time.time()
+            self._last_cb["mic"] = time.monotonic()
             if self.state != RECORDING:
                 return
             w = box["writer"]
@@ -855,7 +859,7 @@ class AudioRecorder(BaseRecorder):
             with loop_mic.recorder(samplerate=rate, channels=1, blocksize=2048) as r:
                 while not self._stop_flag.is_set():
                     data = r.record(numframes=2048)
-                    self._last_cb["sys"] = time.time()
+                    self._last_cb["sys"] = time.monotonic()
                     if self.state != RECORDING:
                         continue
                     d = data.reshape(-1) if getattr(data, "ndim", 1) > 1 else data
@@ -927,7 +931,7 @@ class AudioRecorder(BaseRecorder):
         wlock = threading.Lock()
 
         def callback(indata, frames, time_info, status):  # noqa: ARG001
-            self._last_cb["mic"] = time.time()
+            self._last_cb["mic"] = time.monotonic()
             if self.state != RECORDING:
                 return
             try:
@@ -961,12 +965,12 @@ class AudioRecorder(BaseRecorder):
                 on_fail=lambda: self._close_writer(finalize=False))
             log.info("audio recording on device %s @ %sHz", device, rate)
 
-            start = time.time()
+            start = time.monotonic()
             while not self._stop_flag.is_set():
                 time.sleep(0.1)
                 # Watchdog: device opened but delivers no audio (muted / no permission).
                 if (self.state == RECORDING and self._frames_captured == 0
-                        and time.time() - start > 4.0):
+                        and time.monotonic() - start > 4.0):
                     raise RuntimeError("Microphone opened but no audio is being received. "
                                        "Check it isn't muted or disabled, or select a different microphone.")
                 # H13: the device went away mid-recording — reopen it (or another
@@ -1101,9 +1105,10 @@ class VideoRecorder(BaseRecorder):
         if self._audio is not None:
             self._audio.start()
             self._t0 = self._audio._t0             # one clock for both tracks
+            self.started_at = self._audio.started_at
         else:
-            self._t0 = time.time()
-        self.started_at = self._t0
+            self._t0 = time.monotonic()
+            self.started_at = time.time()
         self.state = RECORDING
         self._vthread.start()
 
@@ -1121,17 +1126,17 @@ class VideoRecorder(BaseRecorder):
             stream = container.add_stream("libx264", rate=self.cfg.fps)
             stream.width, stream.height = size
             stream.pix_fmt = "yuv420p"
-            stream.time_base = tb                  # H10: wall-clock timestamps (ms)
+            stream.time_base = tb                  # H10: recording-clock timestamps (ms)
             stream.codec_context.time_base = tb
             stream.options = {"preset": "ultrafast", "crf": "26"}
 
             frame_interval = 1.0 / max(1, self.cfg.fps)
-            next_t = time.time()
+            next_t = time.monotonic()
             last_pts = -1
             while not self._stop_flag.is_set():
                 if self.state == PAUSED:
                     time.sleep(0.03)
-                    next_t = time.time()
+                    next_t = time.monotonic()
                     continue
                 rgb = grab()
                 if rgb is None:
@@ -1151,11 +1156,11 @@ class VideoRecorder(BaseRecorder):
                     container.mux(packet)
                 self._frames += 1
                 next_t += frame_interval
-                sleep = next_t - time.time()
+                sleep = next_t - time.monotonic()
                 if sleep > 0:
                     time.sleep(sleep)
                 else:
-                    next_t = time.time()
+                    next_t = time.monotonic()
             for packet in stream.encode(None):
                 container.mux(packet)
         except Exception as exc:
