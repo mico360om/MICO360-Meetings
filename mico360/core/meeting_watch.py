@@ -33,12 +33,35 @@ _TEAMS_MEETING_CHROME = {"meeting compact view", "meeting controls", "meeting", 
 _MEET_RE = re.compile(r"^Meet\s*[-–—]\s*(.+)$")
 _MEET_CODE_RE = re.compile(r"\b[a-z]{3}-[a-z]{4}-[a-z]{3}\b")
 
-# Browser window titles end with "<page title> - <browser>" (Edge inserts a
-# zero-width space in "Microsoft​ Edge" and may add a profile name before it).
+# Browser window titles end with "<page title> - <browser>". Edge inserts a
+# zero-width space in "Microsoft​ Edge" and may put the profile name before it
+# ("<page> - Profile 1 - Microsoft Edge", "<page> and 3 more pages - Personal -
+# Microsoft Edge"). K1: only the browser suffix is generic — stripping "any
+# hyphen-free segment" as a profile ate the name of a named Meet call
+# ("Meet – Weekly Sync - Google Chrome" became the idle page "Meet").
 _BROWSERS = ("Google Chrome", "Microsoft Edge", "Mozilla Firefox", "Firefox", "Brave",
              "Opera", "Vivaldi", "Chromium", "Arc", "Yandex")
 _BROWSER_SUFFIX_RE = re.compile(
-    r"\s+[-–—]\s+(?:[^-–—]*?\s+[-–—]\s+)?(" + "|".join(re.escape(b) for b in _BROWSERS) + r")\s*$")
+    r"\s+[-–—]\s+(" + "|".join(re.escape(b) for b in _BROWSERS) + r")\s*$")
+# Edge only: a trailing "- <profile>" segment, and the multi-tab marker.
+_EDGE_SEGMENT_RE = re.compile(r"\s+[-–—]\s+([^-–—]+?)\s*$")
+_EDGE_MORE_PAGES_RE = re.compile(r"\s+and\s+\d+\s+more\s+pages?\s*$", re.IGNORECASE)
+# Edge's own profile names (a custom-named profile is only recognised when the
+# title also carries the "and N more pages" marker, which Edge only shows in
+# front of the profile segment).
+_EDGE_PROFILE_RE = re.compile(
+    r"^(?:profile\s*\d+|personal|work|school|default|family|guest(?:\s+profile)?|inprivate"
+    r"|default\s+profile|microsoft\s+account)$", re.IGNORECASE)
+
+
+def _strip_edge_profile(page: str) -> str:
+    m = _EDGE_SEGMENT_RE.search(page)
+    if m:
+        head = page[:m.start()].strip()
+        if head and (_EDGE_PROFILE_RE.match(m.group(1).strip())
+                     or _EDGE_MORE_PAGES_RE.search(head)):
+            page = head
+    return _EDGE_MORE_PAGES_RE.sub("", page).strip()
 
 
 def split_browser(title: str) -> tuple[str, str | None]:
@@ -47,7 +70,10 @@ def split_browser(title: str) -> tuple[str, str | None]:
     m = _BROWSER_SUFFIX_RE.search(t)
     if not m:
         return t, None
-    return t[:m.start()].strip(), m.group(1)
+    page, browser = t[:m.start()].strip(), m.group(1)
+    if browser == "Microsoft Edge":
+        page = _strip_edge_profile(page)
+    return page, browser
 
 
 def _classify_teams(t: str):
