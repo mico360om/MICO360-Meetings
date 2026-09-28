@@ -460,6 +460,17 @@ def test_k2_gap_padding() -> None:
           ok and not has_freq(first, msr, 440) and has_freq(later, msr, 440),
           f"first={dominant_freqs(first, msr)} later={dominant_freqs(later, msr)}")
 
+    print("K2 — the reopen gap is measured to when the new stream opened")
+    rec = R.AudioRecorder(R.RecordingConfig(kind="audio", source="mic"))
+    rec._first_elapsed = {"mic": 0.0}
+    rec._written = {"mic": (16000, 16000)}          # 1 s written before the device died
+    rec._reopen_at = {"mic": 3.0}                   # new stream opened at 3.0 s …
+    rec.elapsed = lambda: 6.0                       # … but its first block arrived at 6.0 s
+    gap = rec._gap_frames("mic", 1600, 16000)
+    check("a late first block after a reopen doesn't inflate the gap (no duplicated time)",
+          gap == 2 * 16000, f"gap={gap} frames (want {2 * 16000})")
+    check("the reopen time is used once", "mic" not in rec._reopen_at)
+
     print("K2 — screen recording: a reopened mic keeps the soundtrack in sync with the video")
     with FastWatchdogs():
         sd = FakeSD2(names=("Mic 0",), stall_after={"Mic 0": 1.0}, reopen_failures=1)

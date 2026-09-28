@@ -546,6 +546,11 @@ class AudioRecorder(BaseRecorder):
         self._first_elapsed: dict[str, float] = {}
         self._first_audio_elapsed: float | None = None
         self._pad_pending: set[str] = set()          # sources to re-sync after a reopen
+        # Recording-clock time a reopened device's new stream started: the gap is
+        # measured to HERE, not to when its first block happens to arrive (a late
+        # first callback followed by a catch-up burst would otherwise be counted
+        # twice and make the track longer than the recording).
+        self._reopen_at: dict[str, float] = {}
         self._temp_kinds: dict[str, str] = {}        # temp WAV -> "mic" | "sys"
         self._failed_sources: dict[str, str] = {}
         self._temps: list[str] = []
@@ -628,7 +633,9 @@ class AudioRecorder(BaseRecorder):
         if first is None or not rate:
             return 0
         written = self._written.get(src, (0, rate))[0]
-        start = self.elapsed() - frames / float(rate)
+        start = self._reopen_at.pop(src, None)
+        if start is None:
+            start = self.elapsed() - frames / float(rate)
         gap = int(round((start - first) * rate)) - written
         return max(0, min(gap, int(_MAX_GAP_SECONDS * rate)))
 
@@ -844,6 +851,7 @@ class AudioRecorder(BaseRecorder):
             else:
                 preferred = device                        # no refresh: indices unchanged
             try:
+                self._reopen_at["mic"] = self.elapsed()     # the new stream's audio starts now
                 got = self._open_mic(sd, callback, (rate,), timeout=4.0, preferred=preferred)
                 self._last_cb["mic"] = time.monotonic()
                 self.reopened += 1
