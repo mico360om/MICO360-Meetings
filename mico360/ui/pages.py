@@ -88,6 +88,7 @@ class NewMeetingPage(QWidget):
         # another meeting, so results from work started for the previous meeting
         # can never land in (and be saved over) the one now on screen.
         self._job = 0
+        self._closing = False                   # set by MainWindow.closeEvent once quitting
         self._bg_workers: set = set()           # keeps QThreads alive until they really finish
         self._live_draft = ""                   # last live transcript (to replace, not duplicate)
         self._replace_on_transcribe: str | None = None
@@ -902,23 +903,42 @@ class NewMeetingPage(QWidget):
 
     # -- file handling ------------------------------------------------------
     def _add_files(self, paths):
-        """Several files dropped / browsed at once — add every one, in order."""
+        """Several files dropped / browsed at once — add every one, in order, then
+        show ONE summary that names anything that was skipped (per-file toasts
+        would overwrite each other)."""
         paths = [p for p in (paths or []) if p]
-        for p in paths:
-            self._add_file(p)
-        if len(paths) > 1:
-            n_media = sum(1 for p in paths if Path(p).suffix.lower() in MEDIA_EXTS)
-            self.toast.show_message(
-                f"Added {len(paths)} files" + (f" — {n_media} queued for transcription."
-                                               if n_media else "."), "success", 4000)
+        if len(paths) <= 1:
+            for p in paths:
+                self._add_file(p)
+            return
+        results = [(Path(p).name, self._add_file(p, quiet=True)) for p in paths]
+        queued = sum(1 for _, r in results if r == "media")
+        imported = sum(1 for _, r in results if r == "text")
+        skipped = [(n, r) for n, r in results if r not in ("media", "text")]
+        parts = []
+        if queued:
+            parts.append(f"{queued} queued for transcription")
+        if imported:
+            parts.append(f"text imported from {imported}")
+        msg = (f"Added {queued + imported} of {len(paths)} files"
+               + (f" — {', '.join(parts)}." if parts else "."))
+        if skipped:
+            why = {"unsupported": "unsupported type", "empty": "no text found"}
+            msg += " Skipped: " + "; ".join(f"{n} ({why.get(r, 'could not be read')})"
+                                            for n, r in skipped[:4])
+            if len(skipped) > 4:
+                msg += f" and {len(skipped) - 4} more"
+        self.toast.show_message(msg, "warn" if skipped else "success", 8000 if skipped else 4000)
 
-    def _add_file(self, path: str):
+    def _add_file(self, path: str, quiet: bool = False) -> str:
+        """Add one file. Returns "media", "text", "empty", "error" or "unsupported"."""
         p = Path(path)
         ext = p.suffix.lower()
         if ext in MEDIA_EXTS:
             self._media_queue.append(path)
             self._add_queue_item(path, f"🎵  {p.name}  (queued for transcription)", True)
-        elif documents.is_document(path) or documents.is_image(path):
+            return "media"
+        if documents.is_document(path) or documents.is_image(path):
             try:
                 text = documents.extract_text(path)
                 if text.strip():
@@ -926,14 +946,21 @@ class NewMeetingPage(QWidget):
                     sep = "\n\n" if cur.strip() else ""
                     self.transcript.setPlainText(cur + sep + text.strip())
                     self._add_queue_item(path, f"📄  {p.name}  (text imported)", False)
-                    self.toast.show_message(f"Imported text from {p.name}", "success")
-                else:
-                    self._add_queue_item(path, f"📄  {p.name}  (no text found)", False)
+                    if not quiet:
+                        self.toast.show_message(f"Imported text from {p.name}", "success")
+                    return "text"
+                self._add_queue_item(path, f"📄  {p.name}  (no text found)", False)
+                if not quiet:
+                    self.toast.show_message(f"No text found in {p.name}", "warn")
+                return "empty"
             except Exception as exc:
                 self._add_queue_item(path, f"⚠  {p.name}  ({exc})", False)
-                self.toast.show_message(str(exc), "warn", 5000)
-        else:
+                if not quiet:
+                    self.toast.show_message(str(exc), "warn", 5000)
+                return "error"
+        if not quiet:
             self.toast.show_message(f"Unsupported file: {p.name}", "warn")
+        return "unsupported"
 
     # -- transcription ------------------------------------------------------
     def _sync_queue_from_list(self):
@@ -988,6 +1015,8 @@ class NewMeetingPage(QWidget):
         self._transcribe_next()
 
     def _transcribe_next(self):
+        if self._closing:                             # app is quitting: start nothing new
+            return
         if not self._media_queue:
             self._set_transcribe_enabled(False)
             if self._auto_generate:                   # one-click flow → chain into generation
@@ -1038,6 +1067,8 @@ class NewMeetingPage(QWidget):
 
     # -- generation ---------------------------------------------------------
     def _generate(self):
+        if self._closing:                             # app is quitting: start nothing new
+            return
         if self._is_working():                        # e.g. Ctrl+G while a run is in progress
             self.toast.show_message("Already working — wait for it to finish or Cancel.", "info")
             return
@@ -1178,6 +1209,16 @@ class NewMeetingPage(QWidget):
         confirming); a running generation keeps going in the background and its
         minutes are saved to the meeting it was started for. Returns False if the
         user chose to stay."""
+        # A recording (or its save) belongs to the meeting on screen: its
+        # transcript would otherwise land in — and be autosaved into — whichever
+        # meeting is opened next. Finish it first.
+        panel = getattr(self, "recorder_panel", None)
+        if panel is not None and panel.is_recording():
+            QMessageBox.information(
+                self, "Recording in progress",
+                "A recording is in progress for the current meeting.\n\n"
+                "Stop & Save it (or cancel it) before opening another meeting.")
+            return False
         w = self._worker
         running = w is not None and w.isRunning()
         if running and isinstance(w, TranscribeWorker):
@@ -1502,6 +1543,8 @@ class NewMeetingPage(QWidget):
         QMessageBox.critical(self, "Attachment failed", msg)
 
     def _send_prepared_email(self, cfg, v: dict, attachments: list, html: str):
+        if self._closing:                             # app is quitting: start nothing new
+            return
         from . import workers as _workers
         self.email_btn.setEnabled(False); self.email_btn.setText("Sending…")
         self._email_worker = _workers.EmailWorker(

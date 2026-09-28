@@ -78,7 +78,13 @@ def _split_cells(line: str) -> list[str]:
             buf.append("|"); i += 2
             continue
         if ch == "`":
-            in_code = not in_code
+            # Only a PAIRED backtick opens a code span: a lone one ("Don`t") is
+            # a literal character — toggling on it hid every later '|' and
+            # emptied the whole row.
+            if in_code:
+                in_code = False
+            elif "`" in s[i + 1:]:
+                in_code = True
         if ch == "|" and not in_code:
             cells.append("".join(buf)); buf = []
         else:
@@ -151,7 +157,7 @@ def parse(markdown: str) -> list[Block]:
         # not have a leading pipe (small models often drop it); guard against
         # headings/bullets that merely happen to contain a '|'.
         if _is_table_start(lines, i):
-            headers = _split_row(stripped)
+            headers = _split_row(stripped) or [""]   # a lone '|' header: one empty column
             rows: list[list[str]] = []
             i += 2
             # Body rows contain a '|' (with or without a leading one) and are not

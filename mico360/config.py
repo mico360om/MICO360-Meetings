@@ -271,9 +271,27 @@ def _dpapi(data: bytes, protect: bool) -> bytes:
         kernel32.LocalFree(out.pbData)
 
 
+# Every DPAPI blob starts with this header (version + the DPAPI provider GUID).
+_DPAPI_MAGIC = bytes.fromhex("01000000d08c9ddf0115d1118c7a00c04fc297eb")
+
+
+def _is_blob(value: str) -> bool:
+    """True if `value` is an encrypted secret we wrote ("dpapi:" + a DPAPI blob) —
+    whether or not THIS Windows account can decrypt it. A password that merely
+    starts with "dpapi:" is not a blob."""
+    if not isinstance(value, str) or not value.startswith(_SECRET_PREFIX):
+        return False
+    try:
+        import base64
+        raw = base64.b64decode(value[len(_SECRET_PREFIX):], validate=True)
+    except Exception:
+        return False
+    return raw.startswith(_DPAPI_MAGIC)
+
+
 def protect_secret(plain: str) -> str:
     """Encrypt a secret for settings.json (returns it unchanged if impossible)."""
-    if not plain or sys.platform != "win32" or str(plain).startswith(_SECRET_PREFIX):
+    if not plain or sys.platform != "win32" or _is_blob(str(plain)):
         return plain
     try:
         import base64
@@ -284,8 +302,9 @@ def protect_secret(plain: str) -> str:
 
 
 def unprotect_secret(stored: str) -> str:
-    """Decrypt a value written by protect_secret (plain values pass through)."""
-    if not stored or not str(stored).startswith(_SECRET_PREFIX):
+    """Decrypt a value written by protect_secret; any other value is returned
+    as-is (a plain password — even one that starts with "dpapi:")."""
+    if not stored or not _is_blob(str(stored)):
         return stored
     try:
         import base64
@@ -331,7 +350,7 @@ class Settings:
         # Older builds stored the SMTP password in plain text: encrypt it now.
         for k in _SECRET_KEYS:
             v = self._data.get(k)
-            if v and isinstance(v, str) and not v.startswith(_SECRET_PREFIX):
+            if v and isinstance(v, str) and not _is_blob(v):
                 enc = protect_secret(v)
                 if enc != v:
                     self._data[k] = enc

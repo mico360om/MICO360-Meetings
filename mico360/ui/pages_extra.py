@@ -976,13 +976,16 @@ class HelpPage(QWidget):
         return self._wrap(f"""
           <h2>Getting started</h2>
           <ol>
-            <li><b>New Meeting → Step 1:</b> drop an audio/video file, record audio
-                or your screen, or paste a transcript.</li>
-            <li><b>Step 2:</b> review and edit the transcript. Speakers are labelled
-                automatically and you can rename them.</li>
-            <li><b>Step 3:</b> choose the Ollama <b>model</b> and the output
-                <b>style</b>, optionally tweak the prompt, then <b>Generate</b>.</li>
-            <li><b>Step 4:</b> edit, copy, save to history, or export to
+            <li><b>New Meeting → Source:</b> drop audio/video or documents, record
+                audio, your screen or camera, or paste a transcript.</li>
+            <li><b>Transcript:</b> review and edit the transcript. With
+                <b>Identify speakers</b> turned on (Settings → Transcription) the
+                voices are labelled Speaker 1, 2, … and you can give them names.</li>
+            <li><b>Setup:</b> meeting title, date and attendees, the AI
+                <b>model</b>, the output <b>style</b> and the prompt.</li>
+            <li><b>Review:</b> check everything, then click <b>Create meeting</b>
+                (Ctrl+G) — it transcribes any queued media and writes the minutes.</li>
+            <li><b>Minutes:</b> edit, copy, save to History, e-mail, or export to
                 Word, PDF, Markdown, HTML or plain text.</li>
           </ol>
           <h3>Recording</h3>
@@ -1002,9 +1005,9 @@ class HelpPage(QWidget):
           </ul>
           <h3>Languages</h3>
           <p>Meetings in other languages, including <b>Arabic</b>, work throughout.
-             Set <b>Language</b> in Settings to <code>auto</code> (detect) or a code
-             such as <code>ar</code>/<code>en</code>/<code>ur</code>. Arabic minutes
-             display and export right-to-left in PDF, Word and HTML.</p>
+             Choose the spoken <b>Language</b> in Settings → Transcription
+             (<b>Auto-detect</b>, or a language such as Arabic, English or Urdu).
+             Arabic minutes display and export right-to-left in PDF, Word and HTML.</p>
           <h3>Tips</h3>
           <ul>
             <li>Pick a smaller Whisper model (tiny/base) for speed on low-end PCs.</li>

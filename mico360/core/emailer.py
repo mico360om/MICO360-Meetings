@@ -79,10 +79,28 @@ def _split_addrs(value) -> list[str]:
     recipient got the email (M24)."""
     from email.utils import formataddr, getaddresses
     items = [value] if isinstance(value, str) else list(value or [])
+    pieces: list[str] = []
+    for it in items:                       # split on , ; outside "quotes" and <angles>
+        buf, quote, angle = [], False, False
+        for ch in str(it):
+            if ch == '"' and not angle:
+                quote = not quote
+            elif ch == "<" and not quote:
+                angle = True
+            elif ch == ">" and not quote:
+                angle = False
+            if ch in ",;" and not quote and not angle:
+                pieces.append("".join(buf)); buf = []
+            else:
+                buf.append(ch)
+        pieces.append("".join(buf))
     out: list[str] = []
-    for name, addr in getaddresses([str(it).replace(";", ",") for it in items]):
-        if addr.strip():
-            out.append(formataddr((name, addr.strip())) if name else addr.strip())
+    for piece in (p.strip() for p in pieces):
+        if not piece:                      # "a@x.com;" — ignore the empty tail
+            continue
+        for name, addr in getaddresses([piece]):
+            if addr.strip():
+                out.append(formataddr((name, addr.strip())) if name else addr.strip())
     return out
 
 

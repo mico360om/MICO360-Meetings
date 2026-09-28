@@ -80,24 +80,67 @@ _probe_lock = threading.Lock()
 _probe_done = threading.Event()
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Cloud API calls never follow redirects: urllib would carry the
+    Authorization header (the API key) to the new location — even from https to
+    plain http. A redirect surfaces as an HTTPError instead."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def _open(req, timeout: float):
+    """Every Cloud request goes through here (no redirects followed)."""
+    return _opener.open(req, timeout=timeout)
+
+
+def _looks_like_connect(status: int, body: bytes) -> bool:
+    """Is this reply really the MICO360 Connect (OpenAI-style) API? A 200 lists
+    models under "data"; without a key it answers 401/403 with an "error" object.
+    Anything else (an HTML site, a 404, a proxy page) is not the API."""
+    try:
+        data = json.loads((body or b"").decode("utf-8", "replace"))
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    if status == 200:
+        return isinstance(data.get("data"), list)
+    if status in (401, 403):
+        return isinstance(data.get("error"), (dict, str))
+    return False
+
+
 def _probe_https(timeout: float = 4.0) -> None:
     global _secure_base
     try:
         for cand in MICO360_CONNECT_HTTPS_CANDIDATES:
+            if not cand.lower().startswith("https://"):
+                continue
+            req = urllib.request.Request(cand.rstrip("/") + "/models",
+                                         headers={"User-Agent": f"{__app_name__}/{__version__}",
+                                                  "Accept": "application/json"})
             try:
-                req = urllib.request.Request(cand.rstrip("/") + "/models",
-                                             headers={"User-Agent": f"{__app_name__}/{__version__}"})
-                urllib.request.urlopen(req, timeout=timeout).close()
-                ok = True
-            except urllib.error.HTTPError:
-                ok = True                  # TLS worked; the server answered (e.g. 401 without key)
+                with _open(req, timeout) as resp:
+                    status, body = resp.status, resp.read(65536)
+            except urllib.error.HTTPError as exc:     # 401/403 = the API without a key
+                status = exc.code
+                try:
+                    body = exc.read(65536)
+                except Exception:
+                    body = b""
             except Exception:
-                ok = False                 # no TLS / not reachable / certificate invalid
-            if ok:
+                continue                   # no TLS / not reachable / certificate invalid
+            if _looks_like_connect(status, body):
                 _secure_base = cand.rstrip("/")
                 log.info("MICO360 Connect: using encrypted endpoint %s", _secure_base)
                 invalidate_status_cache()
                 return
+            log.info("MICO360 Connect: %s answered but isn't the API (HTTP %s) — ignored",
+                     cand, status)
     finally:
         _probe_done.set()
 
@@ -132,7 +175,7 @@ def invalidate_status_cache() -> None:
 
 def _fetch_models(url: str, key: str) -> CloudStatus:
     req = urllib.request.Request(url, headers=_headers(key))
-    with urllib.request.urlopen(req, timeout=STATUS_TIMEOUT) as resp:
+    with _open(req, STATUS_TIMEOUT) as resp:
         data = json.loads(resp.read().decode("utf-8", "replace"))
     models = [m.get("id") for m in data.get("data", []) if m.get("id")]
     return CloudStatus(True, models=sorted(models))
@@ -262,7 +305,7 @@ class CloudGenerator:
         req = urllib.request.Request(
             self.base_url + "/chat/completions", data=body,
             headers=_headers(self.key), method="POST")
-        with urllib.request.urlopen(req, timeout=_TIMEOUT) as resp:
+        with _open(req, _TIMEOUT) as resp:
             return json.loads(resp.read().decode("utf-8", "replace"))
 
     def _chat(self, prompt: str, cancel: Callable[[], bool] | None = None) -> str:

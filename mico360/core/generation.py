@@ -236,7 +236,8 @@ def run_minutes_pipeline(
         part = _cache_get(key)
         if part is None:
             part = chat(p, cancel)
-            _cache_put(key, part)                     # kept even if a later part fails
+            if (part or "").strip():                  # never cache an empty answer —
+                _cache_put(key, part)                 # a regenerate must ask again
         else:
             log.info("reusing finished notes for part %d of %d", i, n)
         notes.append(f"### Part {i}\n" + part)

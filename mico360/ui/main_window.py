@@ -368,6 +368,8 @@ class MainWindow(QMainWindow):
             self.insights_page.reload()
         elif page is self.profiles_page:
             self.profiles_page.reload()
+        elif page is self.settings_page:
+            self.settings_page.sync_from_settings()
         elif page is self.new_page:
             self.new_page.refresh_models()
             self._update_status()
@@ -437,7 +439,13 @@ class MainWindow(QMainWindow):
             return
         recording = page.recorder_panel.is_recording()
         busy = page.is_busy()
-        other_busy = any(w is not None and w.isRunning() for w in self._background_workers()
+        # Quiet housekeeping threads (the silent startup update check, git check,
+        # a meeting watcher still finishing) are just waited for — they're not
+        # "a download or e-mail" the user needs to be asked about.
+        from .workers import GitUpdateWorker, MeetingWatchWorker, UpdateCheckWorker
+        quiet = (UpdateCheckWorker, GitUpdateWorker, MeetingWatchWorker)
+        other_busy = any(w is not None and w.isRunning() and not isinstance(w, quiet)
+                         for w in self._background_workers()
                          if w not in getattr(page, "_bg_workers", ()))
         if recording or busy or other_busy:
             what = ("a recording is in progress" if recording
@@ -451,6 +459,7 @@ class MainWindow(QMainWindow):
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 e.ignore()
                 return
+        page._closing = True                        # completion handlers start nothing new
         # autosave the current meeting + flush any in-progress recording
         try:
             page._autosave()
@@ -465,11 +474,13 @@ class MainWindow(QMainWindow):
                     w.cancel()
             except Exception:
                 pass
-        for w in workers:                          # … then wait for each to finish
+        import time as _time
+        deadline = _time.monotonic() + 15.0        # one shared budget, not 10-30 s each
+        for w in workers:                          # … then wait for them to finish
             try:
                 if w.isRunning():
-                    # workers without cancel() (e-mail, update check) get longer
-                    w.wait(10000 if hasattr(w, "cancel") else 30000)
+                    left = max(0.0, deadline - _time.monotonic())
+                    w.wait(int(left * 1000))
             except Exception:
                 pass
         try:
@@ -480,4 +491,9 @@ class MainWindow(QMainWindow):
             self.apply_auto_record(False)          # stop the meeting watcher thread
         except Exception:
             pass
+        # Anything still running now (e.g. a first-run model download that can't be
+        # interrupted) would abort the process when Qt tears down. main() checks
+        # this and exits directly instead — the meeting is already autosaved.
+        self.unfinished_threads = [w for w in self._background_workers()
+                                   if w is not None and w.isRunning()]
         super().closeEvent(e)

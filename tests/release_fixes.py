@@ -278,8 +278,16 @@ def test_smtp_password_encrypted() -> None:
     check("a newly saved password is not stored in plain text",
           "new-Pa55" not in f.read_text(encoding="utf-8") or sys.platform != "win32")
     check("…and survives a reload", Settings(f).get("smtp_password") == "new-Pa55")
-    f.write_text(json.dumps({"smtp_password": _SECRET_PREFIX + "bm90LXJlYWw="}), encoding="utf-8")
+    import base64 as _b64
+    foreign = _SECRET_PREFIX + _b64.b64encode(
+        bytes.fromhex("01000000d08c9ddf0115d1118c7a00c04fc297eb") + b"\x00" * 40).decode()
+    f.write_text(json.dumps({"smtp_password": foreign}), encoding="utf-8")   # another PC's blob
     check("an undecryptable value is treated as empty (no crash)", Settings(f).get("smtp_password") == "")
+    f.write_text("{}", encoding="utf-8")
+    s3 = Settings(f)
+    s3.set("smtp_password", "dpapi:mypass")
+    check("a password that starts with 'dpapi:' is kept (and encrypted)",
+          Settings(f).get("smtp_password") == "dpapi:mypass" and "mypass" not in f.read_text(encoding="utf-8"))
 
 # =============================================================================
 def test_resume_long_generation() -> None:
@@ -324,18 +332,76 @@ def test_cloud_transport_security() -> None:
     gen = CC.CloudGenerator(key="k")
     check("without server TLS it stays on the configured URL (not encrypted)",
           not CC.is_encrypted() and gen.base_url.startswith("http://"))
-    real = urllib.request.urlopen
+    import json as _json
+    import urllib.error as _ue
 
     class _Resp:
+        def __init__(self, status, body):
+            self.status, self._b = status, body
+        def read(self, n=-1): return self._b
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
         def close(self): pass
-    urllib.request.urlopen = lambda req, timeout=None: _Resp()          # TLS endpoint answers
+
+    def serve(kind):
+        def fake(req, timeout=None):
+            if kind == "api":
+                return _Resp(200, _json.dumps({"object": "list", "data": [{"id": "m"}]}).encode())
+            if kind == "api401":
+                raise _ue.HTTPError(req.full_url, 401, "u", {}, __import__("io").BytesIO(
+                    b'{"error":{"message":"Invalid or missing API key."}}'))
+            if kind == "404":
+                raise _ue.HTTPError(req.full_url, 404, "nf", {}, __import__("io").BytesIO(b"<html>"))
+            if kind == "html":
+                return _Resp(200, b"<html>website</html>")
+            if kind == "redirect":
+                raise _ue.HTTPError(req.full_url, 301, "moved", {}, None)   # not followed
+        return fake
+    real_open = CC._open
     try:
+        for kind in ("404", "html", "redirect"):
+            CC._open = serve(kind)
+            CC.MICO360_CONNECT_HTTPS_CANDIDATES = (f"https://{kind}.example/v1",)
+            CC._probe_https(timeout=1.0)
+        check("a website, 404 or redirect is NOT taken as the encrypted API",
+              not CC.is_encrypted() and gen.base_url.startswith("http://"))
+        CC._open = serve("api401")                          # the real API without a key
         CC.MICO360_CONNECT_HTTPS_CANDIDATES = ("https://secure.example/v1",)
         CC._probe_https(timeout=1.0)
     finally:
-        urllib.request.urlopen = real
+        CC._open = real_open
     check("once HTTPS is offered, all Cloud traffic uses it",
           CC.is_encrypted() and gen.base_url == "https://secure.example/v1")
+    # a redirect must never carry the API key to another server
+    import http.server
+    import threading as _th
+    hits_b = []
+
+    class B(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits_b.append(self.headers.get("Authorization"))
+            self.send_response(200); self.end_headers(); self.wfile.write(b'{"data":[]}')
+        def log_message(self, *a): pass
+    sb = http.server.HTTPServer(("127.0.0.1", 0), B)
+    _th.Thread(target=sb.serve_forever, daemon=True).start()
+
+    class A(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(301)
+            self.send_header("Location", f"http://127.0.0.1:{sb.server_port}/v1/models")
+            self.end_headers()
+        def log_message(self, *a): pass
+    sa = http.server.HTTPServer(("127.0.0.1", 0), A)
+    _th.Thread(target=sa.serve_forever, daemon=True).start()
+    followed = True
+    try:
+        CC._open(urllib.request.Request(f"http://127.0.0.1:{sa.server_port}/v1/models",
+                                        headers={"Authorization": "Bearer secret"}), 3)
+    except _ue.HTTPError as exc:
+        followed = exc.code != 301
+    sa.shutdown(); sb.shutdown()
+    check("Cloud requests don't follow redirects (the key never reaches another server)",
+          not followed and hits_b == [], f"followed={followed} hits={hits_b}")
     # consent prompt when switching to Cloud while unencrypted
     from PySide6.QtWidgets import QMessageBox
     from mico360.ui.context import AppContext
@@ -367,11 +433,105 @@ def test_cloud_transport_security() -> None:
 
 
 # =============================================================================
+_KEEP: list = []                                  # Qt objects kept alive until os._exit
+
+
+def test_review_round2() -> None:
+    print("Review round 2 — recording/switching, quitting, settings, drops, e-mail")
+    import threading
+    from PySide6.QtCore import QThread
+    from PySide6.QtWidgets import QMessageBox
+    from mico360.core.history import Meeting
+    from mico360.ui.context import AppContext
+    from mico360.ui.main_window import MainWindow
+
+    msgs = []
+    real = {n: getattr(QMessageBox, n) for n in ("question", "information", "warning")}
+    QMessageBox.information = staticmethod(lambda *a, **k: msgs.append(a[1] if len(a) > 1 else ""))
+    QMessageBox.warning = staticmethod(lambda *a, **k: QMessageBox.Ok)
+    QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+    try:
+        ctx = AppContext()
+        ctx.settings.set("onboarded", True)
+        ctx.settings.set("auto_check_updates", False)
+        win = MainWindow(ctx)
+        _KEEP.append(win)
+        page = win.new_page
+        toasts = []
+        page.toast.show_message = lambda m, kind="info", *a, **k: toasts.append((kind, m))
+
+        # U1: a running recording blocks opening another meeting
+        b_id = ctx.history.save(Meeting(id=0, title="B", created_at=0, updated_at=0,
+                                        transcript="BOARD", minutes="MB"))
+        page.transcript.setPlainText("CURRENT CALL")
+        page._save_history(silent=True)
+        cur = page._current_id
+        page.recorder_panel.is_recording = lambda: True
+        opened = win._open_meeting(ctx.history.get(b_id))
+        check("opening another meeting while recording is refused",
+              not opened and page._current_id == cur and msgs, f"opened={opened}")
+        check("…and the other meeting is untouched", ctx.history.get(b_id).transcript == "BOARD")
+        page.recorder_panel.is_recording = lambda: False
+
+        # U2: once quitting, completion handlers start no new work
+        page._closing = True
+        page.transcript.setPlainText("text")
+        page._generate()
+        page._send_prepared_email(None, {"to": ["a@x.com"], "subject": "s", "body": "b"}, [], "")
+        check("while quitting, no generation or e-mail send starts",
+              not page._is_working() and getattr(page, "_email_worker", None) is None)
+        page._closing = False
+
+        # U4: saving Settings keeps the model picked on New Meeting
+        sp = win.settings_page
+        st = ctx.ai_status(force=True) if hasattr(ctx, "ai_status") else None
+        models = list(getattr(st, "models", []) or [])
+        picked = models[-1] if models else "any-model"         # a model that is installed
+        ctx.settings.set("ollama_model", picked)
+        win._navigate(win.stack.indexOf(sp))
+        sp.fillers.setChecked(not sp.fillers.isChecked())      # an unrelated edit
+        sp._save()
+        check("an unrelated Settings save keeps the model chosen on New Meeting",
+              ctx.settings.get("ollama_model") == picked,
+              ctx.settings.get("ollama_model"))
+
+        # U6: one summary toast that names skipped files
+        toasts.clear()
+        page._add_files([str(_TMP / "call.mp3"), str(_TMP / "notes.xyz")])
+        kind, m = toasts[-1] if toasts else ("", "")
+        check("multi-file drop reports skipped files instead of hiding them",
+              kind == "warn" and "notes.xyz" in m and "1 of 2" in m, m)
+
+        # U3: a task that ignores Cancel can't hang quitting or crash the app
+        class Stubborn(QThread):
+            def cancel(self): pass
+            def run(self):
+                import time as _t
+                _t.sleep(20)
+        stub = Stubborn()
+        _KEEP.append(stub)
+        stub.start()
+        page._bg_workers.add(stub)
+        import time as _t
+        t0 = _t.time()
+        win.close()
+        waited = _t.time() - t0
+        check("quitting waits at most ~15 s for stuck work",
+              waited < 17, f"{waited:.1f}s")
+        check("…and marks it so the app exits directly instead of crashing",
+              stub in getattr(win, "unfinished_threads", []))
+    finally:
+        for n, f in real.items():
+            setattr(QMessageBox, n, f)
+
+
+# =============================================================================
 def main() -> int:
     for fn in (test_remote_participants, test_background_crash,
                test_meeting_detection_in_builds, test_recordings_kept,
                test_multi_installer_release, test_smtp_password_encrypted,
-               test_resume_long_generation, test_cloud_transport_security):
+               test_resume_long_generation, test_cloud_transport_security,
+               test_review_round2):
         try:
             fn()
         except Exception as exc:

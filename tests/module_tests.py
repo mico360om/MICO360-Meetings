@@ -1266,8 +1266,8 @@ def main():
                 return _Resp({"choices": [{"message": {"role": "assistant", "content": "Paris."}}]})
             raise AssertionError("unexpected url " + url)
 
-        orig = _u.urlopen
-        _u.urlopen = fake_urlopen
+        orig = cc._open                          # every Cloud request goes through _open
+        cc._open = lambda req, timeout=0: fake_urlopen(req, timeout)
         try:
             st = cc.check_cloud_status(key="mico_test")
             assert st.running and st.models == ["llama3.1:latest", "qwen2.5:0.5b"], st
@@ -1278,7 +1278,7 @@ def main():
             out = g.generate_minutes("A short meeting transcript.", _p.BASE_TEMPLATE, "Formal Minutes")
             assert isinstance(out, str) and out
         finally:
-            _u.urlopen = orig
+            cc._open = orig
         return "status+chat+pipeline (mocked, no network)"
     t("core.cloud_client", _cloud)
 

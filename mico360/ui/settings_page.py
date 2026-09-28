@@ -498,6 +498,16 @@ class SettingsPage(QWidget):
         """Reachability + models of the Ollama host typed in the field."""
         return _ollama.check_status(self._typed_host())
 
+    def sync_from_settings(self) -> None:
+        """Called when the page is shown: pick up values changed elsewhere (the
+        model chosen on New Meeting) unless the user is editing them here."""
+        if "ollama_model" in self.dirty_fields():
+            return
+        saved = self.ctx.settings.get("ollama_model") or ""
+        if saved and self.model.findText(saved) >= 0 and self.model.currentText() != saved:
+            self.model.setCurrentText(saved)
+        self._mark_clean("ollama_model")
+
     def _refresh_clicked(self):
         self._clear_status_cache()                   # an explicit Refresh must re-query now
         self._reload_models()
@@ -711,10 +721,13 @@ class SettingsPage(QWidget):
                 "Nothing was saved — fix the repo field (or clear it) and save again.")
             return False
         s = self.ctx.settings
+        model_changed = "ollama_model" in self.dirty_fields()
         s.set("ui_scale", float(self.scale_box.currentData()))
         s.set("ai_provider", self.provider_box.currentData())
         s.set("ollama_host", self._typed_host())
-        if not self.model.currentText().startswith("("):
+        # Only when edited HERE: the model can also be picked on New Meeting, and
+        # re-saving this (stale) combo would silently undo that choice.
+        if model_changed and not self.model.currentText().startswith("("):
             s.set("ollama_model", self.model.currentText())
         s.set("whisper_model", self.whisper.currentData())
         s.set("whisper_compute", self.compute.currentText())
