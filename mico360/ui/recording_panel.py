@@ -28,6 +28,89 @@ from .components import Card, section_title, tip
 
 log = logging.getLogger("mico360.recording_panel")
 
+# Microphone picker data values that aren't device indices.
+_SILENT = -1         # the user chose "No audio (silent)"
+_NO_MIC = -2         # no microphone detected on this PC
+
+
+def _is_empty_media(path) -> bool:
+    """A recording file with nothing in it — e.g. the 44-byte header-only WAV
+    left behind when a stop came before any audio arrived (K4)."""
+    p = Path(path)
+    try:
+        size = p.stat().st_size
+    except OSError:
+        return False
+    if size == 0:
+        return True
+    if p.suffix.lower() == ".wav":
+        try:
+            import soundfile as sf
+            return sf.info(str(p)).frames == 0
+        except Exception:
+            return size <= 44
+    return False
+
+
+def _captured_nothing(rec, result) -> bool:
+    """True when a stopped recording produced no usable file (K4): no file at
+    all, an audio recorder that wrote no samples, a video without frames or
+    sound, or a header-only file."""
+    if result is None or not getattr(result, "path", ""):
+        return True
+    p = Path(result.path)
+    if not p.exists():
+        return True
+    if isinstance(rec, R.AudioRecorder):
+        try:
+            if rec.recorded_seconds() <= 0:
+                return True
+        except Exception:
+            pass
+    if (isinstance(rec, R.VideoRecorder) and getattr(result, "kind", "") in ("screen", "camera")
+            and getattr(rec, "_frames", 1) == 0 and not getattr(result, "has_audio", False)):
+        return True
+    return _is_empty_media(p)
+
+
+def _discard_empty_outputs(rec, result) -> None:
+    """Delete what an empty recording left behind (K4): the output file and any
+    header-only temp files. Temp files with audio in them are always kept."""
+    paths: list[str] = []
+    if result is not None and getattr(result, "path", ""):
+        paths.append(result.path)
+    for r in (rec, getattr(rec, "_audio", None)):
+        if r is None:
+            continue
+        paths += [t for t in (getattr(r, "_temps", None) or []) if t]
+        for attr in ("_tmp_wav", "output_path"):
+            v = getattr(r, attr, None)
+            if isinstance(v, str) and v:
+                paths.append(v)
+    tmp_video = getattr(rec, "_tmp_video", None)
+    no_frames = isinstance(rec, R.VideoRecorder) and getattr(rec, "_frames", 1) == 0
+    no_samples = False
+    if isinstance(rec, R.AudioRecorder):
+        try:
+            no_samples = rec.recorded_seconds() <= 0
+        except Exception:
+            no_samples = False
+    own_output = getattr(rec, "output_path", None)
+    seen: set[str] = set()
+    for p in paths + ([tmp_video] if (tmp_video and no_frames) else []):
+        if p in seen:
+            continue
+        seen.add(p)
+        try:
+            if not Path(p).exists():
+                continue
+            if (_is_empty_media(p) or (no_frames and p == tmp_video)
+                    or (no_samples and p == own_output)):
+                Path(p).unlink(missing_ok=True)
+                log.info("removed empty recording file %s", p)
+        except OSError:
+            log.debug("could not remove %s", p, exc_info=True)
+
 
 # ---------------------------------------------------------------------------
 class AudioVisualizer(QWidget):
@@ -88,6 +171,9 @@ class RecordingPanel(QWidget):
         self._result: R.RecordingResult | None = None
         self._blink = False
         self._live_worker = None
+        # K5: the live worker whose partial transcripts belong to the current
+        # recording; chunks from any other (retired) worker are ignored.
+        self._live_source = None
         self._live_text = ""
         self._auto_mode = False
         # M32: stop/mux runs on a RecorderStopWorker; while it runs we're "saving".
@@ -235,7 +321,8 @@ class RecordingPanel(QWidget):
             self.mic_status.setStyleSheet("color:#22C55E;")
             self.start_btn.setEnabled(True)
         else:
-            self.mic_box.addItem("No microphone detected", -1)
+            # -2 = none available (K8), unlike -1 = the user chose "No audio"
+            self.mic_box.addItem("No microphone detected", _NO_MIC)
             self.mic_status.setText("⚠ No microphone detected — audio will be silent. "
                                     "You can still record screen/camera video.")
             self.mic_status.setStyleSheet("color:#EF4444;")
@@ -392,13 +479,22 @@ class RecordingPanel(QWidget):
         kind = self._selected_type()
         source = self.source_box.currentData() or "mic"
         mic_index = self.mic_box.currentData()
-        include_audio = mic_index != -1 or source == "system"
+        if mic_index == _SILENT:
+            # "No audio (silent)" mutes the microphone; system-only still records
+            include_audio = source == "system"
+        elif mic_index == _NO_MIC:
+            # K8: no microphone on this PC — still record the part of the source
+            # that exists (system audio for "System" / "Mic + System"), like an
+            # audio-only recording does, instead of a silent video.
+            include_audio = source in ("system", "both") and bool(self._sys_ok)
+        else:
+            include_audio = True
         cfg = R.RecordingConfig(
             kind=kind,
             source=source,
             audio_format="mp3" if (kind == "audio" and self.format_box.currentIndex() == 1) else "wav",
             include_audio=include_audio,
-            mic_index=None if (mic_index in (-1, None)) else mic_index,
+            mic_index=None if (mic_index in (_SILENT, _NO_MIC, None)) else mic_index,
         )
         try:
             self._rec = R.make_recorder(cfg)
@@ -415,6 +511,7 @@ class RecordingPanel(QWidget):
             return
         # Live transcription (audio recordings only, when enabled).
         self._retire_live_worker(0)
+        self._live_source = None                 # K5: earlier workers no longer count
         self._live_text = ""
         live_on = (getattr(self, "live_check", None) is not None and self.live_check.isChecked()
                    and self.ctx is not None and kind == "audio")
@@ -425,11 +522,12 @@ class RecordingPanel(QWidget):
                 engine = self.ctx.transcription_engine()
                 self._live_worker = LiveTranscribeWorker(
                     self._rec, engine, self.ctx.settings.get("language", "auto"))
+                self._live_source = self._live_worker
                 self._live_worker.partial.connect(self._on_live_partial)
                 self._live_worker.start()
                 self.live_box.clear(); self.live_box.setVisible(True)
             except Exception:
-                self._live_worker = None
+                self._live_worker = self._live_source = None
                 self.live_box.setVisible(False)
         else:
             self.live_box.setVisible(False)
@@ -442,6 +540,12 @@ class RecordingPanel(QWidget):
         self.recordingStateChanged.emit(True)
 
     def _on_live_partial(self, text: str):
+        # K5: a retired worker still finishing a chunk of an EARLIER recording
+        # must not append to this one's transcript.
+        src = self.sender()
+        if src is not None and src is not self._live_source:
+            log.debug("ignoring a live-transcript chunk from a retired worker")
+            return
         self._live_text = (self._live_text + " " + text).strip()
         self.live_box.setPlainText(self._live_text)
         self.live_box.moveCursor(QTextCursor.End)
@@ -549,11 +653,48 @@ class RecordingPanel(QWidget):
             pass
         if wait_ms:
             w.wait(wait_ms)
+        if w is not self._live_source:
+            self._disconnect_partial(w)           # K5: its chunks belong to no recording
         if w.isRunning():
             retired = self.__dict__.setdefault("_retired_workers", [])
             if w not in retired:
                 retired.append(w)
                 w.finished.connect(lambda w=w: w in retired and retired.remove(w))
+
+    def _disconnect_partial(self, w) -> None:
+        sig = getattr(w, "partial", None)
+        if sig is None:
+            return
+        try:
+            sig.disconnect(self._on_live_partial)
+        except (RuntimeError, TypeError, SystemError):
+            pass                                  # not connected (any more)
+
+    def _release_live_source(self) -> None:
+        """The current recording's live transcript has been consumed (K5)."""
+        w, self._live_source = self._live_source, None
+        if w is not None:
+            self._disconnect_partial(w)
+
+    def background_threads(self) -> list:
+        """K6: every thread this panel runs — stop/save workers, the live
+        transcription worker (also the one handed to a stop still in flight)
+        and retired workers still finishing — so the main window can wait for
+        them before Qt tears the widgets down."""
+        cands = list(self._stop_workers)
+        cands.append(self._live_worker)
+        cands.append((self._stop_ctx or {}).get("live"))
+        cands += list(self.__dict__.get("_retired_workers", ()))
+        out: list = []
+        for w in cands:
+            if w is None or any(w is o for o in out):
+                continue
+            try:
+                if w.isRunning():
+                    out.append(w)
+            except RuntimeError:                  # already deleted on the C++ side
+                continue
+        return out
 
     def _cancel(self):
         if self._stopping:
@@ -623,7 +764,7 @@ class RecordingPanel(QWidget):
                 self.toast.show_message("Recording cancelled.", "warn")
             return
         if ctx.get("error"):
-            self._on_recording_error(result, ctx["error"])
+            self._on_recording_error(result, ctx["error"], rec=ctx.get("rec"))
             return
         if result is None:
             rec = ctx.get("rec")
@@ -634,16 +775,20 @@ class RecordingPanel(QWidget):
                     pass
         self._finish_stop(result, live_wait_ms=0, stopped=True)
 
-    def _on_recording_error(self, res, err: str) -> None:
+    def _on_recording_error(self, res, err: str, rec=None) -> None:
         """The recorder failed mid-way. Keep and show whatever it saved."""
+        rec = rec if rec is not None else self._rec
         self._rec = None
         self._teardown()
         partial = False
         try:
             partial = bool(res is not None and res.path and Path(res.path).exists()
-                           and Path(res.path).stat().st_size > 1024)
+                           and Path(res.path).stat().st_size > 1024
+                           and not _captured_nothing(rec, res))
         except OSError:
             partial = False
+        if not partial and _captured_nothing(rec, res):
+            _discard_empty_outputs(rec, res)      # K4: no header-only files left behind
         self.recordingFailed.emit()
         if partial:
             self._result = res
@@ -663,15 +808,18 @@ class RecordingPanel(QWidget):
         rec = self._rec
         if not stopped and result is None and rec is not None:
             result = rec.stop()
-        self._result = result
         auto = bool(self._auto_mode)
+        # K4: a file that exists isn't enough — a stop before any audio arrived
+        # leaves a header-only WAV, which is neither "saved" nor transcribable.
         try:
-            has_file = bool(result is not None and result.path and Path(result.path).exists())
+            has_file = not _captured_nothing(rec, result)
         except OSError:
             has_file = False
+        self._result = result if has_file else None
         # flush + stop the live worker (its last chunk lands in _live_text)
         self._retire_live_worker(live_wait_ms)
         live = self._live_text.strip()
+        self._release_live_source()               # K5: later chunks belong to no recording
         if auto and has_file:
             # Auto-record: transcribe the full recording. The live draft only hears
             # the local microphone, so minutes built from it would leave out
@@ -687,19 +835,28 @@ class RecordingPanel(QWidget):
             self._show_summary(result)
             return
         # M31: nothing was written (e.g. the mix ran out of memory / disk) — say
-        # so instead of claiming "Recording saved".
-        why = (getattr(rec, "error", "") if rec is not None else "") or "no audio was captured"
+        # so instead of claiming "Recording saved". K4: an empty recording is
+        # said to be empty, and its header-only output / temp files are removed.
+        _discard_empty_outputs(rec, result)
+        why = getattr(rec, "error", "") if rec is not None else ""
         self.stack.setCurrentIndex(0)
         self.recordingFailed.emit()
         if self.toast:
             extra = " The live transcript was kept." if live else ""
-            self.toast.show_message(f"The recording could not be saved: {why}{extra}", "error", 10000)
+            if why:
+                msg = f"The recording could not be saved: {why}{extra}"
+            else:
+                msg = ("Nothing was recorded — no audio was captured, so no file was saved. "
+                       "Check that the microphone isn't muted (or that something was playing "
+                       f"for system audio).{extra}")
+            self.toast.show_message(msg, "error", 10000)
 
     def _teardown(self):
         self._timer.stop()
         self._blink_timer.stop()
         self.viz.set_active(False)
         self._auto_mode = False
+        self._live_source = None                  # K5
         self.recordingStateChanged.emit(False)
 
     def _show_summary(self, res: R.RecordingResult, announce: bool = True):
@@ -762,6 +919,15 @@ class RecordingPanel(QWidget):
             try:
                 if w.isRunning():
                     w.wait(180000)
+            except Exception:
+                pass
+        # K6: a stop that finished while we blocked here never gets its done
+        # signal delivered (_on_stop_done doesn't run), so the live worker it
+        # was handed is only referenced from _stop_ctx — stop it and wait.
+        pending_live = (self._stop_ctx or {}).get("live")
+        if pending_live is not None:
+            try:
+                self._retire_worker(pending_live, 8000)
             except Exception:
                 pass
         try:

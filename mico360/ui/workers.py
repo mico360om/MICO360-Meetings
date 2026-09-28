@@ -102,6 +102,10 @@ class LiveTranscribeWorker(QThread):
     def stop(self):
         self._stop.set()
 
+    # K6: the main window's close handler cancels every background thread it
+    # knows about (the recording panel's threads included) before waiting.
+    cancel = stop
+
 
 class RecorderStopWorker(QThread):
     """Stop (or cancel) a recorder off the GUI thread (M32): releasing the

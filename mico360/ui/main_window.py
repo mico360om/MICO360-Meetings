@@ -428,7 +428,7 @@ class MainWindow(QMainWindow):
         out = []
         for p in (self.new_page, self.settings_page, self.updates_page, self.actions_page):
             out += list(getattr(p, "_bg_workers", ()) or ())
-        return out + list(self._retired_threads)
+        return out + list(self._retired_threads) + self.new_page.recorder_panel.background_threads()
 
     def closeEvent(self, e):
         from PySide6.QtWidgets import QMessageBox
