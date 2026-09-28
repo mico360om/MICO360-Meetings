@@ -166,12 +166,15 @@ class TranscriptionEngine:
     def _key(self) -> tuple:
         return (self.model_size,) + self._effective()
 
-    def load(self, progress: ProgressCb | None = None) -> None:
+    def load(self, progress: ProgressCb | None = None):
+        """Load (or reuse) the model and return it. K9: callers transcribe with
+        the returned reference — another thread (live transcription falling
+        back to CPU) may reset `self._model` at any time."""
         from faster_whisper import WhisperModel
 
         with self._lock:
             if self._model is not None and self._loaded_key == self._key():
-                return
+                return self._model
             if progress:
                 if model_cached(self.model_size):
                     progress(0.02, f"Loading the Whisper '{self.model_size}' model…")
@@ -184,8 +187,13 @@ class TranscriptionEngine:
 
             def _make(dev, comp):
                 log.info("loading whisper model=%s device=%s compute=%s", self.model_size, dev, comp)
-                return WhisperModel(self.model_size, device=dev, compute_type=comp,
-                                    download_root=str(MODELS_DIR))
+                m = WhisperModel(self.model_size, device=dev, compute_type=comp,
+                                 download_root=str(MODELS_DIR))
+                try:
+                    m._mico360_device = dev
+                except Exception:
+                    pass
+                return m
 
             try:
                 self._model = _make(device, compute)
@@ -196,6 +204,7 @@ class TranscriptionEngine:
                 else:
                     raise
             self._loaded_key = self._key()
+            return self._model
 
     # -- transcription ------------------------------------------------------
     def transcribe_file(
@@ -206,7 +215,7 @@ class TranscriptionEngine:
         cancel: Callable[[], bool] | None = None,
         diarize: bool = False,
     ) -> TranscriptResult:
-        self.load(progress)
+        model = self.load(progress)
         if progress:
             progress(0.05, "Preparing audio…")
         usable, duration = audio.prepare_for_whisper(path)
@@ -216,16 +225,19 @@ class TranscriptionEngine:
             progress(0.08, "Transcribing…")
 
         try:
-            result = self._run(usable, lang, duration, progress, cancel)
+            result = self._run(usable, lang, duration, progress, cancel, model=model)
         except InterruptedError:
             raise
         except Exception as exc:
             # CUDA/cuBLAS/cuDNN errors surface lazily during decode — fall back
             # to CPU (for good) and retry once so transcription still succeeds.
-            if _is_gpu_error(exc) and self.effective_device != "cpu":
-                self._fall_back_to_cpu(exc, progress)
-                self.load(progress)
-                result = self._run(usable, lang, duration, progress, cancel)
+            # (The live worker may already have switched the engine to CPU, so
+            # judge by the device of the model that actually failed.)
+            if _is_gpu_error(exc) and self._model_device(model) != "cpu":
+                if self.effective_device != "cpu":
+                    self._fall_back_to_cpu(exc, progress)
+                model = self.load(progress)
+                result = self._run(usable, lang, duration, progress, cancel, model=model)
             else:
                 raise
 
@@ -246,24 +258,31 @@ class TranscriptionEngine:
         """Transcribe a mono 16 kHz float32 numpy array to text — for live capture
         (fast: greedy decoding, VAD-filtered, no progress/diarisation). Falls back
         to CPU like transcribe_file when the GPU turns out to be unusable."""
-        self.load()
+        model = self.load()
         lang = _whisper_lang(language)
         try:
-            return self._run_array(audio_f32, lang)
+            return self._run_array(audio_f32, lang, model=model)
         except Exception as exc:
-            if _is_gpu_error(exc) and self.effective_device != "cpu":
-                self._fall_back_to_cpu(exc)
-                self.load()
-                return self._run_array(audio_f32, lang)
+            if _is_gpu_error(exc) and self._model_device(model) != "cpu":
+                if self.effective_device != "cpu":
+                    self._fall_back_to_cpu(exc)
+                model = self.load()
+                return self._run_array(audio_f32, lang, model=model)
             raise
 
-    def _run_array(self, audio_f32, lang) -> str:
-        segments, _info = self._model.transcribe(  # type: ignore[union-attr]
+    def _model_device(self, model) -> str:
+        """Device a loaded model runs on (tagged at load time)."""
+        return getattr(model, "_mico360_device", None) or self.effective_device
+
+    def _run_array(self, audio_f32, lang, model=None) -> str:
+        model = model if model is not None else self.load()
+        segments, _info = model.transcribe(
             audio_f32, language=lang, vad_filter=True, beam_size=1)
         return "".join(seg.text for seg in segments).strip()
 
-    def _run(self, usable, lang, duration, progress, cancel) -> TranscriptResult:
-        segments_iter, info = self._model.transcribe(  # type: ignore[union-attr]
+    def _run(self, usable, lang, duration, progress, cancel, model=None) -> TranscriptResult:
+        model = model if model is not None else self.load()
+        segments_iter, info = model.transcribe(
             str(usable),
             language=lang,
             vad_filter=True,
