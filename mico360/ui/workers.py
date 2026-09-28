@@ -48,16 +48,31 @@ class LiveTranscribeWorker(QThread):
 
     def run(self):
         try:
-            self.engine.load()
-        except Exception:
-            log.warning("live transcription: model load failed", exc_info=True)
-            return
-        while not self._stop.wait(0):          # loop until stopped
-            self._sleep(self.interval)
-            if self._stop.is_set():
-                break
-            self._flush(final=False)
-        self._flush(final=True)                # transcribe any tail audio
+            try:
+                self.engine.load()
+            except Exception:
+                log.warning("live transcription: model load failed", exc_info=True)
+                return
+            while not self._stop.wait(0):          # loop until stopped
+                self._sleep(self.interval)
+                if self._stop.is_set():
+                    break
+                self._flush(final=False)
+            self._flush(final=True)                # transcribe any tail audio
+        finally:
+            # K7: nobody pulls the recorder's live buffer any more — stop filling it
+            # (it would otherwise grow for the rest of the meeting).
+            disable = getattr(self.recorder, "disable_live", None)
+            if callable(disable):
+                try:
+                    disable()
+                except Exception:
+                    log.debug("disabling the live tap failed", exc_info=True)
+            else:
+                try:
+                    self.recorder._live_on = False
+                except Exception:
+                    pass
 
     def _sleep(self, secs: float):
         end = time.time() + secs
