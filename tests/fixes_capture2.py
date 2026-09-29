@@ -1039,12 +1039,43 @@ def test_k10_monotonic_clock() -> None:
           f"video={d.get('video')} elapsed={res.duration:.2f}")
 
 
+def test_k11_wedged_audio_probe() -> None:
+    """A stalled audio driver must not freeze the UI: the recording panel asks
+    system_audio_supported() while the main window is built, so the probe runs
+    off-thread and gives up after its timeout."""
+    print("\n[K11] system-audio probe can't hang the caller")
+    from mico360.core import recording as R
+    real = R._probe_system_audio
+    release = threading.Event()
+    try:
+        R._probe_system_audio = lambda: release.wait(30) or True
+        t0 = time.time()
+        got = R.system_audio_supported(timeout=0.3)
+        took = time.time() - t0
+        check("a wedged probe returns within its timeout", took < 2.0, f"{took:.2f}s")
+        check("…and counts as unsupported (the mic still works)", got is False, repr(got))
+        release.set()
+        R._probe_system_audio = lambda: True
+        check("a probe that answers is reported", R.system_audio_supported(timeout=2.0) is True)
+        def boom():
+            raise RuntimeError("driver error")
+        R._probe_system_audio = boom
+        check("a probe that raises counts as unsupported", R.system_audio_supported(timeout=2.0) is False)
+    finally:
+        release.set()
+        R._probe_system_audio = real
+    t0 = time.time()
+    real_ans = R.system_audio_supported()
+    check("the real probe still answers from its worker thread", isinstance(real_ans, bool)
+          and time.time() - t0 < 5.0, f"{real_ans!r} in {time.time() - t0:.1f}s")
+
+
 # =============================================================================
 def main() -> int:
     for fn in (test_k1_named_meet, test_k9_model_race, test_k10_monotonic_clock,
                test_k7_live_buffer, test_k3_renumbered_devices, test_k2_gap_padding,
                test_k4_nothing_captured, test_k5_late_partials, test_k6_close_mid_stop,
-               test_k8_no_mic_system_audio):
+               test_k8_no_mic_system_audio, test_k11_wedged_audio_probe):
         try:
             fn()
         except Exception as exc:

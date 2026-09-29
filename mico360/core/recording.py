@@ -131,7 +131,29 @@ def system_audio_device(sd):
     return None
 
 
-def system_audio_supported() -> bool:
+def system_audio_supported(timeout: float = 4.0) -> bool:
+    """Probe for system-audio capture off the calling thread, with a timeout, so a
+    wedged audio driver can't freeze the UI (the recording panel asks while the
+    main window is being built). A probe that doesn't answer in time counts as
+    unsupported; the user still has the microphone."""
+    result: dict = {}
+
+    def run():
+        try:
+            result["ok"] = _probe_system_audio()
+        except Exception:
+            result["ok"] = False
+
+    t = threading.Thread(target=run, daemon=True, name="system-audio-probe")
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        log.warning("system-audio probe timed out after %ss", timeout)
+        return False
+    return bool(result.get("ok"))
+
+
+def _probe_system_audio() -> bool:
     # Preferred: true WASAPI loopback via soundcard (no "Stereo Mix" needed).
     try:
         import soundcard as sc
