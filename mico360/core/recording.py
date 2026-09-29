@@ -137,12 +137,23 @@ def system_audio_supported(timeout: float = 4.0) -> bool:
     main window is being built). A probe that doesn't answer in time counts as
     unsupported; the user still has the microphone."""
     result: dict = {}
+    try:
+        # soundcard sets up COM when first imported and undoes it at exit; keep
+        # that on this (long-lived) thread as before. Importing it touches no
+        # driver — only the device queries below can stall.
+        import soundcard  # noqa: F401
+    except Exception:
+        pass
 
     def run():
+        com = _thread_com_init()
         try:
             result["ok"] = _probe_system_audio()
         except Exception:
             result["ok"] = False
+        finally:
+            if com:
+                _thread_com_uninit()
 
     t = threading.Thread(target=run, daemon=True, name="system-audio-probe")
     t.start()
@@ -151,6 +162,25 @@ def system_audio_supported(timeout: float = 4.0) -> bool:
         log.warning("system-audio probe timed out after %ss", timeout)
         return False
     return bool(result.get("ok"))
+
+
+def _thread_com_init() -> bool:
+    """Give a worker thread its own COM apartment (Windows audio APIs are COM).
+    Returns True if it must be balanced with _thread_com_uninit()."""
+    try:
+        import pythoncom
+        pythoncom.CoInitializeEx(pythoncom.COINIT_MULTITHREADED)
+        return True
+    except Exception:
+        return False
+
+
+def _thread_com_uninit() -> None:
+    try:
+        import pythoncom
+        pythoncom.CoUninitialize()
+    except Exception:
+        pass
 
 
 def _probe_system_audio() -> bool:
