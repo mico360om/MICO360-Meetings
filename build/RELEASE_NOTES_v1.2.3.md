@@ -10,6 +10,7 @@ The biggest release yet — new hands-free recording features plus a full code r
 - **Insights dashboard:** trends, recurring topics (now in any language, including Arabic) and action-item health across all meetings.
 - **Reminders, follow-ups & calendar:** overdue reminders, per-owner follow-ups and calendar (.ics) export that updates events instead of duplicating them.
 - **Paste text as a source:** start a meeting from pasted notes or a transcript.
+- **Professional PDF minutes:** company letterhead, a meeting-details panel, attendees as a name grid, colour-coded action-item statuses, and clean page breaks — no split table rows, no stranded headings, nothing cut off.
 - **Arabic / right-to-left:** Arabic minutes display and export correctly in PDF, Word and HTML.
 - **Per-user install:** `Setup.exe /CURRENTUSER` installs without administrator rights.
 

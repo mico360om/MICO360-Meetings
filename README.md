@@ -35,7 +35,10 @@ minutes — see the in-app Privacy Policy for details.
   to the Generate button.**
 - **Editable everything** — transcript and minutes are fully editable before export.
 - **Export** to **Word (.docx)**, **PDF**, and **TXT**, with a chosen
-  **company profile** (logo, letterhead, footer, page numbers).
+  **company profile** (logo, letterhead, footer, page numbers). The PDF is a
+  print-ready Minutes of Meeting: letterhead, meeting-details panel, attendee
+  grid, colour-coded action items, and page breaks that never split a table
+  row or strand a heading.
 - **Company Profiles** — create multiple branded profiles; import/export
   JSON/CSV/XLSX; live layout preview.
 - **Prompt Library** — add / edit / view / delete reusable prompts; edit the
