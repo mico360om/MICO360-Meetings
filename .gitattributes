@@ -1,0 +1,13 @@
+# Binary files: never convert line endings. ReportLab writes uncompressed PDF
+# content streams (no NUL bytes), so git would otherwise treat a PDF as text and
+# a Windows checkout (core.autocrlf=true) would corrupt its byte offsets.
+*.pdf   binary
+*.docx  binary
+*.xlsx  binary
+*.wav   binary
+*.mp3   binary
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.ttf   binary
+*.exe   binary
