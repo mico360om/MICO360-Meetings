@@ -12,8 +12,9 @@ Runs, in order:
                             auto-record never overwrite another meeting)
   3c. Release fixes        (tests/release_fixes.py — remote audio, thread crashes,
                             pywin32 in builds, recordings kept, multi-installer)
-  3d. Fix suites           (tests/fixes_capture.py, fixes_ai.py, fixes_data.py,
-                            fixes_ui.py — each runs when present, SKIP otherwise)
+  3d. Fix suites           (tests/fixes_capture.py, fixes_capture2.py, fixes_ai.py,
+                            fixes_data.py, fixes_ui.py, fixes_pdf.py — each runs
+                            when present, SKIP otherwise)
   4. Security scan          (no secrets in tracked files / source tree)
   5. Version coherence      (mico360.__version__ == installer.iss AppVersion)
   6. Built-app launch       (build/dist exe shows its MAIN window — not the
@@ -296,7 +297,8 @@ def main() -> int:
     # "==== <AREA>: X/Y passed ====" and must pass all of its checks.
     for area, script in (("CAPTURE", "tests/fixes_capture.py"), ("CAPTURE2", "tests/fixes_capture2.py"),
                          ("AI", "tests/fixes_ai.py"),
-                         ("DATA", "tests/fixes_data.py"), ("UI", "tests/fixes_ui.py")):
+                         ("DATA", "tests/fixes_data.py"), ("UI", "tests/fixes_ui.py"),
+                         ("PDF", "tests/fixes_pdf.py")):
         run_suite(f"Fixes: {area.lower()}", script, rf"==== {area}: (\d+)/\1 passed ====",
                   optional=True)
     if not fast:

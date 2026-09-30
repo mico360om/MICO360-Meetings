@@ -4,3 +4,4 @@
 
 pyinstaller>=6.0     # builds the one-folder app (build/mico360.spec)
 pypdf>=4.0           # tests: read exported PDFs back (Arabic glyph check)
+pypdfium2>=4.0       # tests: text/image positions in exported PDFs (tests/fixes_pdf.py)
