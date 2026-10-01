@@ -458,6 +458,20 @@ def test_hard_content() -> None:
           "Phase 1" in pages[0].flat and "Task number 1 " in pages[0].flat + " ", f"{len(pages)} pages")
     check("…and the long table's rows are all printed", not missing_words(md, pages))
 
+    import time
+    sections = "\n\n".join(f"## Topic {s}\n" + "\n".join(
+        f"- Point {s}.{i}: discussion of item {i}, budget and timeline." for i in range(10))
+        for s in range(40))
+    rows = "\n".join(f"| Task {i}: prepare the workstream {i} report | Owner {i % 7} | "
+                     f"{1 + i % 28} Oct 2026 | Pending |" for i in range(400))
+    md = (f"# Meeting Minutes\n**Meeting Title:** Long meeting\n\n{sections}\n\n## Action Items\n"
+          f"| Task | Owner | Deadline | Status |\n| --- | --- | --- | --- |\n{rows}\n")
+    t0 = time.time()
+    pages, _ = export(md, "long_meeting", profile())
+    took = time.time() - t0
+    check("a very long meeting (400 points + 400 action rows) exports quickly with all its text",
+          took < 20 and not missing_words(md, pages), f"{took:.1f}s, {len(pages)} pages")
+
     for label, md in (("empty minutes", ""), ("heading only", "# Meeting Minutes"),
                       ("TL;DR template (no title, no details)",
                        "Quick recap of the sync.\n\n- Ship v2 on Friday\n- Sara owns QA\n\n"
@@ -480,6 +494,276 @@ def test_hard_content() -> None:
           and "Attendees (" not in flat and "Not specified" in flat)
 
 
+def _fonts(path: Path) -> list[tuple[str, bool]]:
+    """(BaseFont, embedded?) for every font used on every page."""
+    from pypdf import PdfReader
+    out = []
+    for page in PdfReader(str(path)).pages:
+        fonts = (page.get("/Resources") or {}).get("/Font") or {}
+        for ref in fonts.values():
+            f = ref.get_object()
+            desc = f.get("/FontDescriptor")
+            if desc is None and "/DescendantFonts" in f:
+                desc = f["/DescendantFonts"][0].get_object().get("/FontDescriptor")
+            desc = desc.get_object() if desc is not None else {}
+            emb = any(k in desc for k in ("/FontFile", "/FontFile2", "/FontFile3"))
+            out.append((str(f.get("/BaseFont")), emb))
+    return out
+
+
+def test_unicode_and_inline() -> None:
+    print("\n[P9] every script prints (no black boxes); inline Markdown; embedded fonts")
+    names = ["Łukasz Dvořák", "José Müller", "Ольга Петрова", "张伟", "Nguyễn Văn An",
+             "Zoë Brontë", "Γιώργος Παπαδόπουλος", "김민준", "田中ゆき"]
+    md = ("# Meeting Minutes\n**Meeting Title:** Global Partners Sync – Q4 “Kick-off”\n"
+          f"**Attendees:** {', '.join(names)}\n\n## Meeting Summary\n"
+          "Budget of ₹ 5,00,000 and € 12,000 approved ✅ at 25°C ± 2. See *italic note*, "
+          "_underscored_, `config.yaml`, ~~Old item~~ and [the plan](https://example.com/plan).\n"
+          "Keep snake_case_names and 2*3*4 as written.\n\n"
+          "## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n"
+          "| Review contract ✓ | Łukasz Dvořák | 5 Oct | Pending |\n"
+          "| Translate deck | Ольга Петрова | 7 Oct | Done |\n"
+          "| 检查预算 | 张伟 | 9 Oct | In Progress |\n")
+    prof = profile(name="Société Générale Łódź Sp. z o.o.", address="ul. Piotrkowska 1, Łódź",
+                   footer_text="Poufne – tylko do użytku wewnętrznego")
+    path = P.export_pdf(md, WORK / "unicode.pdf", prof)
+    pages, _ = read(path)
+    txt = " ".join(p.flat for p in pages)
+    check("no character replaced by a black box", "■" not in txt)
+    missing = [n for n in names if n not in txt]
+    check("names in Latin-extended, Cyrillic, Greek, Chinese, Korean, Japanese and "
+          "Vietnamese all printed exactly", not missing, str(missing))
+    check("₹ € ✅ ✓ ° ± and typographic quotes printed",
+          all(c in txt for c in "₹€✅✓°±“”–"))
+    check("letterhead and footer print non-Latin-1 text (Łódź, użytku)",
+          "Société Générale Łódź Sp. z o.o." in txt and "użytku wewnętrznego" in txt)
+    check("inline Markdown is formatted, not printed as symbols",
+          "*italic note*" not in txt and "`" not in txt and "~~" not in txt and "](" not in txt
+          and "italic note" in txt and "underscored" in txt and "Old item" in txt)
+    check("underscores and asterisks inside words are kept",
+          "snake_case_names" in txt and "2*3*4" in txt)
+    check("a link prints its label AND its address (survives printing)",
+          "the plan (https://example.com/plan)" in txt)
+    from pypdf import PdfReader
+    uris = [a.get_object().get("/A", {}).get("/URI")
+            for pg in PdfReader(str(path)).pages for a in (pg.get("/Annots") or [])]
+    check("the link is clickable in the PDF", "https://example.com/plan" in uris, str(uris))
+    fonts = _fonts(path)
+    check("every font in the PDF is embedded (renders the same on any device/viewer)",
+          fonts and all(e for _n, e in fonts), str([n for n, e in fonts if not e]))
+    for label, pth in (("full minutes", P.export_pdf(full_minutes(3, 2), WORK / "f.pdf", profile())),
+                       ("no profile", P.export_pdf(full_minutes(3, 2), WORK / "n.pdf", None))):
+        f = _fonts(pth)
+        check(f"{label}: every font embedded", f and all(e for _n, e in f), str(f))
+    hebrew = "מטרת הפגישה הייתה לסקור את הפרויקט"
+    pages, _ = export(f"# Meeting Minutes\n\n## Notes\n{hebrew}\n", "hebrew", profile())
+    heb_line = [ln for ln in pages[0].lines if any("֐" <= c <= "׿" for c in ln[4])]
+    check("Hebrew is right-aligned like Arabic (a right-to-left script)",
+          heb_line and heb_line[0][2] > pages[0].w - 20 * MM, str(heb_line[:1]))
+
+
+def test_save_service() -> None:
+    print("\n[P10] saving the file: atomic, readable errors, safe names")
+    from mico360.export import service
+    check("safe file names from meeting titles",
+          service.safe_filename('Q4: Plan/Review? <draft>') == "Q4 Plan Review draft"
+          and service.safe_filename("CON") == "_CON" and service.safe_filename("  ") == "Meeting-Minutes"
+          and service.safe_filename("Minutes...") == "Minutes"
+          and len(service.safe_filename("x" * 300)) == 100
+          and service.safe_filename("اجتماع اللجنة") == "اجتماع اللجنة")
+    folder = WORK / "save"
+    folder.mkdir(exist_ok=True)
+    target = folder / "Minutes.pdf"
+    service.export(full_minutes(2, 1), target, profile())
+    first = target.read_bytes()
+    check("export writes a real PDF", first[:5] == b"%PDF-" and b"%%EOF" in first[-64:])
+
+    def leftovers() -> list[str]:
+        return [p.name for p in folder.iterdir() if ".tmp" in p.name]
+
+    orig = service.EXPORTERS[".pdf"]
+
+    def broken(md, path, prof=None):
+        Path(path).write_bytes(b"%PDF-1.4 half written")
+        raise RuntimeError("renderer crashed")
+    service.EXPORTERS[".pdf"] = broken
+    try:
+        service.export("x", target, profile())
+        crashed = False
+    except RuntimeError:
+        crashed = True
+    finally:
+        service.EXPORTERS[".pdf"] = orig
+    check("an export that fails half-way leaves the previous file intact",
+          crashed and target.read_bytes() == first and not leftovers(), str(leftovers()))
+
+    if sys.platform == "win32":
+        import win32file
+        h = win32file.CreateFile(str(target), win32file.GENERIC_READ, 0, None,
+                                 win32file.OPEN_EXISTING, 0, None)     # share mode 0 = like Acrobat
+        try:
+            try:
+                service.export(full_minutes(2, 1), target, profile())
+                msg = ""
+            except service.ExportError as exc:
+                msg = str(exc)
+        finally:
+            h.Close()
+        check("a PDF held open by a viewer: a plain message, old file intact, no temp left",
+              "open in another program" in msg and target.read_bytes() == first and not leftovers(),
+              msg or "no error")
+        os.chmod(target, 0o444)
+        try:
+            try:
+                service.export(full_minutes(2, 1), target, profile())
+                msg = ""
+            except service.ExportError as exc:
+                msg = str(exc)
+        finally:
+            os.chmod(target, 0o666)
+        check("a read-only file: says so", "read-only" in msg, msg)
+    try:
+        service.export("x", folder / "missing" / "a.pdf", profile())
+        msg = ""
+    except service.ExportError as exc:
+        msg = str(exc)
+    check("a folder that doesn't exist: says so", "doesn't exist" in msg, msg)
+    service.export(full_minutes(2, 1), target, profile())
+    check("overwriting an existing export works", target.read_bytes()[:5] == b"%PDF-")
+
+
+def test_export_and_email_ui() -> None:
+    print("\n[P11] Export… and Email… in the app")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    import threading
+    import time
+    from PySide6.QtCore import QThread, Signal
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    app = QApplication.instance() or QApplication([])
+    from mico360.core import ollama_client as OC
+    OC.check_status = lambda *a, **k: OC.OllamaStatus(running=False, models=[], error="test")
+    from mico360.ui import dialogs as D
+    from mico360.ui import pages as PG
+    from mico360.ui import workers as W
+    from mico360.ui.context import AppContext
+
+    def wait_for(cond, timeout=20.0):
+        end = time.time() + timeout
+        while time.time() < end:
+            app.processEvents()
+            if cond():
+                return True
+            time.sleep(0.02)
+        return bool(cond())
+
+    class Toast:
+        def __init__(self):
+            self.calls = []
+
+        def show_message(self, text, kind="info", msec=0, links=None):
+            self.calls.append((text, kind, dict(links or {})))
+
+    ctx = AppContext()
+    toast = Toast()
+    page = PG.NewMeetingPage(ctx, toast)
+    _KEEP.extend([ctx, page])
+    page.minutes.setPlainText(full_minutes(3, 2))
+    page.meeting_title.setText("Q4: Plan/Review?")
+    out_dir = WORK / "exports ÷ Łódź"            # unicode folder name
+    out_dir.mkdir(exist_ok=True)
+    seen = {}
+
+    def fake_save(parent, caption, start, filters, selected=""):
+        seen.setdefault("calls", []).append((start, selected))
+        return str(out_dir / Path(start).name), selected or "PDF Document (*.pdf)"
+    orig_save = PG.QFileDialog.getSaveFileName
+    orig_crit = QMessageBox.critical
+    crit = []
+    QMessageBox.critical = staticmethod(lambda *a, **k: crit.append(a[2] if len(a) > 2 else ""))
+    PG.QFileDialog.getSaveFileName = staticmethod(fake_save)
+    try:
+        page._export()
+        ok = wait_for(lambda: page.export_btn.isEnabled())
+        start, sel = seen["calls"][0]
+        check("Save dialog starts in a real folder (not the app's install folder), "
+              "named after the meeting",
+              Path(start).parent.is_dir() and Path(start).parent != Path.cwd()
+              and Path(start).name == "Q4 Plan Review", start)
+        check("PDF is the default format", sel == "PDF Document (*.pdf)", sel)
+        pdf = out_dir / "Q4 Plan Review.pdf"
+        check("the PDF is saved where the user chose (unicode folder name)",
+              ok and pdf.exists() and pdf.read_bytes()[:5] == b"%PDF-", str(list(out_dir.iterdir())))
+        text, kind, links = toast.calls[-1] if toast.calls else ("", "", {})
+        check("success message offers Open and Show in folder",
+              kind == "success" and "Q4 Plan Review.pdf" in text
+              and set(links) == {"Open", "Show in folder"}, str(toast.calls[-1:]))
+        check("the folder is remembered for next time",
+              Path(ctx.settings.get("last_export_dir")) == out_dir)
+        page._export()
+        wait_for(lambda: page.export_btn.isEnabled())
+        check("next export starts in the remembered folder",
+              Path(seen["calls"][1][0]).parent == out_dir, seen["calls"][1][0])
+        if sys.platform == "win32":
+            import win32file
+            before = pdf.read_bytes()
+            h = win32file.CreateFile(str(pdf), win32file.GENERIC_READ, 0, None,
+                                     win32file.OPEN_EXISTING, 0, None)
+            try:
+                page._export()
+                wait_for(lambda: page.export_btn.isEnabled())
+            finally:
+                h.Close()
+            check("PDF open in a viewer: the app explains what to do; old file kept",
+                  crit and "open in another program" in crit[-1] and pdf.read_bytes() == before
+                  and not [p for p in out_dir.iterdir() if ".tmp" in p.name], str(crit[-1:]))
+    finally:
+        PG.QFileDialog.getSaveFileName = orig_save
+        QMessageBox.critical = orig_crit
+
+    # Email: the attachment is a real PDF named after the meeting; cleaned up after
+    class FakeEmail(QThread):
+        finished_ok = Signal()
+        failed = Signal(str)
+        made = []
+
+        def __init__(self, cfg, to, subject, body, html=None, attachments=None, cc=None):
+            super().__init__()
+            self.attachments = list(attachments or [])
+            self.present = []
+            FakeEmail.made.append(self)
+
+        def run(self):
+            self.present = [(Path(a).name, Path(a).read_bytes()[:5]) for a in self.attachments]
+            self.finished_ok.emit()
+    ctx.settings.set("smtp_host", "smtp.example.com"); ctx.settings.set("smtp_user", "u")
+    ctx.settings.set("smtp_password", "p"); ctx.settings.set("email_from", "me@example.com")
+    orig_exec, orig_worker = D.EmailComposeDialog.exec, W.EmailWorker
+
+    def fake_exec(dlg):
+        dlg.to.setText("someone@example.com")
+        dlg.att_pdf.setChecked(True)
+        dlg.att_docx.setChecked(False)
+        return 1
+    D.EmailComposeDialog.exec = fake_exec
+    W.EmailWorker = FakeEmail
+    try:
+        page._email_minutes()
+        wait_for(lambda: FakeEmail.made and not FakeEmail.made[-1].isRunning()
+                 and page.email_btn.isEnabled())
+    finally:
+        D.EmailComposeDialog.exec, W.EmailWorker = orig_exec, orig_worker
+    em = FakeEmail.made[-1] if FakeEmail.made else None
+    check("e-mail attaches the branded PDF, named after the meeting",
+          em is not None and em.present == [("Q4 Plan Review.pdf", b"%PDF-")],
+          str(em.present if em else None))
+    check("the e-mail's temporary attachment is removed once sent",
+          em is not None and em.attachments and not Path(em.attachments[0]).parent.exists())
+    del threading
+
+
+_KEEP: list = []
+
+
 def test_service_route() -> None:
     print("\n[P1] the app's export service uses this layout")
     from mico360.export import service
@@ -493,6 +777,7 @@ def test_service_route() -> None:
 def main() -> int:
     for fn in (test_full_minutes, test_status_colours, test_hard_profiles,
                test_no_profile_and_pale_accent, test_arabic, test_hard_content,
+               test_unicode_and_inline, test_save_service, test_export_and_email_ui,
                test_service_route):
         try:
             fn()

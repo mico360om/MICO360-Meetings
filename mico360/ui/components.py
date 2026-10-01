@@ -389,20 +389,42 @@ class Toast(QLabel):
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(lambda: self.setVisible(False))
+        self._links: dict = {}
+        self.linkActivated.connect(self._on_link)
 
-    def show_message(self, text: str, kind: str = "info", msec: int = 3500):
+    def show_message(self, text: str, kind: str = "info", msec: int = 3500,
+                     links: dict | None = None):
+        """`links` = {"Label": callback} adds clickable actions after the text
+        (e.g. Open · Show in folder after an export)."""
         color = {"info": "#6E6670", "success": "#22C55E",
                  "error": "#EF4444", "warn": "#F59E0B"}.get(kind, "#6E6670")
         self.setStyleSheet(
             f"background: #26222A; color: #ECEAEF; border: 1px solid {color};"
             "border-radius: 10px; padding: 10px 16px; font-size: 10pt;"
         )
-        self.setText(text)
+        self._links = {f"act{i}": cb for i, cb in enumerate((links or {}).values())}
+        if links:
+            import html
+            acts = " · ".join(f'<a href="act{i}" style="color:#F2B8AE;">{html.escape(lbl)}</a>'
+                              for i, lbl in enumerate(links))
+            self.setTextFormat(Qt.RichText)
+            self.setTextInteractionFlags(Qt.LinksAccessibleByMouse)
+            self.setText(f"{html.escape(text)}&nbsp;&nbsp;{acts}")
+        else:
+            self.setTextFormat(Qt.PlainText)          # a file name is never markup
+            self.setTextInteractionFlags(Qt.NoTextInteraction)
+            self.setText(text)
         self.adjustSize()
         self._reposition()
         self.setVisible(True)
         self.raise_()
         self._timer.start(msec)
+
+    def _on_link(self, href: str) -> None:
+        cb = self._links.get(href)
+        if cb:
+            self.setVisible(False)
+            cb()
 
     def _reposition(self):
         # Bottom-centre (snackbar style): clear of each page's own header row and

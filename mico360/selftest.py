@@ -219,6 +219,20 @@ def _checks(audio: str | None) -> None:
         return ", ".join(f"{k} {v // 1024} KB" for k, v in sizes.items())
     _check("export PDF/Word/HTML/TXT/MD (with Arabic)", _exports)
 
+    def _pdf_fonts():
+        from mico360.export import pdf_fonts
+        from mico360.export.service import export
+        fam = pdf_fonts.family()
+        assert fam.embedded, "no TrueType font found — PDFs would fall back to Helvetica"
+        assert pdf_fonts.font_for("张") is not None, "no fallback font for Chinese"
+        md = ("# Meeting Minutes\n**Meeting Title:** Łódź sync\n"
+              "**Attendees:** Łukasz Dvořák, Ольга Петрова, 张伟\n\n## Notes\n*ok* ✅\n")
+        data = Path(export(md, _tmp / "unicode.pdf")).read_bytes()
+        assert b"/FontFile2" in data, "fonts not embedded"
+        assert b"/BaseFont /Helvetica" not in data, "an unembedded font is still used"
+        return f"{fam.regular} embedded; CJK via {pdf_fonts.font_for('张')}"
+    _check("PDF fonts embedded (non-Latin names print)", _pdf_fonts)
+
     # -- data: history, action items, calendar, profiles -----------------------
     def _data():
         from mico360.core import calendar_ics, calendar_import

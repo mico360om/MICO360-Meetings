@@ -36,6 +36,26 @@ log = logging.getLogger("mico360.pages")
 UPLOAD_EXTS = set(MEDIA_EXTS) | documents.DOC_EXTS | documents.IMAGE_EXTS
 
 
+def _open_path(path: str) -> None:
+    """Open a file with its default app (e.g. the PDF viewer)."""
+    from PySide6.QtCore import QUrl
+    from PySide6.QtGui import QDesktopServices
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+
+def _reveal_path(path: str) -> None:
+    """Show a file selected in Explorer (its folder elsewhere)."""
+    import subprocess
+    import sys
+    if sys.platform == "win32":
+        try:
+            subprocess.Popen(["explorer", f"/select,{Path(path)}"])
+            return
+        except OSError:
+            pass
+    _open_path(str(Path(path).parent))
+
+
 class EmailPrepWorker(QThread):
     """Builds the e-mail's PDF/DOCX attachments and HTML body off the UI thread
     (reportlab / python-docx can take seconds on long minutes)."""
@@ -1464,8 +1484,12 @@ class NewMeetingPage(QWidget):
         if not md:
             self.toast.show_message("Generate or write minutes first.", "warn")
             return
+        last_filter = self.ctx.settings.get("last_export_filter", "") or ""
+        if last_filter not in service.FILTERS.split(";;"):
+            last_filter = "PDF Document (*.pdf)"
         path, selected = QFileDialog.getSaveFileName(
-            self, "Export minutes", "Meeting-Minutes", service.FILTERS)
+            self, "Export minutes", str(self._default_export_path()), service.FILTERS,
+            last_filter)
         if not path:
             return
         if Path(path).suffix.lower() not in service.EXPORTERS:   # "Minutes v1.2" has a dot but no type
@@ -1473,6 +1497,8 @@ class NewMeetingPage(QWidget):
                    else ".md" if "Markdown" in selected else ".html" if "HTML" in selected
                    else ".txt")
             path += ext
+        if selected:
+            self.ctx.settings.set("last_export_filter", selected)
         # Run export off the UI thread so the app never shows "not responding".
         from .workers import ExportWorker
         self.export_btn.setEnabled(False)
@@ -1484,10 +1510,26 @@ class NewMeetingPage(QWidget):
         self._export_worker.failed.connect(self._on_export_failed)
         self._export_worker.start()
 
+    def _default_export_path(self) -> Path:
+        """Where the Save dialog starts: the folder used last time (else
+        Documents), and a file name from the meeting's title. A bare name
+        would start in the app's working folder — Program Files when installed,
+        where a normal user can't save."""
+        from PySide6.QtCore import QStandardPaths
+        from ..export.service import safe_filename
+        folder = Path(self.ctx.settings.get("last_export_dir", "") or "")
+        if not (str(folder) not in ("", ".") and folder.is_dir()):
+            docs = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
+            folder = Path(docs) if docs and Path(docs).is_dir() else Path.home()
+        return folder / safe_filename(self._email_title())
+
     def _on_exported(self, out: str):
         self._busy(False)
         self.export_btn.setEnabled(True); self.export_btn.setText("Export…")
-        self.toast.show_message(f"Exported to {Path(out).name}", "success", 5000)
+        self.ctx.settings.set("last_export_dir", str(Path(out).parent))
+        self.toast.show_message(f"Exported to {Path(out).name}", "success", 9000,
+                                links={"Open": lambda p=out: _open_path(p),
+                                       "Show in folder": lambda p=out: _reveal_path(p)})
 
     def _on_export_failed(self, msg: str):
         self._busy(False)
@@ -1529,16 +1571,24 @@ class NewMeetingPage(QWidget):
         v = dlg.values()
         # Build the PDF/DOCX attachments + HTML body on a worker thread (they can
         # take seconds), then send. The UI stays responsive throughout.
+        import tempfile
         from ..config import TMP_DIR
+        from ..export.service import safe_filename
         self.email_btn.setEnabled(False); self.email_btn.setText("Preparing…")
+        # Each e-mail gets its own folder (removed when it's sent), and the
+        # attachment is named after the meeting, not "Meeting-Minutes.pdf".
+        TMP_DIR.mkdir(parents=True, exist_ok=True)
+        self._email_att_dir = tempfile.mkdtemp(prefix="email_", dir=str(TMP_DIR))
         w = self._email_prep_worker = EmailPrepWorker(
-            md, v.get("formats") or [], self.ctx.active_profile(), TMP_DIR)
+            md, v.get("formats") or [], self.ctx.active_profile(), self._email_att_dir,
+            base_name=safe_filename(title))
         self._keep_alive(w)
         w.finished_ok.connect(lambda atts, html, c=cfg, vv=v: self._send_prepared_email(c, vv, atts, html))
         w.failed.connect(self._on_email_prep_failed)
         w.start()
 
     def _on_email_prep_failed(self, msg: str):
+        self._drop_email_attachments()
         self.email_btn.setEnabled(True); self.email_btn.setText("📧 Email…")
         QMessageBox.critical(self, "Attachment failed", msg)
 
@@ -1555,7 +1605,15 @@ class NewMeetingPage(QWidget):
         self._email_worker.failed.connect(lambda m: self._on_email_done(False, m))
         self._email_worker.start()
 
+    def _drop_email_attachments(self) -> None:
+        import shutil
+        d = getattr(self, "_email_att_dir", None)
+        self._email_att_dir = None
+        if d:
+            shutil.rmtree(d, ignore_errors=True)
+
     def _on_email_done(self, ok: bool, msg: str = ""):
+        self._drop_email_attachments()
         self.email_btn.setEnabled(True); self.email_btn.setText("📧 Email…")
         if ok:
             self.toast.show_message("Minutes emailed.", "success", 5000)

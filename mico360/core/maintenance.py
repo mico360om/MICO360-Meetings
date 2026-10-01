@@ -49,6 +49,19 @@ def purge_tmp(older_than_days: float = 7, tmp_dir: Path | None = None,
                 freed += size
             except OSError:
                 continue                     # locked / already gone — skip
+    # e-mail attachment folders (normally removed as soon as the mail is sent)
+    for d in root.glob("email_*"):
+        try:
+            if not d.is_dir() or d.stat().st_mtime >= cutoff:
+                continue
+            for f in d.iterdir():
+                size = f.stat().st_size
+                f.unlink()
+                removed += 1
+                freed += size
+            d.rmdir()
+        except OSError:
+            continue
     if removed:
         log.info("purged %d stale temp file(s), freed %.1f MB", removed, freed / 1e6)
     return (removed, freed)

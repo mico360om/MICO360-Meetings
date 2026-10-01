@@ -330,13 +330,17 @@ class ExportWorker(QThread):
         self.profile = profile
 
     def run(self):
+        from ..export import service
         try:
-            from ..export import service
             out = service.export(self.minutes_md, self.path, self.profile)
             self.finished_ok.emit(str(out))
+        except service.ExportError as exc:            # already written for the user
+            log.warning("export failed: %s", exc)
+            self.failed.emit(str(exc))
         except Exception as exc:
             log.exception("export failed")
-            self.failed.emit(str(exc))
+            self.failed.emit(f"The file couldn't be created ({exc.__class__.__name__}: {exc}). "
+                             "Your minutes are unchanged — please try again.")
 
 
 class EmailWorker(QThread):

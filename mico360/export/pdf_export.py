@@ -37,7 +37,9 @@ from reportlab.platypus import (
 from reportlab.platypus.flowables import HRFlowable
 
 from ..core.profiles import CompanyProfile
-from . import md_blocks, rtl
+from . import md_blocks, pdf_fonts, rtl
+
+_fam = pdf_fonts.family
 
 PAGE_W, PAGE_H = A4
 MARGIN_X = 18 * mm
@@ -117,23 +119,71 @@ def _is_placeholder(text: str) -> bool:
     return md_blocks.plain(text).strip().lower() in _PLACEHOLDERS
 
 
-def _inline(text: str) -> str:
-    """Convert **bold** runs to reportlab markup, escaping the rest.
+_CODE_RE = re.compile(r"`([^`\n]+)`")
+_LINK_RE = re.compile(r"\[([^\]\n]+)\]\(((?:https?://|mailto:)[^\s)]+)\)")
+_BOLD_RE = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*|__(?=\S)(.+?)(?<=\S)__")
+_ITAL_RE = re.compile(r"(?<![\w*])\*(?=[^\s*])(.+?)(?<=[^\s*])\*(?![\w*])"
+                      r"|(?<![\w_])_(?=[^\s_])(.+?)(?<=[^\s_])_(?![\w_])")
+_STRIKE_RE = re.compile(r"~~(?=\S)(.+?)(?<=\S)~~")
+_PH_RE = re.compile(r"\x00(\d+)\x00")
+LINK = "#1F5FA8"
 
-    Arabic runs are reshaped + bidi-reordered (reportlab does not shape) and
-    drawn with a registered Arabic font, since the Helvetica default has no
-    Arabic glyphs.
-    """
-    reg, bold_font = rtl.pdf_arabic_font()
+
+def _visible(text: str) -> str:
+    """The text as printed: inline Markdown markers removed, a link shown as
+    'label (address)'."""
+    s = _CODE_RE.sub(r"\1", text or "")
+    s = _LINK_RE.sub(lambda m: m.group(1) if m.group(1).strip() == m.group(2)
+                     else f"{m.group(1)} ({m.group(2)})", s)
+    s = _BOLD_RE.sub(lambda m: m.group(1) or m.group(2), s)
+    s = _STRIKE_RE.sub(r"\1", s)
+    return _ITAL_RE.sub(lambda m: m.group(1) or m.group(2), s)
+
+
+def _text_markup(s: str) -> str:
+    """Escape plain text for a Paragraph, switching to a fallback font for any
+    character the main font lacks (CJK, Indic, symbols, emoji)."""
+    reg, _bold = rtl.pdf_arabic_font()
+    if reg and rtl.has_arabic(s):        # rare here: Arabic paragraphs take _para's RTL path
+        return f'<font name="{reg}">{_esc(rtl.shape(s))}</font>'
     out = []
-    for txt, bold in md_blocks.runs(text):
-        if reg and rtl.has_arabic(txt):
-            safe = _esc(rtl.shape(txt))
-            out.append(f'<font name="{bold_font if bold else reg}">{safe}</font>')
-        else:
-            safe = _esc(txt)
-            out.append(f"<b>{safe}</b>" if bold else safe)
+    for seg, fb in pdf_fonts.runs(s):
+        out.append(f'<font name="{fb}">{_esc(seg)}</font>' if fb else _esc(seg))
     return "".join(out)
+
+
+def _inline(text: str) -> str:
+    """Minutes Markdown -> reportlab paragraph markup: **bold**, *italic*,
+    ~~strike~~, `code`, and [links](https://…) (clickable, with the address
+    printed too so it survives on paper). Everything else is escaped text."""
+    keep: list[str] = []
+
+    def hold(markup: str) -> str:
+        keep.append(markup)
+        return f"\x00{len(keep) - 1}\x00"
+
+    def code(m):
+        body = m.group(1)
+        mono = _fam().mono
+        if mono and all(_fam().mono_has(ch) for ch in body):
+            return hold(f'<font name="{mono}">{_esc(body)}</font>')
+        return hold(_text_markup(body))
+
+    def link(m):
+        label, url = m.group(1), m.group(2)
+        href = _esc(url).replace('"', "&quot;")
+        out = f'<a href="{href}" color="{LINK}"><u>{_text_markup(label)}</u></a>'
+        if label.strip() != url:
+            out += f' <font color="{_hex(MUTED)}">({_text_markup(url)})</font>'
+        return hold(out)
+
+    s = _CODE_RE.sub(code, text or "")
+    s = _LINK_RE.sub(link, s)
+    s = _text_markup(s)
+    s = _BOLD_RE.sub(lambda m: f"<b>{m.group(1) or m.group(2)}</b>", s)
+    s = _STRIKE_RE.sub(r"<strike>\1</strike>", s)
+    s = _ITAL_RE.sub(lambda m: f"<i>{m.group(1) or m.group(2)}</i>", s)
+    return _PH_RE.sub(lambda m: keep[int(m.group(1))], s)
 
 
 def _rtl_lines(text: str, font: str, size: float, width: float) -> list[str]:
@@ -178,7 +228,7 @@ def _para(text: str, style, width: float, markup: str | None = None, **kw) -> Pa
     reg, bold_font = rtl.pdf_arabic_font()
     if not (reg and rtl.has_arabic(text)):
         return Paragraph(markup if markup is not None else _inline(text), style, **kw)
-    plain = md_blocks.plain(text)
+    plain = _visible(text)
     font = bold_font if "Bold" in (style.fontName or "") else reg
     avail = max(width - style.leftIndent - style.rightIndent, 40.0) * 0.96
     lines = _rtl_lines(plain, font, style.fontSize, avail)
@@ -186,32 +236,30 @@ def _para(text: str, style, width: float, markup: str | None = None, **kw) -> Pa
     return Paragraph(body, _rtl_style(style, text), **kw)
 
 
-def _canvas_font(text: str, font: str) -> tuple[str, str]:
-    """(font, drawable text) for a canvas string: Arabic is shaped and switched
-    to the registered Arabic font."""
+def _segments(text: str, font: str) -> list[tuple[str, str]]:
+    """(font, drawable text) runs for a canvas string: Arabic is shaped and set
+    in the Arabic font; other characters the main font lacks use a fallback."""
     if text and rtl.has_arabic(text):
         reg, bold_font = rtl.pdf_arabic_font()
         if reg:
-            return (bold_font if font.endswith("Bold") else reg), rtl.shape(text)
-    return font, text
+            return [((bold_font if font.endswith("Bold") else reg), rtl.shape(text))]
+    return [((fb or font), seg) for seg, fb in pdf_fonts.runs(text or "")]
 
 
 def _text_w(text: str, font: str, size: float) -> float:
-    f, s = _canvas_font(text, font)
-    return stringWidth(s, f, size)
+    return sum(stringWidth(s, f, size) for f, s in _segments(text, font))
 
 
 def _draw(canvas, text: str, x: float, y: float, *, font: str, size: float,
           align: str = "left") -> None:
-    """Draw a canvas string, switching to the Arabic font + shaping when needed."""
-    f, s = _canvas_font(text, font)
-    canvas.setFont(f, size)
-    if align == "right":
-        canvas.drawRightString(x, y, s)
-    elif align == "center":
-        canvas.drawCentredString(x, y, s)
-    else:
-        canvas.drawString(x, y, s)
+    """Draw a canvas string (shaping Arabic, falling back per character)."""
+    segs = _segments(text, font)
+    width = sum(stringWidth(s, f, size) for f, s in segs)
+    x0 = x - width if align == "right" else x - width / 2 if align == "center" else x
+    for f, s in segs:
+        canvas.setFont(f, size)
+        canvas.drawString(x0, y, s)
+        x0 += stringWidth(s, f, size)
 
 
 def _wrap(text: str, font: str, size: float, width: float) -> list[str]:
@@ -261,15 +309,17 @@ def _ellipsize(text: str, font: str, size: float, width: float) -> str:
 # ----------------------------------------------------------------------------
 def _styles(accent: colors.Color, head_text: colors.Color) -> dict:
     ink = _readable(accent)
-    base = dict(fontName="Helvetica", textColor=TEXT, allowWidows=0, allowOrphans=0)
+    # bulletFontName too: its default is the unembedded built-in Helvetica.
+    base = dict(fontName=_fam().regular, bulletFontName=_fam().regular, textColor=TEXT,
+                allowWidows=0, allowOrphans=0)
     S = {
-        "eyebrow": ParagraphStyle("m_eyebrow", fontName="Helvetica-Bold", fontSize=9,
+        "eyebrow": ParagraphStyle("m_eyebrow", fontName=_fam().bold, fontSize=9,
                                   leading=12, textColor=ink, spaceAfter=3),
-        "title": ParagraphStyle("m_title", fontName="Helvetica-Bold", fontSize=20,
+        "title": ParagraphStyle("m_title", fontName=_fam().bold, fontSize=20,
                                 leading=25, textColor=TEXT, spaceAfter=10),
-        "h2": ParagraphStyle("m_h2", fontName="Helvetica-Bold", fontSize=13, leading=17,
+        "h2": ParagraphStyle("m_h2", fontName=_fam().bold, fontSize=13, leading=17,
                              textColor=ink, spaceBefore=12, spaceAfter=2),
-        "h3": ParagraphStyle("m_h3", fontName="Helvetica-Bold", fontSize=11, leading=15,
+        "h3": ParagraphStyle("m_h3", fontName=_fam().bold, fontSize=11, leading=15,
                              textColor=TEXT, spaceBefore=8, spaceAfter=3),
         "body": ParagraphStyle("m_body", fontSize=10.5, leading=15, spaceAfter=5, **base),
         "kv": ParagraphStyle("m_kv", fontSize=10.5, leading=15, spaceAfter=3, **base),
@@ -277,16 +327,16 @@ def _styles(accent: colors.Color, head_text: colors.Color) -> dict:
                                  bulletIndent=3, spaceAfter=4, bulletColor=ink, **base),
         "olist": ParagraphStyle("m_olist", fontSize=10.5, leading=15, leftIndent=20,
                                 bulletIndent=0, spaceAfter=4, bulletColor=ink,
-                                bulletFontName="Helvetica-Bold", **base),
-        "label": ParagraphStyle("m_label", fontName="Helvetica-Bold", fontSize=9,
+                                **{**base, "bulletFontName": _fam().bold}),
+        "label": ParagraphStyle("m_label", fontName=_fam().bold, fontSize=9,
                                 leading=13, textColor=MUTED),
         "value": ParagraphStyle("m_value", fontSize=10, leading=14, **base),
         "name": ParagraphStyle("m_name", fontSize=9.5, leading=13, leftIndent=9,
                                bulletIndent=0, bulletColor=ink, **base),
-        "group": ParagraphStyle("m_group", fontName="Helvetica-Bold", fontSize=9,
+        "group": ParagraphStyle("m_group", fontName=_fam().bold, fontSize=9,
                                 leading=13, textColor=MUTED, spaceBefore=8, spaceAfter=3),
         "cell": ParagraphStyle("m_cell", fontSize=9, leading=12, **base),
-        "cellh": ParagraphStyle("m_cellh", fontName="Helvetica-Bold", fontSize=9,
+        "cellh": ParagraphStyle("m_cellh", fontName=_fam().bold, fontSize=9,
                                 leading=12, textColor=head_text),
     }
     return S
@@ -331,8 +381,8 @@ class _Letterhead:
         else:
             self.text_w = CONTENT_W
         name = md_blocks.clean_text(profile.name).strip()
-        self.name_size = _fit(name, "Helvetica-Bold", self.NAME_MAX, self.text_w, self.NAME_MIN)
-        self.name_lines = _wrap(name, "Helvetica-Bold", self.name_size, self.text_w) if name else []
+        self.name_size = _fit(name, _fam().bold, self.NAME_MAX, self.text_w, self.NAME_MIN)
+        self.name_lines = _wrap(name, _fam().bold, self.name_size, self.text_w) if name else []
         self.contact_lines = self._contact_lines()
         self.name_lead = self.name_size * 1.25
         self.contact_lead = self.CONTACT * 1.4
@@ -352,16 +402,16 @@ class _Letterhead:
         bits = [md_blocks.clean_text(b).strip() for b in (p.phone, p.email, p.website)]
         bits = [b for b in bits if b]
         address = md_blocks.clean_text(p.address).strip()
-        lines = _wrap(address, "Helvetica", self.CONTACT, self.text_w) if address else []
+        lines = _wrap(address, _fam().regular, self.CONTACT, self.text_w) if address else []
         sep, cur = "   ·   ", ""
         for b in bits:
             cand = f"{cur}{sep}{b}" if cur else b
-            if _text_w(cand, "Helvetica", self.CONTACT) <= self.text_w:
+            if _text_w(cand, _fam().regular, self.CONTACT) <= self.text_w:
                 cur = cand
                 continue
             if cur:
                 lines.append(cur)
-            wrapped = _wrap(b, "Helvetica", self.CONTACT, self.text_w)
+            wrapped = _wrap(b, _fam().regular, self.CONTACT, self.text_w)
             lines.extend(wrapped[:-1])
             cur = wrapped[-1]
         if cur:
@@ -393,14 +443,14 @@ class _Letterhead:
         c.setFillColor(self.ink)
         for ln in self.name_lines:
             y -= self.name_lead
-            _draw(c, ln, tx, y + self.name_lead * 0.2, font="Helvetica-Bold",
+            _draw(c, ln, tx, y + self.name_lead * 0.2, font=_fam().bold,
                   size=self.name_size, align=align)
         if self.contact_lines:
             y -= 2
         c.setFillColor(MUTED)
         for ln in self.contact_lines:
             y -= self.contact_lead
-            _draw(c, ln, tx, y + self.contact_lead * 0.25, font="Helvetica",
+            _draw(c, ln, tx, y + self.contact_lead * 0.25, font=_fam().regular,
                   size=self.CONTACT, align=align)
         rule_y = PAGE_H - self.rule_from_top
         c.setStrokeColor(self.ink)
@@ -422,6 +472,9 @@ class _PageCanvas(_canvas.Canvas):
         return type("MinutesCanvas", (cls,), {"_cfg": cfg})
 
     def __init__(self, *args, **kwargs):
+        # Every page otherwise starts in the built-in (unembedded) Helvetica.
+        if not kwargs.get("initialFontName"):
+            kwargs["initialFontName"] = _fam().regular
         super().__init__(*args, **kwargs)
         self._saved: list[dict] = []
 
@@ -458,13 +511,13 @@ class _PageCanvas(_canvas.Canvas):
         left, right = (company, title) if company else (title, "")
         if left:
             self.setFillColor(ink if company else MUTED)
-            font = "Helvetica-Bold" if company else "Helvetica"
+            font = _fam().bold if company else _fam().regular
             _draw(self, _ellipsize(left, font, 8.5, half if right else CONTENT_W),
                   MARGIN_X, y, font=font, size=8.5)
         if right:
             self.setFillColor(MUTED)
-            _draw(self, _ellipsize(right, "Helvetica", 8.5, half), PAGE_W - MARGIN_X, y,
-                  font="Helvetica", size=8.5, align="right")
+            _draw(self, _ellipsize(right, _fam().regular, 8.5, half), PAGE_W - MARGIN_X, y,
+                  font=_fam().regular, size=8.5, align="right")
         self.setStrokeColor(BORDER)
         self.setLineWidth(0.6)
         self.line(MARGIN_X, y - 2.5 * mm, PAGE_W - MARGIN_X, y - 2.5 * mm)
@@ -477,16 +530,16 @@ class _PageCanvas(_canvas.Canvas):
         y = f.first_y
         self.setFillColor(MUTED)
         for ln in f.lines:
-            _draw(self, ln, f.x(f.side), y, font="Helvetica", size=f.size, align=f.side)
+            _draw(self, ln, f.x(f.side), y, font=_fam().regular, size=f.size, align=f.side)
             y -= f.lead
         if not f.label_fmt:
             return
         label = f.label_fmt.replace("{n}", str(self._pageNumber)).replace("{total}", str(total))
         if f.num_in_footer:
             ny = f.first_y if (f.same_line or not f.lines) else y
-            _draw(self, label, f.x(f.num_side), ny, font="Helvetica", size=7.5, align=f.num_side)
+            _draw(self, label, f.x(f.num_side), ny, font=_fam().regular, size=7.5, align=f.num_side)
         else:                                                # header-left/center/right
-            _draw(self, label, f.x(f.num_side), PAGE_H - 7 * mm, font="Helvetica",
+            _draw(self, label, f.x(f.num_side), PAGE_H - 7 * mm, font=_fam().regular,
                   size=7.5, align=f.num_side)
 
 
@@ -508,7 +561,7 @@ class _Footer:
         side = (profile.footer_alignment or "center") if profile else "center"
         self.side = side if side in ("left", "center", "right") else "center"
         sample = self.label_fmt.replace("{n}", "888").replace("{total}", "888")
-        label_w = _text_w(sample, "Helvetica", 7.5) if sample else 0
+        label_w = _text_w(sample, _fam().regular, 7.5) if sample else 0
         self.same_line = bool(self.num_in_footer and text and self.num_side != self.side)
         if self.same_line:
             room = (CONTENT_W - 2 * (label_w + 6 * mm)) if self.side == "center"                 else (CONTENT_W - label_w - 10 * mm)
@@ -516,10 +569,10 @@ class _Footer:
             room = CONTENT_W
         room = max(room, CONTENT_W * 0.4)
         self.size = 7.5
-        self.lines = _wrap(text, "Helvetica", self.size, room) if text else []
+        self.lines = _wrap(text, _fam().regular, self.size, room) if text else []
         if len(self.lines) > 3:                              # very long footers: smaller
             self.size = 6.5
-            self.lines = _wrap(text, "Helvetica", self.size, room)
+            self.lines = _wrap(text, _fam().regular, self.size, room)
         self.lead = self.size * 1.3
         rows = len(self.lines) + (1 if (self.num_in_footer and not self.same_line and self.lines) else 0)
         rows = max(rows, 1)
@@ -559,14 +612,14 @@ def _split_names(value: str) -> list[str]:
 def _cell_markup(text: str, S: dict, status: bool) -> tuple[str, str | None]:
     """(style key, ready markup or None) for a table body cell."""
     if _is_placeholder(text):
-        return "cell", f'<font color="{_hex(MUTED)}"><i>{_esc(md_blocks.plain(text))}</i></font>'
+        return "cell", f'<font color="{_hex(MUTED)}"><i>{_text_markup(_visible(text))}</i></font>'
     if status and not rtl.has_arabic(text):
         from ..core.tasks import normalize_status
         canon = normalize_status(md_blocks.plain(text))
         col = STATUS_COLORS.get(canon)
         if col:
-            return "cell", (f'<font name="Helvetica-Bold" color="{col}">•</font>'
-                            f'&nbsp;<font color="{col}"><b>{_esc(md_blocks.plain(text))}</b></font>')
+            return "cell", (f'<font name="{_fam().bold}" color="{col}">•</font>'
+                            f'&nbsp;<font color="{col}"><b>{_text_markup(_visible(text))}</b></font>')
     return "cell", None
 
 
@@ -583,12 +636,12 @@ def _col_widths(headers: list[str], rows: list[list[str]], avail: float,
     n = len(headers)
     mins, prefs = [], []
     for j in range(n):
-        body_font = "Helvetica-Bold" if j == status_col else "Helvetica"
+        body_font = _fam().bold if j == status_col else _fam().regular
         extra = _STATUS_MARK if j == status_col else 0.0
-        texts = [(headers[j], "Helvetica-Bold", 0.0)] + [(r[j], body_font, extra) for r in rows]
+        texts = [(headers[j], _fam().bold, 0.0)] + [(r[j], body_font, extra) for r in rows]
         longest_word = full = 0.0
         for t, font, ex in texts:
-            p = md_blocks.plain(t)
+            p = _visible(t)
             full = max(full, _text_w(p, font, 9) + ex)
             for w in p.split():
                 longest_word = max(longest_word, _text_w(w, font, 9) + ex)
@@ -654,6 +707,7 @@ def _table(headers: list[str], rows: list[list[str]], S: dict, accent: colors.Co
         ("LINEBELOW", (0, 0), (-1, -1), 0.5, BORDER),
         ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("FONTNAME", (0, 0), (-1, -1), _fam().regular),     # not the unembedded default
         ("TOPPADDING", (0, 0), (-1, -1), 5),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
@@ -668,7 +722,7 @@ def _table(headers: list[str], rows: list[list[str]], S: dict, accent: colors.Co
 
 
 def _details(rows: list[tuple[str, str]], S: dict, ink: colors.Color, mirror: bool) -> Table:
-    label_w = max((_text_w(md_blocks.plain(k), "Helvetica-Bold", 9) for k, _ in rows), default=0)
+    label_w = max((_text_w(_visible(k), _fam().bold, 9) for k, _ in rows), default=0)
     label_w = min(max(label_w + 16, 30 * mm), 50 * mm)
     value_w = CONTENT_W - label_w
     data = []
@@ -676,7 +730,7 @@ def _details(rows: list[tuple[str, str]], S: dict, ink: colors.Color, mirror: bo
         lab = _para(key, S["label"], label_w - 16)
         if _is_placeholder(value):
             val = _para(value, S["value"], value_w - 16,
-                        markup=f'<font color="{_hex(MUTED)}"><i>{_esc(md_blocks.plain(value))}</i></font>')
+                        markup=f'<font color="{_hex(MUTED)}"><i>{_text_markup(_visible(value))}</i></font>')
         else:
             val = _para(value, S["value"], value_w - 16)
         data.append([val, lab] if mirror else [lab, val])
@@ -689,6 +743,7 @@ def _details(rows: list[tuple[str, str]], S: dict, ink: colors.Color, mirror: bo
         edge,
         ("LINEBELOW", (0, 0), (-1, -2), 0.5, BORDER),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("FONTNAME", (0, 0), (-1, -1), _fam().regular),     # not the unembedded default
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
@@ -699,11 +754,11 @@ def _details(rows: list[tuple[str, str]], S: dict, ink: colors.Color, mirror: bo
 
 def _people(key: str, value: str, S: dict, ink: colors.Color, mirror: bool) -> list:
     """An attendee (or apologies) list as a grid of names, 1-3 columns."""
-    names = _split_names(md_blocks.plain(value)) or [md_blocks.plain(value)]
+    names = _split_names(_visible(value)) or [_visible(value)]
     real = [n for n in names if not _is_placeholder(n)]
     heading = f"{key} ({len(real)})" if len(real) > 1 else key
     out: list = [_Heading([_para(heading, S["group"], CONTENT_W)])]
-    widest = max((_text_w(n, "Helvetica", 9.5) for n in names), default=0) + 9 + 16
+    widest = max((_text_w(n, _fam().regular, 9.5) for n in names), default=0) + 9 + 16
     cols = 3 if widest <= CONTENT_W / 3 else 2 if widest <= CONTENT_W / 2 else 1
     cols = min(cols, max(len(names), 1))
     col_w = CONTENT_W / cols
@@ -711,7 +766,7 @@ def _people(key: str, value: str, S: dict, ink: colors.Color, mirror: bool) -> l
     for nm in names:
         if _is_placeholder(nm):
             cells.append(_para(nm, S["value"], col_w - 16,
-                               markup=f'<font color="{_hex(MUTED)}"><i>{_esc(nm)}</i></font>'))
+                               markup=f'<font color="{_hex(MUTED)}"><i>{_text_markup(nm)}</i></font>'))
         else:
             cells.append(_para(nm, S["name"], col_w - 16,
                                bulletText=None if rtl.has_arabic(nm) else "•"))
@@ -723,6 +778,7 @@ def _people(key: str, value: str, S: dict, ink: colors.Color, mirror: bool) -> l
     tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), PANEL),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("FONTNAME", (0, 0), (-1, -1), _fam().regular),     # not the unembedded default
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("TOPPADDING", (0, 0), (-1, 0), 7),
@@ -740,7 +796,7 @@ def _list_item(text: str, marker: str, style) -> Paragraph:
     (a reportlab bullet is always drawn at the left edge)."""
     if rtl.has_arabic(text):
         return _para(f"{marker} {text}", style, CONTENT_W)
-    markup = (f'<font color="{_hex(MUTED)}"><i>{_esc(md_blocks.plain(text))}</i></font>'
+    markup = (f'<font color="{_hex(MUTED)}"><i>{_text_markup(_visible(text))}</i></font>'
               if _is_placeholder(text) else None)
     return _para(text, style, CONTENT_W, markup=markup, bulletText=marker)
 
@@ -826,7 +882,7 @@ def export_pdf(minutes_md: str, path: str | Path,
     if title:
         if h1:
             items.append(_para(h1, S["eyebrow"], CONTENT_W,
-                               markup=_esc(md_blocks.plain(h1).upper())))
+                               markup=_text_markup(_visible(h1).upper())))
         items.append(_para(title, S["title"], CONTENT_W))
     elif h1:
         items.append(_para(h1, S["title"], CONTENT_W))
@@ -860,7 +916,7 @@ def export_pdf(minutes_md: str, path: str | Path,
         elif blk.kind == "kv":
             items.append(_para(f"**{blk.key}:** {blk.text}", S["kv"], CONTENT_W))
         elif blk.kind == "para":
-            markup = (f'<font color="{_hex(MUTED)}"><i>{_esc(md_blocks.plain(blk.text))}</i></font>'
+            markup = (f'<font color="{_hex(MUTED)}"><i>{_text_markup(_visible(blk.text))}</i></font>'
                       if _is_placeholder(blk.text) else None)
             items.append(_para(blk.text, S["body"], CONTENT_W, markup=markup))
         elif blk.kind == "table":
@@ -876,17 +932,18 @@ def export_pdf(minutes_md: str, path: str | Path,
                   leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
     later = Frame(MARGIN_X, bottom, CONTENT_W, later_h, id="later",
                   leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
-    doc_title = md_blocks.plain(title or h1).strip() or "Minutes of Meeting"
+    doc_title = _visible(title or h1).strip() or "Minutes of Meeting"
     company = md_blocks.clean_text(profile.name).strip() if profile else ""
     doc = BaseDocTemplate(
         str(path), pagesize=A4, leftMargin=MARGIN_X, rightMargin=MARGIN_X,
         topMargin=first_top, bottomMargin=bottom,
         title=doc_title, author=company or "MICO360 Meetings",
         subject="Minutes of Meeting", creator="MICO360 Meetings",
+        initialFontName=_fam().regular,
     )
     doc.addPageTemplates([PageTemplate(id="first", frames=[first]),
                           PageTemplate(id="later", frames=[later])])
     doc.build(flow, canvasmaker=_PageCanvas.factory(
         footer=footer, letterhead=letterhead, ink=ink, company=company,
-        title=md_blocks.plain(title or h1).strip()))
+        title=_visible(title or h1).strip()))
     return path

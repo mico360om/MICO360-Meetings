@@ -17,15 +17,20 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-# Arabic + Arabic Supplement + Extended-A + presentation forms A/B.
+# Right-to-left scripts: Arabic (incl. Persian/Urdu letters) + Supplement +
+# Extended-A + presentation forms A/B, and Hebrew (+ its presentation forms).
+# Hebrew needs no reshaping, but it must be bidi-reordered and right-aligned
+# exactly like Arabic, or reportlab prints it reversed.
 _ARABIC_RANGES = (
     (0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF),
     (0xFB50, 0xFDFF), (0xFE70, 0xFEFF),
+    (0x0590, 0x05FF), (0xFB1D, 0xFB4F),
 )
 
 
 def has_arabic(text: str) -> bool:
-    """True if the string contains at least one Arabic-script character."""
+    """True if the string contains at least one right-to-left (Arabic-script
+    or Hebrew) character."""
     for ch in text:
         cp = ord(ch)
         for lo, hi in _ARABIC_RANGES:
