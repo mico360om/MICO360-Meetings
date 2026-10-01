@@ -10,7 +10,7 @@ The biggest release yet — new hands-free recording features plus a full code r
 - **Insights dashboard:** trends, recurring topics (now in any language, including Arabic) and action-item health across all meetings.
 - **Reminders, follow-ups & calendar:** overdue reminders, per-owner follow-ups and calendar (.ics) export that updates events instead of duplicating them.
 - **Paste text as a source:** start a meeting from pasted notes or a transcript.
-- **Professional PDF minutes:** company letterhead, a meeting-details panel, attendees as a name grid, colour-coded action-item statuses, and clean page breaks — no split table rows, no stranded headings, nothing cut off.
+- **Professional PDF minutes:** company letterhead, a meeting-details panel, attendees as a name grid, colour-coded action-item statuses, and clean page breaks — no split table rows, no stranded headings, nothing cut off. Names and text in any language print correctly (fonts are embedded, so the PDF looks the same in every viewer).
 - **Arabic / right-to-left:** Arabic minutes display and export correctly in PDF, Word and HTML.
 - **Per-user install:** `Setup.exe /CURRENTUSER` installs without administrator rights.
 
@@ -31,6 +31,8 @@ The biggest release yet — new hands-free recording features plus a full code r
 - Long meetings: the AI keeps the whole meeting in context, keeps your template's instructions, and a retry resumes from where it stopped.
 - Filler-word removal no longer changes the meaning of sentences; Arabic transcripts are split cleanly.
 - Exports handle tables with long cells, pipes inside cells, numbered lists, sub-headings and numeric profile fields.
+- Export… starts in your last export folder (or Documents) with the meeting's name, offers Open / Show in folder, and never overwrites a file that is open in a PDF viewer — it tells you to close it instead.
+- E-mailed minutes are attached under the meeting's name.
 - Calendar import/export: correct line endings, local times, stable events, no alarm text in titles.
 - Action items with identical text are tracked separately; dates without a year resolve correctly.
 - Settings, profiles and task edits are saved atomically — a crash mid-save can no longer wipe them.

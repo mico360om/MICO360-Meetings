@@ -38,7 +38,9 @@ minutes — see the in-app Privacy Policy for details.
   **company profile** (logo, letterhead, footer, page numbers). The PDF is a
   print-ready Minutes of Meeting: letterhead, meeting-details panel, attendee
   grid, colour-coded action items, and page breaks that never split a table
-  row or strand a heading.
+  row or strand a heading. Fonts are embedded, so names in any language
+  (Arabic, Urdu, Chinese, Cyrillic, accented Latin…) print correctly in every
+  PDF viewer.
 - **Company Profiles** — create multiple branded profiles; import/export
   JSON/CSV/XLSX; live layout preview.
 - **Prompt Library** — add / edit / view / delete reusable prompts; edit the
