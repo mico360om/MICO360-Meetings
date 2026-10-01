@@ -58,12 +58,10 @@ def main() -> int:
             # A background task didn't stop in time; letting Python/Qt destroy its
             # running thread would crash the process (and show a Windows error).
             # Everything is already saved, so leave directly.
-            import logging as _logging
-            import os as _os
+            from .hard_exit import hard_exit
             log.warning("exiting with %d background task(s) still running",
                         len(win.unfinished_threads))
-            _logging.shutdown()
-            _os._exit(rc)
+            hard_exit(rc)               # no DLL teardown: PySide6's crashes here
         return rc
     except Exception as exc:
         log.exception("fatal error during startup")

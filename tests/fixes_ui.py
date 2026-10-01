@@ -696,4 +696,5 @@ if __name__ == "__main__":
             pass
         # PySide6 + Python 3.14 can crash during interpreter teardown; exit
         # directly (same approach as the other suites).
-        os._exit(rc)
+        from mico360.hard_exit import hard_exit
+        hard_exit(rc)

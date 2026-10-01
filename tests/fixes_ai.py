@@ -671,4 +671,5 @@ if __name__ == "__main__":
     finally:
         sys.stdout.flush(); sys.stderr.flush()
         shutil.rmtree(_TMP, ignore_errors=True)
-        os._exit(rc)
+        from mico360.hard_exit import hard_exit
+        hard_exit(rc)

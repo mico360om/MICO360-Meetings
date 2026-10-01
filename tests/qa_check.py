@@ -416,4 +416,5 @@ if __name__ == "__main__":
     # (0xC0000409) AFTER tests pass, which would mask a clean result.
     sys.stdout.flush(); sys.stderr.flush()
     _isolation.cleanup()
-    os._exit(_rc)
+    from mico360.hard_exit import hard_exit
+    hard_exit(_rc)

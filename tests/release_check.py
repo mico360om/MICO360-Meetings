@@ -123,6 +123,34 @@ def _fmt_rc(rc) -> str:
 # ---------------------------------------------------------------------------
 # Built-app self-test: run the feature checks INSIDE the frozen exe
 # ---------------------------------------------------------------------------
+def _windows_crashes(exe: Path, since: float) -> list[str]:
+    """Crashes of `exe` that Windows logged since `since` (epoch seconds).
+
+    A crash while the process unloads its DLLs happens AFTER the exit code is
+    set, so the exit code alone can look clean; Windows Error Reporting still
+    logs it (Application log, event 1000). [] when not on Windows / unreadable."""
+    if sys.platform != "win32":
+        return []
+    time.sleep(3)                                     # WER logs within a second or two
+    import datetime as _dt
+    start = _dt.datetime.fromtimestamp(since).strftime("%Y-%m-%dT%H:%M:%S")
+    ps = ("Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000; "
+          f"StartTime=[datetime]'{start}'}} -ErrorAction SilentlyContinue | "
+          "ForEach-Object { $_.Message -replace \"`r?`n\", ' | ' }")
+    try:
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True,
+                             text=True, timeout=60).stdout
+    except Exception:
+        return []
+    hits = []
+    for line in out.splitlines():
+        if str(exe).lower() in line.lower():
+            mod = re.search(r"Faulting module name: ([^,|]+)", line)
+            off = re.search(r"Fault offset: (\S+)", line)
+            hits.append(f"{mod.group(1).strip() if mod else '?'} @ {off.group(1) if off else '?'}")
+    return hits
+
+
 def check_built_selftest(exe: Path, timeout_s: int = 900) -> None:
     """`MICO360Meetings.exe --self-test` exercises every major feature with the
     libraries, codecs and assets actually bundled in the build (see
@@ -155,7 +183,11 @@ def check_built_selftest(exe: Path, timeout_s: int = 900) -> None:
         detail += " — skipped: " + ", ".join(skipped)
     if bad:
         detail += "\n" + "\n".join(f"      FAIL {r['name']}: {r['detail']}" for r in bad)
-    record(name, "PASS" if data.get("ok") and not bad and data.get("frozen") else "FAIL", detail)
+    crashed = _windows_crashes(exe, t0)
+    if crashed:
+        detail += f"\n      FAIL the exe crashed while exiting (Windows logged: {crashed[0]})"
+    record(name, "PASS" if data.get("ok") and not bad and data.get("frozen") and not crashed
+           else "FAIL", detail)
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +293,11 @@ def check_built_app(exe: Path, wait_s: int = 45) -> None:
                                  "did not exit within 30s of closing it")
             return
         after = _crashes()
+        logged = _windows_crashes(exe, t0)
+        if logged:
+            record(name, "FAIL", f"main window shown in {shown_after:.0f}s, but the app "
+                                 f"crashed while exiting (Windows logged: {logged[0]})")
+            return
         if rc != 0 or after:
             record(name, "FAIL", f"main window shown in {shown_after:.0f}s, but quitting "
                                  f"ended with exit code {_fmt_rc(rc)}"
