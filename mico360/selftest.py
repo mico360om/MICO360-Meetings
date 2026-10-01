@@ -224,14 +224,18 @@ def _checks(audio: str | None) -> None:
         from mico360.export.service import export
         fam = pdf_fonts.family()
         assert fam.embedded, "no TrueType font found — PDFs would fall back to Helvetica"
-        assert pdf_fonts.font_for("张") is not None, "no fallback font for Chinese"
         md = ("# Meeting Minutes\n**Meeting Title:** Łódź sync\n"
-              "**Attendees:** Łukasz Dvořák, Ольга Петрова, 张伟\n\n## Notes\n*ok* ✅\n")
+              "**Attendees:** Łukasz Dvořák, Ольга Петрова, Nguyễn Văn An\n\n## Notes\n*ok* ✓\n")
         data = Path(export(md, _tmp / "unicode.pdf")).read_bytes()
         assert b"/FontFile2" in data, "fonts not embedded"
         assert b"/BaseFont /Helvetica" not in data, "an unembedded font is still used"
-        return f"{fam.regular} embedded; CJK via {pdf_fonts.font_for('张')}"
+        return f"{fam.regular} embedded"
     _check("PDF fonts embedded (non-Latin names print)", _pdf_fonts)
+    # Optional Windows fonts (not on every edition): info only, never blocks.
+    _check("PDF fallback font for Chinese/Japanese",
+           lambda: (__import__("mico360.export.pdf_fonts", fromlist=["x"]).font_for("张")
+                    or "SKIP: no CJK font installed (CJK names would show as boxes)"),
+           required=False)
 
     # -- data: history, action items, calendar, profiles -----------------------
     def _data():
