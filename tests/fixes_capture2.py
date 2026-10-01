@@ -1034,9 +1034,12 @@ def test_k10_monotonic_clock() -> None:
         time.time = real
     res = vr.stop()
     d = stream_durations(res.path) if Path(res.path).exists() else {}
+    # The video spans first frame -> stop; the first frame can come a few hundred
+    # ms after start on a busy machine (encoder start-up), which is not a stretch.
+    first = vr._first_frame_elapsed or 0.0
     check("a clock jump mid-recording doesn't stretch the video",
-          abs(d.get("video", 99) - res.duration) < 0.4 and res.duration < 3.0,
-          f"video={d.get('video')} elapsed={res.duration:.2f}")
+          abs(d.get("video", 99) - (res.duration - first)) < 0.4 and res.duration < 3.0,
+          f"video={d.get('video')} elapsed={res.duration:.2f} first frame at {first:.2f}")
 
 
 def test_k11_wedged_audio_probe() -> None:
