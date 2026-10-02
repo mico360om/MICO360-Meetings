@@ -354,7 +354,12 @@ class PromptLibrary:
         p = self.get(prompt_id)
         if not p:
             return None
-        p.name = name.strip() or p.name
+        new_name = name.strip() or p.name
+        if p.builtin and new_name != p.name:
+            # A renamed built-in is the user's own prompt from now on (the
+            # original is re-seeded under its name on the next start).
+            p.builtin = False
+        p.name = new_name
         p.text = text
         if category is not None:
             p.category = category

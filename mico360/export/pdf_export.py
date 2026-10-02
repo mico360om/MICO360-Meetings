@@ -20,6 +20,7 @@ mirrors the details panel and its tables.
 """
 from __future__ import annotations
 
+import logging
 import re
 import threading
 from pathlib import Path
@@ -39,6 +40,8 @@ from reportlab.platypus.flowables import HRFlowable
 
 from ..core.profiles import CompanyProfile
 from . import md_blocks, pdf_designs, pdf_fonts, rtl
+
+log = logging.getLogger("mico360.pdf_export")
 
 # The design of the export running on THIS thread (exports can run side by side:
 # the Export button and an e-mail attachment each have their own worker).
@@ -203,7 +206,45 @@ def _inline(text: str) -> str:
     s = _BOLD_RE.sub(lambda m: f"<b>{m.group(1) or m.group(2)}</b>", s)
     s = _STRIKE_RE.sub(r"<strike>\1</strike>", s)
     s = _ITAL_RE.sub(lambda m: f"<i>{m.group(1) or m.group(2)}</i>", s)
-    return _PH_RE.sub(lambda m: keep[int(m.group(1))], s)
+    return _PH_RE.sub(lambda m: keep[int(m.group(1))], _balance(s))
+
+
+_TAG_RE = re.compile(r"<(/?)(b|i|strike)>")
+_EMPTY_TAG_RE = re.compile(r"<(b|i|strike)></\1>")
+
+
+def _balance(markup: str) -> str:
+    """Make overlapping emphasis well-formed: "**a *b** c*" gives <b>a <i>b</b>
+    c</i>, which the paragraph parser rejects (the export failed). Tags that
+    overlap are closed and reopened so the text keeps its formatting."""
+    out, stack, pos = [], [], 0
+    for m in _TAG_RE.finditer(markup):
+        out.append(markup[pos:m.start()])
+        pos = m.end()
+        closing, tag = m.group(1) == "/", m.group(2)
+        if not closing:
+            stack.append(tag)
+            out.append(f"<{tag}>")
+        elif tag in stack:
+            reopen = []
+            while stack[-1] != tag:
+                t = stack.pop()
+                out.append(f"</{t}>")
+                reopen.append(t)
+            stack.pop()
+            out.append(f"</{tag}>")
+            for t in reversed(reopen):
+                stack.append(t)
+                out.append(f"<{t}>")
+        # a close tag with nothing open is dropped
+    out.append(markup[pos:])
+    out.extend(f"</{t}>" for t in reversed(stack))
+    res = "".join(out)
+    while True:
+        slim = _EMPTY_TAG_RE.sub("", res)
+        if slim == res:
+            return res
+        res = slim
 
 
 def _rtl_lines(text: str, font: str, size: float, width: float) -> list[str]:
@@ -247,7 +288,13 @@ def _para(text: str, style, width: float, markup: str | None = None, **kw) -> Pa
     """
     reg, bold_font = rtl.pdf_arabic_font()
     if not (reg and rtl.has_arabic(text)):
-        return Paragraph(markup if markup is not None else _inline(text), style, **kw)
+        try:
+            return Paragraph(markup if markup is not None else _inline(text), style, **kw)
+        except Exception:
+            # Never let one odd line of formatting fail the whole export: print
+            # the text plainly instead.
+            log.warning("inline formatting rejected; printing as plain text: %r", text[:80])
+            return Paragraph(_text_markup(_visible(text)), style, **kw)
     plain = _visible(text)
     font = bold_font if "Bold" in (style.fontName or "") else reg
     avail = max(width - style.leftIndent - style.rightIndent, 40.0) * 0.96
@@ -616,11 +663,15 @@ class _Footer:
         sample = self.label_fmt.replace("{n}", "888").replace("{total}", "888")
         label_w = _text_w(sample, _fam().regular, 7.5) if sample else 0
         self.same_line = bool(self.num_in_footer and text and self.num_side != self.side)
-        if self.same_line:
-            room = (CONTENT_W - 2 * (label_w + 6 * mm)) if self.side == "center"                 else (CONTENT_W - label_w - 10 * mm)
+        if self.same_line and self.side == "center":        # number at one edge
+            room = CONTENT_W - 2 * (label_w + 6 * mm)
+        elif self.same_line and self.num_side == "center":  # text at an edge, number mid-page:
+            room = CONTENT_W / 2 - label_w / 2 - 4 * mm      # the text must stop before it
+        elif self.same_line:                                 # text and number at opposite edges
+            room = CONTENT_W - label_w - 10 * mm
         else:
             room = CONTENT_W
-        room = max(room, CONTENT_W * 0.4)
+        room = max(room, CONTENT_W * 0.3)
         self.size = 7.5
         self.lines = _wrap(text, _fam().regular, self.size, room) if text else []
         if len(self.lines) > 3:                              # very long footers: smaller
@@ -683,13 +734,15 @@ _STATUS_MARK = 10.0              # the coloured dot + spaces before a status
 
 
 def _col_widths(headers: list[str], rows: list[list[str]], avail: float,
-                status_col: int = -1) -> list[float]:
+                status_col: int = -1, size: float | None = None,
+                pad: float | None = None, fits: list | None = None) -> list[float]:
     """Content-based column widths. Every column gets at least its longest word
     (so words never break); short columns (dates, names, status) then get their
     whole one-line width while it is a fair share, and the long text columns
     divide what is left in proportion to their text."""
     n = len(headers)
-    size = _D().cell
+    size = size or _D().cell
+    pad = _CELL_PAD if pad is None else pad
     mins, prefs = [], []
     for j in range(n):
         body_font = _fam().bold if j == status_col else _fam().regular
@@ -701,11 +754,35 @@ def _col_widths(headers: list[str], rows: list[list[str]], avail: float,
             full = max(full, _text_w(p, font, size) + ex)
             for w in p.split():
                 longest_word = max(longest_word, _text_w(w, font, size) + ex)
-        mn = max(min(longest_word + _CELL_PAD + 1, avail * 0.4), 9 * mm)
+        mn = max(min(longest_word + pad + 1, avail * 0.4), min(9 * mm, pad + 3 * size))
         mins.append(mn)
-        prefs.append(max(min(full + _CELL_PAD + 1, avail), mn))
-    if sum(mins) >= avail:                        # too many columns: shrink evenly
-        return [m * avail / sum(mins) for m in mins]
+        prefs.append(max(min(full + pad + 1, avail), mn))
+    if fits is not None:                          # do whole words fit at this size?
+        fits.append(sum(mins) <= avail)
+    if sum(mins) >= avail:                        # too many columns
+        # First cap any column at twice its fair share (one unbreakable token
+        # shouldn't squeeze every other column), then shrink evenly if needed.
+        cap = 2 * avail / n
+        capped = [min(m, cap) for m in mins]
+        if sum(capped) < avail:
+            over = [m - c for m, c in zip(mins, capped)]
+            spare = avail - sum(capped)
+            return [c + spare * o / sum(over) for c, o in zip(capped, over)]
+        # Still too wide: narrow columns (status, dates, numbers) keep the width
+        # their words need; the wide ones share what is left equally.
+        widths, open_cols, left = [0.0] * n, list(range(n)), avail
+        while open_cols:
+            share = left / len(open_cols)
+            fit = [j for j in open_cols if capped[j] <= share]
+            if not fit:
+                break
+            for j in fit:
+                widths[j] = capped[j]
+                left -= capped[j]
+            open_cols = [j for j in open_cols if j not in fit]
+        for j in open_cols:
+            widths[j] = left / len(open_cols)
+        return widths
     if sum(prefs) <= avail:                       # everything fits on one line
         spare = avail - sum(prefs)
         return [p + spare * p / sum(prefs) for p in prefs]
@@ -748,13 +825,26 @@ def _table(headers: list[str], rows: list[list[str]], S: dict, accent: colors.Co
         rows = [r[::-1] for r in rows]
     status_col = next((j for j, h in enumerate(headers)
                        if md_blocks.plain(h).strip().lower() in _STATUS_HEADERS), -1)
-    widths = _col_widths(headers, rows, CONTENT_W, status_col)
-    data = [[_para(h, S["cellh"], widths[j] - _CELL_PAD) for j, h in enumerate(headers)]]
+    # A wide table (many columns) steps its text size and padding down until
+    # whole words fit their columns, instead of breaking words mid-way.
+    base = _D().cell
+    size, cpad = base, _CELL_PAD
+    for size, cpad in [(base, _CELL_PAD)] + [(sz, 9.0) for sz in (8.0, 7.5, 7.0, 6.5)
+                                             if sz < base]:
+        ok: list = []
+        widths = _col_widths(headers, rows, CONTENT_W, status_col, size, cpad, ok)
+        if ok[0]:
+            break
+    cell_st, head_st = S["cell"], S["cellh"]
+    if size != base:
+        cell_st = ParagraphStyle("m_cell_s", parent=cell_st, fontSize=size, leading=size + 2.5)
+        head_st = ParagraphStyle("m_cellh_s", parent=head_st, fontSize=size, leading=size + 2.5)
+    data = [[_para(h, head_st, widths[j] - cpad) for j, h in enumerate(headers)]]
     for r in rows:
         line = []
         for j, cell in enumerate(r):
-            key, markup = _cell_markup(cell, S, j == status_col)
-            line.append(_para(cell, S[key], widths[j] - _CELL_PAD, markup=markup))
+            _key, markup = _cell_markup(cell, S, j == status_col)
+            line.append(_para(cell, cell_st, widths[j] - cpad, markup=markup))
         data.append(line)
     tbl = Table(data, colWidths=widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
     d = _D()
@@ -779,8 +869,8 @@ def _table(headers: list[str], rows: list[list[str]], S: dict, accent: colors.Co
         ("FONTNAME", (0, 0), (-1, -1), _fam().regular),     # not the unembedded default
         ("TOPPADDING", (0, 0), (-1, -1), pad),
         ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
-        ("LEFTPADDING", (0, 0), (-1, -1), 6),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6 if cpad == _CELL_PAD else 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7 if cpad == _CELL_PAD else 5),
     ]))
     # Rows stay whole across page breaks. Only if a single row is taller than a
     # page may rows split — otherwise it could never be placed (LayoutError).

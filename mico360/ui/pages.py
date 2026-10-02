@@ -965,18 +965,36 @@ class NewMeetingPage(QWidget):
         mt = self.ctx.meeting_types.get(name)
         if not mt:
             return
+        missing = []
         if mt.style:
-            self.style_box.setCurrentText(mt.style)
+            if self.style_box.findText(mt.style) >= 0:
+                self.style_box.setCurrentText(mt.style)
+            else:
+                missing.append(f"style “{mt.style}”")
         if mt.prompt_name:
-            for i in range(self.prompt_box.count()):
-                if self.prompt_box.itemText(i) == mt.prompt_name:
-                    self.prompt_box.setCurrentIndex(i); break
+            idx = next((i for i in range(self.prompt_box.count())
+                        if self.prompt_box.itemText(i) == mt.prompt_name), -1)
+            if idx >= 0:
+                self.prompt_box.setCurrentIndex(idx)
+            else:
+                missing.append(f"prompt “{mt.prompt_name}”")
         if mt.profile_name:
-            for p in self.ctx.profiles.list():
-                if p.name == mt.profile_name:
-                    self.ctx.settings.set("active_profile", p.id); break
-            self.refresh_brands()
-        self.toast.show_message(f"Applied “{mt.name}” meeting type.", "success")
+            prof = next((p for p in self.ctx.profiles.list() if p.name == mt.profile_name), None)
+            if prof:
+                # Brand THIS meeting for that company; the app-wide active
+                # company (used by other meetings) is left alone.
+                self._brand_choice = prof.id
+                if self._meta is not None:
+                    self._meta["profile_id"] = prof.id
+                self.refresh_brands()
+            else:
+                missing.append(f"company “{mt.profile_name}”")
+        if missing:
+            self.toast.show_message(
+                f"Applied “{mt.name}”, but {', '.join(missing)} no longer exist"
+                f"{'s' if len(missing) == 1 else ''} — the current choice was kept.", "warn", 7000)
+        else:
+            self.toast.show_message(f"Applied “{mt.name}” meeting type.", "success")
 
     def _import_ics(self):
         path, _ = QFileDialog.getOpenFileName(self, "Import calendar invite", "",

@@ -130,6 +130,13 @@ def test_prompt_templates() -> None:
     check("editing keeps the prompt's identity and favourite, and changes only what was edited",
           ed.id == a.id and ed.favorite and (ed.name, ed.text, ed.category)
           == ("Board pack v2", "new [TRANSCRIPT_HERE]", "Other"))
+    sm = next(p for p in lib.list() if p.name == "Short Summary")
+    lib.update(sm.id, "Our short summary", sm.text, category=sm.category)
+    check("a renamed built-in becomes your own Custom prompt",
+          not lib.get(sm.id).builtin and lib.get(sm.id).text == sm.text)
+    relaunched = PromptLibrary(lib.dir)
+    check("…and the original built-in is back after a restart, next to the renamed one",
+          {"Short Summary", "Our short summary"} <= {p.name for p in relaunched.list()})
     lib.update(fm.id, fm.name, fm.text + "\n(edited)")
     check("an edited built-in is detected", lib.is_modified(lib.get(fm.id)))
     lib.restore_builtin(fm.id)
@@ -441,6 +448,66 @@ def test_designs() -> None:
                 bad.append(f"{d.key}: {exc!r}")
         check(f"{label}: clean in all four designs", not bad, str(bad[:3]))
 
+    # -- found by the randomised pass (tests/pdf_fuzz.py) ----------------------------
+    emph = ("# Meeting Minutes\n**Meeting Title:** Emphasis\n\n## Notes\n"
+            "***both*** then **a *b** c* then *x **y* z** then ~~s **t~~ u** end.\n\n"
+            "**Status *today:** fine* overall\n\n- _i **j_ k** item\n\n"
+            "| Task | Status |\n| - | - |\n| **bold *mix** cell* | Done |\n")
+    bad = []
+    for d in pdf_designs.choices():
+        try:
+            pages, _ = FP.export(emph, f"emph_{d.key}", FP.profile(pdf_design=d.key))
+            flat = " ".join(p.flat for p in pages)
+            if "*" in flat or "~~" in flat or FP.missing_words(emph, pages):
+                bad.append(f"{d.key}: markers or words wrong")
+        except Exception as exc:
+            bad.append(f"{d.key}: {exc!r}"[:120])
+    check("overlapping bold / italic / strike-through exports (it used to fail the whole export) "
+          "with the text intact and no stray markers", not bad, str(bad))
+    check("…and the formatting is kept, properly nested",
+          P._inline("**a *b** c*") == "<b>a <i>b</i></b><i> c</i>"
+          and P._inline("***both***") == "<b><i>both</i></b>", P._inline("**a *b** c*"))
+
+    wide = ("# Meeting Minutes\n**Meeting Title:** Wide\n\n## Action Items\n"
+            "| # | Task | Responsible Person | Department | Priority | Deadline | Status | Notes |\n"
+            "| - | - | - | - | - | - | - | - |\n"
+            "| 1 | Prepare the revised delivery plan | Fatima Al-Harthy | Engineering | High "
+            "| 12 October 2026 | In Progress | Waiting on vendor |\n"
+            "| 2 | Confirm vendor dates | John Smith | Procurement | Medium | 14 October 2026 "
+            "| Pending | Not specified |\n")
+    broken = []
+    for d in pdf_designs.choices():
+        pages, _ = FP.export(wide, f"wide_{d.key}", FP.profile(pdf_design=d.key))
+        tokens = {w for p in pages for ln in p.lines for w in ln[4].split()}
+        for word in ("Responsible", "Department", "Engineering", "Procurement", "Priority",
+                     "Deadline", "Status", "Pending", "Progress", "October"):
+            if word not in tokens:
+                broken.append(f"{d.key}:{word}")
+        if FP.out_of_bounds(pages) or FP.overlaps(pages):
+            broken.append(f"{d.key}: layout")
+    check("an 8-column table keeps every word whole in all designs (the text steps down in size)",
+          not broken, str(broken[:6]))
+
+    long_footer = ("Confidential and proprietary - this document may not be copied, distributed "
+                   "or disclosed to any third party without prior written consent of the company.")
+    clash = []
+    for side in ("left", "right"):
+        for fmt in ("Page {n} of {total}", "- {n} -"):
+            pages, _ = FP.export(FP.full_minutes(4, 2), f"foot_{side}_{len(fmt)}", FP.profile(
+                footer_text=long_footer, footer_alignment=side,
+                page_number_position="footer-center", page_number_format=fmt))
+            if FP.overlaps(pages) or FP.out_of_bounds(pages):
+                clash.append(f"{side} / {fmt}")
+            if not all(w in pages[0].flat for w in ("Confidential", "consent", "company")):
+                clash.append(f"{side} / {fmt}: footer text cut")
+    check("a long left- or right-aligned footer never runs under a centred page number",
+          not clash, str(clash))
+
+    import pdf_fuzz
+    problems = pdf_fuzz.run(seed=7, documents=10)
+    check("10 randomly generated documents export cleanly in all four designs",
+          not problems, str(problems[:3]))
+
     # the design belongs to the company
     store = ProfileStore(WORK / "designs" / "profiles")
     a = store.save(FP.profile(name="Alpha Co", footer_text="Alpha footer", pdf_design="modern"))
@@ -698,6 +765,28 @@ def test_app_workflow() -> None:
         ctx.profiles.save(ap)
     finally:
         PG.QFileDialog.getSaveFileName = orig_save
+
+    # meeting-type presets
+    from mico360.core.meeting_types import MeetingType
+    ctx.meeting_types.save(MeetingType("Beta board", "Board Meeting Minutes", "Formal Minutes",
+                                       "Beta Co"))
+    ctx.meeting_types.save(MeetingType("Stale preset", "A prompt that was deleted",
+                                       "Formal Minutes", "A company that was deleted"))
+    page._new_meeting(quiet=True)
+    page.refresh_meeting_types()
+    page.mtype_box.setCurrentIndex(page.mtype_box.findData("Beta board"))
+    page._apply_meeting_type()
+    check("a meeting-type preset brands THIS meeting for its company and leaves the "
+          "app-wide active company alone",
+          page.brand_box.currentData() == b.id and ctx.settings.get("active_profile") == a.id
+          and page.prompt_box.currentText() == "Board Meeting Minutes")
+    before_prompt = page.prompt_box.currentText()
+    page.mtype_box.setCurrentIndex(page.mtype_box.findData("Stale preset"))
+    page._apply_meeting_type()
+    check("a preset whose prompt / company no longer exist says so and keeps the current choices",
+          "no longer exist" in toast.calls[-1] and page.prompt_box.currentText() == before_prompt
+          and page.brand_box.currentData() == b.id, toast.calls[-1])
+    page._new_meeting(quiet=True)
 
     # e-mail: same company as the export
     class FakeEmail(QThread):
