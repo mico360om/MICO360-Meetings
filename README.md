@@ -41,8 +41,12 @@ minutes — see the in-app Privacy Policy for details.
   row or strand a heading. Fonts are embedded, so names in any language
   (Arabic, Urdu, Chinese, Cyrillic, accented Latin…) print correctly in every
   PDF viewer.
-- **Company Profiles** — create multiple branded profiles; import/export
-  JSON/CSV/XLSX; live layout preview.
+- **Company Profiles** — create multiple branded profiles; duplicate them;
+  import/export JSON/CSV/XLSX with logos included; live PDF preview. Each company
+  picks its own **PDF design** (Classic, Modern, Formal, Compact) in Settings, and
+  the Minutes step shows which company's branding an export will use.
+- **Prompt Library** — built-in and custom prompts; duplicate, edit, import/export,
+  restore a built-in's default.
 - **Prompt Library** — add / edit / view / delete reusable prompts; edit the
   prompt per generation.
 - **Local history** with full-text search.

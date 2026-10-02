@@ -55,9 +55,11 @@ class ProfilesPage(QWidget):
         new = QPushButton("➕  New profile"); new.setObjectName("Primary"); new.clicked.connect(self._new)
         tip(new, "Create a company profile: name, contact details, logo, footer and page numbering")
         imp = QPushButton("Import…"); imp.setObjectName("Ghost"); imp.clicked.connect(self._import)
-        tip(imp, "Import profiles from a JSON, CSV or Excel file")
+        tip(imp, "Import profiles from a JSON, CSV or Excel file. Nothing you have is "
+                 "overwritten: identical profiles are skipped, same-named ones are renamed")
         exp = QPushButton("Export…"); exp.setObjectName("Ghost"); exp.clicked.connect(self._export)
-        tip(exp, "Export all profiles to JSON, CSV or Excel — useful for backup or another PC")
+        tip(exp, "Export all profiles for backup or another PC. JSON carries the logos "
+                 "inside the file; CSV / Excel put them in a folder next to it")
         bar.addWidget(new); bar.addStretch(); bar.addWidget(imp); bar.addWidget(exp)
         v.addLayout(bar)
 
@@ -77,7 +79,18 @@ class ProfilesPage(QWidget):
         outer.addWidget(_scroll(content))
         self.reload()
 
+    def _ensure_active(self) -> None:
+        """Whenever profiles exist, one of them is the active company — otherwise
+        a user's first profile would brand nothing until they found "Set active"."""
+        profiles = self.ctx.profiles.list()
+        active = self.ctx.settings.get("active_profile", "")
+        if profiles and not any(p.id == active for p in profiles):
+            self.ctx.settings.set("active_profile", profiles[0].id)
+        elif not profiles and active:
+            self.ctx.settings.set("active_profile", "")
+
     def reload(self):
+        self._ensure_active()
         while self.cards_layout.count():
             it = self.cards_layout.takeAt(0)
             w = it.widget()
@@ -126,7 +139,10 @@ class ProfilesPage(QWidget):
         foot_txt = f"Footer: “{foot[:44]}”" if foot else "No footer"
         pages = "page numbers on" if p.show_page_numbers else "page numbers off"
         logo_txt = f"logo {p.logo_position}" if (p.logo_path and not pm.isNull()) else "no logo"
-        summary = QLabel(f"{foot_txt}  ·  {pages}  ·  {logo_txt}"); summary.setObjectName("Hint")
+        from ..export import pdf_designs
+        design_txt = f"{pdf_designs.get(p.pdf_design).name} PDF design"
+        summary = QLabel(f"{design_txt}  ·  {foot_txt}  ·  {pages}  ·  {logo_txt}")
+        summary.setObjectName("Hint")
         summary.setWordWrap(True)
         mid.addWidget(summary)
 
@@ -146,11 +162,15 @@ class ProfilesPage(QWidget):
             tip(act_btn, "Use this profile's branding on all exported and emailed minutes")
         edit_btn = QPushButton("Edit"); edit_btn.setObjectName("Ghost")
         edit_btn.clicked.connect(lambda _=False, pid=p.id: self._edit(pid))
-        tip(edit_btn, "Edit this profile with a live page-layout preview")
+        tip(edit_btn, "Edit this profile and its PDF design, with a live PDF preview")
+        dup_btn = QPushButton("Duplicate"); dup_btn.setObjectName("Ghost")
+        dup_btn.clicked.connect(lambda _=False, pid=p.id: self._duplicate(pid))
+        tip(dup_btn, "Make a full copy (every setting, the PDF design and the logo) to "
+                     "adapt for another company or branch")
         del_btn = QPushButton("Delete"); del_btn.setObjectName("Danger")
         del_btn.clicked.connect(lambda _=False, pid=p.id, nm=p.name: self._delete(pid, nm))
         tip(del_btn, "Permanently delete this profile — exports already made are unaffected")
-        for b in (act_btn, edit_btn, del_btn):
+        for b in (act_btn, edit_btn, dup_btn, del_btn):
             row.addWidget(b)
         return card
 
@@ -167,6 +187,15 @@ class ProfilesPage(QWidget):
         if dlg.exec():
             self.reload(); self.toast.show_message("Profile saved.", "success")
 
+    def _duplicate(self, pid: str):
+        new = self.ctx.profiles.duplicate(pid)
+        if not new:
+            self.toast.show_message("That profile no longer exists.", "warn")
+            self.reload()
+            return
+        self.reload()
+        self.toast.show_message(f"Copied to “{new.name}” — edit the copy.", "success")
+
     def _delete(self, pid: str, name: str = ""):
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Warning)
@@ -182,8 +211,11 @@ class ProfilesPage(QWidget):
         self.ctx.profiles.delete(pid)
         if was_active:
             self.ctx.settings.set("active_profile", "")
-        self.reload()
-        self.toast.show_message("Profile deleted.", "success")
+        self.reload()                              # picks a new active company if any remain
+        now = self.ctx.active_profile()
+        self.toast.show_message(
+            f"Profile deleted. “{now.name}” is now the active company." if (was_active and now)
+            else "Profile deleted.", "success", 5000)
 
     def _set_active(self, pid: str, name: str = ""):
         if QMessageBox.question(
@@ -199,20 +231,38 @@ class ProfilesPage(QWidget):
             self, "Import profiles", "", "Profiles (*.json *.csv *.xlsx)")
         if path:
             try:
-                n = len(self.ctx.profiles.import_file(path))
-                self.reload(); self.toast.show_message(f"Imported {n} profile(s).", "success")
+                res = self.ctx.profiles.import_report(path)
             except Exception as exc:
-                QMessageBox.critical(self, "Import failed", str(exc))
+                log.warning("profile import failed", exc_info=True)
+                QMessageBox.critical(
+                    self, "Import failed",
+                    f"“{Path(path).name}” could not be imported.\n\n{exc}\n\n"
+                    "Your existing profiles are unchanged.")
+                return
+            self.reload()
+            clean = res.imported and not (res.skipped or res.renamed or res.missing_logos
+                                          or res.invalid)
+            if clean:
+                self.toast.show_message(res.summary(), "success", 5000)
+            else:                                  # something the user should read
+                QMessageBox.information(self, "Import finished", res.summary())
 
     def _export(self):
         if not self._profiles:
             self.toast.show_message("No profiles to export.", "warn"); return
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Export profiles", "company-profiles.json",
-            "JSON (*.json);;CSV (*.csv);;Excel (*.xlsx)")
+        from PySide6.QtCore import QStandardPaths
+        docs = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
+        start = str(Path(docs) / "company-profiles.json") if docs else "company-profiles.json"
+        path, chosen = QFileDialog.getSaveFileName(
+            self, "Export profiles", start,
+            "JSON — logos included (*.json);;CSV (*.csv);;Excel (*.xlsx)")
         if path:
+            if Path(path).suffix.lower() not in (".json", ".csv", ".xlsx"):
+                path += ".csv" if "CSV" in chosen else ".xlsx" if "Excel" in chosen else ".json"
             try:
                 self.ctx.profiles.export_file(self._profiles, path)
-                self.toast.show_message("Profiles exported.", "success")
+                self.toast.show_message(
+                    f"Exported {len(self._profiles)} profile(s) to {Path(path).name}.", "success")
             except Exception as exc:
+                log.warning("profile export failed", exc_info=True)
                 QMessageBox.critical(self, "Export failed", str(exc))

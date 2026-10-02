@@ -372,6 +372,7 @@ class MainWindow(QMainWindow):
             self.settings_page.sync_from_settings()
         elif page is self.new_page:
             self.new_page.refresh_models()
+            self.new_page.refresh_brands()        # profiles may have changed elsewhere
             self._update_status()
         return True
 

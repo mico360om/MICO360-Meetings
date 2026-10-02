@@ -22,7 +22,8 @@ log = logging.getLogger("mico360.maintenance")
 # Intermediate artefacts produced by the recorder / audio pipeline (see
 # core.recording, core.audio). Only these prefixes are purged, so nothing
 # unexpected is removed — and never a finished `recording_*` file.
-_TMP_PATTERNS = ("_src_*.wav", "_vid_*.mp4", "_aud_*.wav", "*_16k.wav")
+_TMP_PATTERNS = ("_src_*.wav", "_vid_*.mp4", "_aud_*.wav", "*_16k.wav",
+                 "sample-minutes-*.pdf")          # Settings -> PDF design samples
 
 
 def purge_tmp(older_than_days: float = 7, tmp_dir: Path | None = None,

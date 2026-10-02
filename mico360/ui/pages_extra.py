@@ -1003,6 +1003,20 @@ class HelpPage(QWidget):
             <li><b>Insights</b> shows trends and recurring topics across all your
                 meetings.</li>
           </ul>
+          <h3>Companies, branding and PDF designs</h3>
+          <ul>
+            <li><b>Company Profiles</b> hold each company's logo, letterhead, footer,
+                page numbers and colour. <b>Duplicate</b> copies a profile; <b>Export</b>
+                and <b>Import</b> move profiles (with their logos) to another PC.</li>
+            <li><b>Settings → PDF design:</b> each company chooses its own PDF layout —
+                Classic, Modern, Formal or Compact — from real previews. The choice is
+                saved with that company and used for all of its PDFs.</li>
+            <li>On the <b>Minutes</b> step, <b>Company branding</b> shows whose letterhead
+                and design the export and e-mail will use. It starts as the company the
+                meeting was created under, and you can change it per meeting.</li>
+            <li><b>Prompt Library:</b> duplicate and edit prompts, <b>Export</b> /
+                <b>Import</b> them, and <b>Restore default</b> on an edited built-in.</li>
+          </ul>
           <h3>Languages</h3>
           <p>Meetings in other languages, including <b>Arabic</b>, work throughout.
              Choose the spoken <b>Language</b> in Settings → Transcription
@@ -1013,7 +1027,8 @@ class HelpPage(QWidget):
             <li>Pick a smaller Whisper model (tiny/base) for speed on low-end PCs.</li>
             <li>Make sure Ollama is running and a model is pulled
                 (e.g. <code>ollama pull llama3.1</code>).</li>
-            <li>Set a Company Profile to brand your exported PDFs/Word docs.</li>
+            <li>Add a Company Profile to brand your exports, and pick its PDF design
+                in Settings → PDF design.</li>
           </ul>
           <h3>Need help?</h3>
           <p>Email <a href='mailto:{SUPPORT_EMAIL}'>{SUPPORT_EMAIL}</a>. Logs are in

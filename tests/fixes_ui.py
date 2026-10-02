@@ -484,8 +484,8 @@ def main() -> int:
     i = page.model_box.findText("alpha"); page.model_box.setCurrentIndex(i)
     page._generate(); wait_for(lambda: not page.is_busy()); pump(0.2)
     m = H.get(mid)
-    check("new minutes generated → the new model/profile are stored",
-          m.model == "alpha" and m.profile_id == "prof-OTHER" and m.source_type == "audio",
+    check("new minutes generated → the new model is stored; the meeting keeps its own company",
+          m.model == "alpha" and m.profile_id == "prof-1" and m.source_type == "audio",
           repr((m.model, m.profile_id, m.source_type)))
     page._new_meeting(quiet=True)
     ctx.ai_status = lambda *a, **k: NS(running=False, models=[], error="down")
@@ -586,7 +586,7 @@ def main() -> int:
     orig_export = service.export
     export_threads = []
 
-    def fake_export(md, path, profile=None):
+    def fake_export(md, path, profile=None, design=None):
         export_threads.append(threading.current_thread() is threading.main_thread())
         time.sleep(0.2)
         Path(path).write_text("x", encoding="utf-8")

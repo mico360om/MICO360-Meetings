@@ -67,6 +67,14 @@ class PromptsPage(QWidget):
         add = QPushButton("➕  Add prompt"); add.setObjectName("Primary"); add.clicked.connect(self._add)
         tip(add, "Create a custom prompt — include [TRANSCRIPT_HERE] where the meeting text goes")
         ll.addWidget(add)
+        io = QHBoxLayout()
+        imp = QPushButton("Import…"); imp.setObjectName("Ghost"); imp.clicked.connect(self._import)
+        tip(imp, "Import prompts from a prompt export (.json), or one prompt from a .txt / .md "
+                 "file. Nothing you have is overwritten")
+        exp = QPushButton("Export…"); exp.setObjectName("Ghost"); exp.clicked.connect(self._export)
+        tip(exp, "Save your prompts to a file — for backup, or to use them on another PC")
+        io.addWidget(imp); io.addWidget(exp)
+        ll.addLayout(io)
 
         # -- right: preview header + text + actions -------------------------
         right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(0, 0, 0, 0)
@@ -90,6 +98,11 @@ class PromptsPage(QWidget):
         tip(self.dup_btn, "Make an editable Custom copy — the safe way to tweak a built-in prompt")
         self.del_btn = QPushButton("Delete"); self.del_btn.setObjectName("Danger"); self.del_btn.clicked.connect(self._delete)
         tip(self.del_btn, "Permanently delete this prompt from the library")
+        self.restore_btn = QPushButton("Restore default"); self.restore_btn.setObjectName("Ghost")
+        self.restore_btn.clicked.connect(self._restore)
+        tip(self.restore_btn, "Put this built-in prompt's original text back (your edits are replaced)")
+        self.restore_btn.setVisible(False)
+        act.addWidget(self.restore_btn)
         act.addStretch(); act.addWidget(self.dup_btn); act.addWidget(self.edit_btn); act.addWidget(self.del_btn)
         rl.addLayout(act)
 
@@ -166,8 +179,11 @@ class PromptsPage(QWidget):
         self.pv_name.setText(p.name if has else "Select a prompt")
         self.pv_cat.setText(f"Category: {p.category}" if has else "")
         self.pv_tag.setVisible(has)
+        edited = bool(has and self.ctx.prompts.is_modified(p))
+        self.restore_btn.setVisible(edited)
         if has:
-            self.pv_tag.setText("Built-in" if p.builtin else "Custom")
+            self.pv_tag.setText(("Built-in · edited" if edited else "Built-in") if p.builtin
+                                else "Custom")
             self.pv_tag.setProperty("kind", "builtin" if p.builtin else "custom")
             self.pv_tag.style().unpolish(self.pv_tag); self.pv_tag.style().polish(self.pv_tag)
             self.fav_btn.setText("★" if p.favorite else "☆")
@@ -216,6 +232,81 @@ class PromptsPage(QWidget):
                 if idx >= 0 and self._prompts[idx].id == dup.id:
                     self.list.setCurrentRow(r); break
             self.toast.show_message("Prompt duplicated — edit your copy.", "success")
+
+    def _select(self, prompt_id: str) -> None:
+        for r, idx in enumerate(self._row_map):
+            if idx >= 0 and self._prompts[idx].id == prompt_id:
+                self.list.setCurrentRow(r)
+                return
+
+    def _restore(self):
+        p = self._current()
+        if not p or not self.ctx.prompts.is_modified(p):
+            return
+        if QMessageBox.question(
+                self, "Restore default",
+                f"Put the original text of “{p.name}” back?\n\nYour edits to this built-in "
+                "prompt will be replaced. (Use Duplicate first to keep them as a custom prompt.)",
+                QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel) != QMessageBox.Yes:
+            return
+        self.ctx.prompts.restore_builtin(p.id)
+        self.reload(); self._select(p.id)
+        self.toast.show_message("Original prompt restored.", "success")
+
+    def _import(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import prompts", "", "Prompts (*.json *.txt *.md)")
+        if not path:
+            return
+        try:
+            res = self.ctx.prompts.import_file(path)
+        except Exception as exc:
+            log.warning("prompt import failed", exc_info=True)
+            QMessageBox.critical(self, "Import failed",
+                                 f"“{Path(path).name}” could not be imported.\n\n{exc}\n\n"
+                                 "Your prompt library is unchanged.")
+            return
+        self.search.clear()
+        self.cat_filter.setCurrentIndex(0)
+        self.reload()
+        if res.imported:
+            self._select(res.imported[0].id)
+        if res.imported and not (res.skipped or res.renamed or res.invalid):
+            self.toast.show_message(res.summary(), "success", 5000)
+        else:
+            QMessageBox.information(self, "Import finished", res.summary())
+
+    def _export(self):
+        from PySide6.QtCore import QStandardPaths
+        custom = [p for p in self._all if not p.builtin or self.ctx.prompts.is_modified(p)]
+        box = QMessageBox(self); box.setIcon(QMessageBox.Question)
+        box.setWindowTitle("Export prompts")
+        box.setText("Which prompts do you want to export?")
+        mine = box.addButton(f"My prompts ({len(custom)})", QMessageBox.AcceptRole)
+        everything = box.addButton(f"All prompts ({len(self._all)})", QMessageBox.ActionRole)
+        box.addButton(QMessageBox.Cancel)
+        mine.setEnabled(bool(custom))
+        box.exec()
+        if box.clickedButton() is mine:
+            chosen = custom
+        elif box.clickedButton() is everything:
+            chosen = list(self._all)
+        else:
+            return
+        docs = QStandardPaths.writableLocation(QStandardPaths.DocumentsLocation)
+        start = str(Path(docs) / "mico360-prompts.json") if docs else "mico360-prompts.json"
+        path, _ = QFileDialog.getSaveFileName(self, "Export prompts", start, "Prompts (*.json)")
+        if not path:
+            return
+        if Path(path).suffix.lower() != ".json":
+            path += ".json"
+        try:
+            self.ctx.prompts.export_file(chosen, path)
+            self.toast.show_message(f"Exported {len(chosen)} prompt(s) to {Path(path).name}.",
+                                    "success")
+        except Exception as exc:
+            log.warning("prompt export failed", exc_info=True)
+            QMessageBox.critical(self, "Export failed", str(exc))
 
     def _delete(self):
         p = self._current()

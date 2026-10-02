@@ -323,16 +323,18 @@ class ExportWorker(QThread):
     finished_ok = Signal(str)           # output path
     failed = Signal(str)
 
-    def __init__(self, minutes_md: str, path: str, profile):
+    def __init__(self, minutes_md: str, path: str, profile, design: str | None = None):
         super().__init__()
         self.minutes_md = minutes_md
         self.path = path
         self.profile = profile
+        self.design = design               # PDF design when there is no company profile
 
     def run(self):
         from ..export import service
         try:
-            out = service.export(self.minutes_md, self.path, self.profile)
+            extra = {"design": self.design} if self.design else {}
+            out = service.export(self.minutes_md, self.path, self.profile, **extra)
             self.finished_ok.emit(str(out))
         except service.ExportError as exc:            # already written for the user
             log.warning("export failed: %s", exc)

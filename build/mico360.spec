@@ -94,7 +94,7 @@ a = Analysis(
         "PySide6.QtQuick", "PySide6.QtQuick3D", "PySide6.QtQml", "PySide6.QtQuickWidgets",
         "PySide6.Qt3DCore", "PySide6.Qt3DRender", "PySide6.Qt3DExtras", "PySide6.QtCharts",
         "PySide6.QtDataVisualization", "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets",
-        "PySide6.QtPdf", "PySide6.QtPdfWidgets", "PySide6.QtDesigner", "PySide6.QtUiTools",
+        "PySide6.QtPdfWidgets", "PySide6.QtDesigner", "PySide6.QtUiTools",   # QtPdf is USED (design previews)
         "PySide6.QtTest", "PySide6.QtSql", "PySide6.QtPositioning", "PySide6.QtBluetooth",
         "PySide6.QtSensors", "PySide6.QtSerialPort", "PySide6.QtWebSockets", "PySide6.QtNfc",
         "PySide6.QtWebChannel", "PySide6.QtRemoteObjects", "PySide6.QtScxml", "PySide6.QtHelp",

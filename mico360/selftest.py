@@ -231,6 +231,38 @@ def _checks(audio: str | None) -> None:
         assert b"/BaseFont /Helvetica" not in data, "an unembedded font is still used"
         return f"{fam.regular} embedded"
     _check("PDF fonts embedded (non-Latin names print)", _pdf_fonts)
+    def _designs():
+        from mico360.core.profiles import CompanyProfile, ProfileStore
+        from mico360.export import pdf_designs
+        from mico360.export.service import export
+        store = ProfileStore(_tmp / "st_profiles")
+        made = []
+        for d in pdf_designs.choices():
+            prof = store.save(CompanyProfile(name=f"{d.name} Co", footer_text="f", pdf_design=d.key))
+            data = Path(export(sample_md, _tmp / f"design_{d.key}.pdf", store.get(prof.id))).read_bytes()
+            assert data[:5] == b"%PDF-" and len(data) > 2000, f"{d.key}: no PDF"
+            assert b"/BaseFont /Helvetica" not in data, f"{d.key}: unembedded font"
+            made.append(d.key)
+        # a company's design travels with its profile through export -> import
+        store.export_file(store.list(), _tmp / "st_profiles.json")
+        other = ProfileStore(_tmp / "st_profiles_b")
+        got = {p.name: p.pdf_design for p in other.import_report(_tmp / "st_profiles.json").imported}
+        assert got == {f"{d.name} Co": d.key for d in pdf_designs.choices()}, got
+        return ", ".join(made) + "; kept through profile export/import"
+    _check("PDF designs per company", _designs)
+
+    def _prompt_roundtrip():
+        from mico360.core.prompts import PromptLibrary
+        text = "Line 1\n\tTabbed  \n| a | b |\nمحضر ✅\n[TRANSCRIPT_HERE]\n"
+        a = PromptLibrary(_tmp / "st_prompts_a")
+        p = a.add("Self-test template", text, category="Mine")
+        a.export_file([p], _tmp / "st_prompts.json")
+        b = PromptLibrary(_tmp / "st_prompts_b")
+        got = b.import_file(_tmp / "st_prompts.json").imported
+        assert len(got) == 1 and got[0].text == text and got[0].category == "Mine"
+        return "export + import keep the text exactly"
+    _check("prompt templates import/export", _prompt_roundtrip)
+
     # Optional Windows fonts (not on every edition): info only, never blocks.
     _check("PDF fallback font for Chinese/Japanese",
            lambda: (__import__("mico360.export.pdf_fonts", fromlist=["x"]).font_for("张")
@@ -330,6 +362,17 @@ def _checks(audio: str | None) -> None:
         page.transcript.setPlainText("Self-test transcript")
         page._save_history(silent=True)
         assert page._current_id, "meeting not saved"
+        # Settings -> PDF design: renders real PDF thumbnails (needs Qt's PDF module)
+        from mico360.ui import pdf_preview
+        assert pdf_preview.available(), "Qt PDF module missing from the build"
+        sp = win.settings_page
+        win._navigate(win.stack.indexOf(sp))
+        sp._tabs.setCurrentIndex(sp._design_tab_index)
+        for _ in range(5):
+            app.processEvents()
+        thumbs = [w["thumb"].pixmap() for w in sp.design_tab._cards.values()]
+        assert thumbs and all(t is not None and not t.isNull() for t in thumbs),             "PDF design previews did not render"
+        sp._tabs.setCurrentIndex(0)
         win._navigate(0)
         pages = len(NAV)
         page._autosave_sig = page._content_sig()                         # nothing unsaved
@@ -338,7 +381,8 @@ def _checks(audio: str | None) -> None:
         win.close()
         for _ in range(10):
             app.processEvents()
-        return f"main window + {pages} pages rendered; background error survived"
+        return (f"main window + {pages} pages rendered; {len(thumbs)} PDF design previews; "
+                "background error survived")
     _check("user interface (all pages)", _gui)
 
     def _lock():

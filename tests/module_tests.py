@@ -1052,7 +1052,7 @@ def main():
     def _settings_tabs():
         sp = win.settings_page
         assert [sp._tabs.tabText(i) for i in range(sp._tabs.count())] == \
-            ["AI", "Transcription", "Email", "Updates", "Data"]
+            ["AI", "Transcription", "Email", "Updates", "PDF design", "Data"]
         for attr in ("theme", "provider_box", "host", "model", "install_btn", "preset",
                      "whisper", "compute", "device", "lang", "fillers", "diarize", "chunk",
                      "repo", "auto_check", "crash_reporter", "smtp_host", "smtp_port",

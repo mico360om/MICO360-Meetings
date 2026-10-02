@@ -21,6 +21,7 @@ mirrors the details panel and its tables.
 from __future__ import annotations
 
 import re
+import threading
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -31,15 +32,26 @@ from reportlab.lib.units import mm
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas as _canvas
 from reportlab.platypus import (
-    BaseDocTemplate, CondPageBreak, Frame, NextPageTemplate, PageTemplate, Paragraph,
-    Spacer, Table, TableStyle,
+    BaseDocTemplate, CondPageBreak, Frame, KeepTogether, NextPageTemplate, PageTemplate,
+    Paragraph, Spacer, Table, TableStyle,
 )
 from reportlab.platypus.flowables import HRFlowable
 
 from ..core.profiles import CompanyProfile
-from . import md_blocks, pdf_fonts, rtl
+from . import md_blocks, pdf_designs, pdf_fonts, rtl
 
-_fam = pdf_fonts.family
+# The design of the export running on THIS thread (exports can run side by side:
+# the Export button and an e-mail attachment each have their own worker).
+_ctx = threading.local()
+_BUILD_LOCK = threading.RLock()
+
+
+def _D() -> pdf_designs.Design:
+    return getattr(_ctx, "design", None) or pdf_designs.get(None)
+
+
+def _fam() -> pdf_fonts.Family:
+    return pdf_fonts.family(_D().font)
 
 PAGE_W, PAGE_H = A4
 MARGIN_X = 18 * mm
@@ -56,6 +68,8 @@ MUTED = colors.HexColor("#6C6269")
 BORDER = colors.HexColor("#E4DEDC")
 PANEL = colors.HexColor("#F7F4F3")
 BAND = colors.HexColor("#FBF9F8")
+GRID_HEAD = colors.HexColor("#ECE9E8")       # ruled ("grid") tables: header / label fill
+GRID_LINE = colors.HexColor("#9A9096")
 STATUS_COLORS = {
     "Completed": "#16A34A", "In Progress": "#B8760F", "Pending": "#6C6269",
     "Cancelled": "#8A8088", "Overdue": "#DC2626", "Blocked": "#DC2626",
@@ -104,6 +118,12 @@ def _readable(c: colors.Color, minimum: float = 4.5) -> colors.Color:
     return out
 
 
+def _tint(c: colors.Color, amount: float) -> colors.Color:
+    """The colour mixed with white (amount 0..1 of the colour kept)."""
+    return colors.Color(1 - (1 - c.red) * amount, 1 - (1 - c.green) * amount,
+                        1 - (1 - c.blue) * amount)
+
+
 def _hex(c: colors.Color) -> str:
     return "#%02X%02X%02X" % (round(c.red * 255), round(c.green * 255), round(c.blue * 255))
 
@@ -147,7 +167,7 @@ def _text_markup(s: str) -> str:
     if reg and rtl.has_arabic(s):        # rare here: Arabic paragraphs take _para's RTL path
         return f'<font name="{reg}">{_esc(rtl.shape(s))}</font>'
     out = []
-    for seg, fb in pdf_fonts.runs(s):
+    for seg, fb in pdf_fonts.runs(s, _D().font):
         out.append(f'<font name="{fb}">{_esc(seg)}</font>' if fb else _esc(seg))
     return "".join(out)
 
@@ -243,7 +263,7 @@ def _segments(text: str, font: str) -> list[tuple[str, str]]:
         reg, bold_font = rtl.pdf_arabic_font()
         if reg:
             return [((bold_font if font.endswith("Bold") else reg), rtl.shape(text))]
-    return [((fb or font), seg) for seg, fb in pdf_fonts.runs(text or "")]
+    return [((fb or font), seg) for seg, fb in pdf_fonts.runs(text or "", _D().font)]
 
 
 def _text_w(text: str, font: str, size: float) -> float:
@@ -308,36 +328,49 @@ def _ellipsize(text: str, font: str, size: float, width: float) -> str:
 # styles
 # ----------------------------------------------------------------------------
 def _styles(accent: colors.Color, head_text: colors.Color) -> dict:
+    d = _D()
+    g = d.gap
     ink = _readable(accent)
+    align = TA_CENTER if d.title_align == "center" else TA_LEFT
     # bulletFontName too: its default is the unembedded built-in Helvetica.
     base = dict(fontName=_fam().regular, bulletFontName=_fam().regular, textColor=TEXT,
                 allowWidows=0, allowOrphans=0)
+    head_cell = {"fill": head_text, "tint": ink}.get(d.table, TEXT)
     S = {
         "eyebrow": ParagraphStyle("m_eyebrow", fontName=_fam().bold, fontSize=9,
-                                  leading=12, textColor=ink, spaceAfter=3),
-        "title": ParagraphStyle("m_title", fontName=_fam().bold, fontSize=20,
-                                leading=25, textColor=TEXT, spaceAfter=10),
-        "h2": ParagraphStyle("m_h2", fontName=_fam().bold, fontSize=13, leading=17,
-                             textColor=ink, spaceBefore=12, spaceAfter=2),
-        "h3": ParagraphStyle("m_h3", fontName=_fam().bold, fontSize=11, leading=15,
-                             textColor=TEXT, spaceBefore=8, spaceAfter=3),
-        "body": ParagraphStyle("m_body", fontSize=10.5, leading=15, spaceAfter=5, **base),
-        "kv": ParagraphStyle("m_kv", fontSize=10.5, leading=15, spaceAfter=3, **base),
-        "bullet": ParagraphStyle("m_bullet", fontSize=10.5, leading=15, leftIndent=14,
-                                 bulletIndent=3, spaceAfter=4, bulletColor=ink, **base),
-        "olist": ParagraphStyle("m_olist", fontSize=10.5, leading=15, leftIndent=20,
-                                bulletIndent=0, spaceAfter=4, bulletColor=ink,
+                                  leading=12, textColor=ink, spaceAfter=3, alignment=align),
+        "title": ParagraphStyle("m_title", fontName=_fam().bold, fontSize=d.title_size,
+                                leading=d.title_size * 1.25, textColor=TEXT,
+                                spaceAfter=10 * g, alignment=align),
+        "h2": ParagraphStyle("m_h2", fontName=_fam().bold, fontSize=d.h2_size,
+                             leading=d.h2_size * 1.3,
+                             textColor=ink if d.heading == "rule" else TEXT,
+                             spaceBefore=12 * g, spaceAfter=2),
+        "h3": ParagraphStyle("m_h3", fontName=_fam().bold, fontSize=d.body + 0.5,
+                             leading=d.lead, textColor=TEXT, spaceBefore=8 * g, spaceAfter=3),
+        "body": ParagraphStyle("m_body", fontSize=d.body, leading=d.lead, spaceAfter=5 * g,
+                               **base),
+        "kv": ParagraphStyle("m_kv", fontSize=d.body, leading=d.lead, spaceAfter=3 * g, **base),
+        "bullet": ParagraphStyle("m_bullet", fontSize=d.body, leading=d.lead, leftIndent=14,
+                                 bulletIndent=3, spaceAfter=4 * g, bulletColor=ink, **base),
+        "olist": ParagraphStyle("m_olist", fontSize=d.body, leading=d.lead, leftIndent=20,
+                                bulletIndent=0, spaceAfter=4 * g, bulletColor=ink,
                                 **{**base, "bulletFontName": _fam().bold}),
-        "label": ParagraphStyle("m_label", fontName=_fam().bold, fontSize=9,
-                                leading=13, textColor=MUTED),
-        "value": ParagraphStyle("m_value", fontSize=10, leading=14, **base),
-        "name": ParagraphStyle("m_name", fontSize=9.5, leading=13, leftIndent=9,
-                               bulletIndent=0, bulletColor=ink, **base),
+        "label": ParagraphStyle("m_label", fontName=_fam().bold, fontSize=d.cell,
+                                leading=d.cell + 4,
+                                textColor=TEXT if d.details == "grid" else MUTED),
+        "card_label": ParagraphStyle("m_card_label", fontName=_fam().bold, fontSize=7.5,
+                                     leading=10, textColor=MUTED, spaceAfter=1),
+        "value": ParagraphStyle("m_value", fontSize=d.body - 0.5, leading=d.lead - 1, **base),
+        "name": ParagraphStyle("m_name", fontSize=d.cell + 0.5, leading=d.cell + 4,
+                               leftIndent=9, bulletIndent=0, bulletColor=ink, **base),
+        "name_num": ParagraphStyle("m_name_num", fontSize=d.cell + 0.5, leading=d.cell + 4,
+                                   leftIndent=18, bulletIndent=0, bulletColor=TEXT, **base),
         "group": ParagraphStyle("m_group", fontName=_fam().bold, fontSize=9,
-                                leading=13, textColor=MUTED, spaceBefore=8, spaceAfter=3),
-        "cell": ParagraphStyle("m_cell", fontSize=9, leading=12, **base),
-        "cellh": ParagraphStyle("m_cellh", fontName=_fam().bold, fontSize=9,
-                                leading=12, textColor=head_text),
+                                leading=13, textColor=MUTED, spaceBefore=8 * g, spaceAfter=3),
+        "cell": ParagraphStyle("m_cell", fontSize=d.cell, leading=d.cell + 3, **base),
+        "cellh": ParagraphStyle("m_cellh", fontName=_fam().bold, fontSize=d.cell,
+                                leading=d.cell + 3, textColor=head_cell),
     }
     return S
 
@@ -349,8 +382,12 @@ class _Letterhead:
     NAME_MAX, NAME_MIN, CONTACT = 14.0, 9.0, 8.0
 
     def __init__(self, profile: CompanyProfile, accent: colors.Color):
+        d = _D()
         self.p = profile
         self.ink = _readable(accent)
+        self.rule = d.letterhead
+        self.name_color = self.ink if d.name_accent else TEXT
+        self.NAME_MAX = d.name_max
         self.logo = None
         self.logo_w = self.logo_h = 0.0
         if profile.logo_path and Path(profile.logo_path).exists():
@@ -365,8 +402,9 @@ class _Letterhead:
                         want = 35.0
                     w = min(max(want, 10.0), 80.0) * mm
                     h = w * ih / iw
-                    if h > 20 * mm:                          # tall logos: cap the height
-                        h = 20 * mm
+                    cap = d.logo_max_mm * mm
+                    if h > cap:                              # tall logos: cap the height
+                        h = cap
                         w = h * iw / ih
                     if w > CONTENT_W * 0.45:                 # very wide logos
                         w = CONTENT_W * 0.45
@@ -440,7 +478,7 @@ class _Letterhead:
                 tx, align = MARGIN_X, "left"
         c.saveState()
         y = text_top
-        c.setFillColor(self.ink)
+        c.setFillColor(self.name_color)
         for ln in self.name_lines:
             y -= self.name_lead
             _draw(c, ln, tx, y + self.name_lead * 0.2, font=_fam().bold,
@@ -453,9 +491,20 @@ class _Letterhead:
             _draw(c, ln, tx, y + self.contact_lead * 0.25, font=_fam().regular,
                   size=self.CONTACT, align=align)
         rule_y = PAGE_H - self.rule_from_top
-        c.setStrokeColor(self.ink)
-        c.setLineWidth(1.2)
-        c.line(MARGIN_X, rule_y, PAGE_W - MARGIN_X, rule_y)
+        if self.rule == "hairline":
+            c.setStrokeColor(BORDER)
+            c.setLineWidth(0.8)
+            c.line(MARGIN_X, rule_y, PAGE_W - MARGIN_X, rule_y)
+        elif self.rule == "double":
+            c.setStrokeColor(self.ink)
+            c.setLineWidth(1.6)
+            c.line(MARGIN_X, rule_y, PAGE_W - MARGIN_X, rule_y)
+            c.setLineWidth(0.5)
+            c.line(MARGIN_X, rule_y - 2.4, PAGE_W - MARGIN_X, rule_y - 2.4)
+        else:
+            c.setStrokeColor(self.ink)
+            c.setLineWidth(1.2)
+            c.line(MARGIN_X, rule_y, PAGE_W - MARGIN_X, rule_y)
         c.restoreState()
 
 
@@ -493,6 +542,10 @@ class _PageCanvas(_canvas.Canvas):
     def _decorate(self, total: int) -> None:
         cfg = self._cfg
         self.saveState()
+        band = _D().top_band_mm * mm
+        if band:                                    # accent strip across the top edge
+            self.setFillColor(cfg["accent"])
+            self.rect(0, PAGE_H - band, PAGE_W, band, stroke=0, fill=1)
         if self._pageNumber == 1:
             if cfg.get("letterhead"):
                 cfg["letterhead"].draw(self)
@@ -614,6 +667,8 @@ def _cell_markup(text: str, S: dict, status: bool) -> tuple[str, str | None]:
     if _is_placeholder(text):
         return "cell", f'<font color="{_hex(MUTED)}"><i>{_text_markup(_visible(text))}</i></font>'
     if status and not rtl.has_arabic(text):
+        if not _D().status_color:                  # e.g. Formal: bold, no colour
+            return "cell", f"<b>{_text_markup(_visible(text))}</b>"
         from ..core.tasks import normalize_status
         canon = normalize_status(md_blocks.plain(text))
         col = STATUS_COLORS.get(canon)
@@ -634,6 +689,7 @@ def _col_widths(headers: list[str], rows: list[list[str]], avail: float,
     whole one-line width while it is a fair share, and the long text columns
     divide what is left in proportion to their text."""
     n = len(headers)
+    size = _D().cell
     mins, prefs = [], []
     for j in range(n):
         body_font = _fam().bold if j == status_col else _fam().regular
@@ -642,9 +698,9 @@ def _col_widths(headers: list[str], rows: list[list[str]], avail: float,
         longest_word = full = 0.0
         for t, font, ex in texts:
             p = _visible(t)
-            full = max(full, _text_w(p, font, 9) + ex)
+            full = max(full, _text_w(p, font, size) + ex)
             for w in p.split():
-                longest_word = max(longest_word, _text_w(w, font, 9) + ex)
+                longest_word = max(longest_word, _text_w(w, font, size) + ex)
         mn = max(min(longest_word + _CELL_PAD + 1, avail * 0.4), 9 * mm)
         mins.append(mn)
         prefs.append(max(min(full + _CELL_PAD + 1, avail), mn))
@@ -701,15 +757,28 @@ def _table(headers: list[str], rows: list[list[str]], S: dict, accent: colors.Co
             line.append(_para(cell, S[key], widths[j] - _CELL_PAD, markup=markup))
         data.append(line)
     tbl = Table(data, colWidths=widths, repeatRows=1, hAlign="LEFT", splitByRow=1)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), accent),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BAND]),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.5, BORDER),
-        ("BOX", (0, 0), (-1, -1), 0.6, BORDER),
+    d = _D()
+    pad = 5 if d.gap >= 1 else 3
+    look = {
+        "fill": [("BACKGROUND", (0, 0), (-1, 0), accent),
+                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BAND]),
+                 ("LINEBELOW", (0, 0), (-1, -1), 0.5, BORDER),
+                 ("BOX", (0, 0), (-1, -1), 0.6, BORDER)],
+        "tint": [("BACKGROUND", (0, 0), (-1, 0), _tint(accent, 0.12)),
+                 ("LINEBELOW", (0, 0), (-1, 0), 1.2, _readable(accent)),
+                 ("LINEBELOW", (0, 1), (-1, -1), 0.5, BORDER)],
+        "grid": [("BACKGROUND", (0, 0), (-1, 0), GRID_HEAD),
+                 ("GRID", (0, 0), (-1, -1), 0.5, GRID_LINE),
+                 ("BOX", (0, 0), (-1, -1), 0.8, MUTED)],
+        "lines": [("LINEABOVE", (0, 0), (-1, 0), 0.9, TEXT),
+                  ("LINEBELOW", (0, 0), (-1, 0), 0.9, TEXT),
+                  ("LINEBELOW", (0, 1), (-1, -1), 0.4, BORDER)],
+    }[d.table]
+    tbl.setStyle(TableStyle(look + [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("FONTNAME", (0, 0), (-1, -1), _fam().regular),     # not the unembedded default
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), pad),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 7),
     ]))
@@ -721,29 +790,84 @@ def _table(headers: list[str], rows: list[list[str]], S: dict, accent: colors.Co
     return tbl
 
 
+def _value(value: str, S: dict, width: float) -> Paragraph:
+    if _is_placeholder(value):
+        return _para(value, S["value"], width,
+                     markup=f'<font color="{_hex(MUTED)}"><i>{_text_markup(_visible(value))}</i></font>')
+    return _para(value, S["value"], width)
+
+
+def _pairs(cells: list, mirror: bool) -> tuple[list, list]:
+    """Lay cells out two per row; (rows, spans) — an odd last cell spans both."""
+    rows = [cells[i:i + 2] for i in range(0, len(cells), 2)]
+    spans = []
+    if rows and len(rows[-1]) == 1:
+        rows[-1].append("")
+        spans.append(("SPAN", (0, len(rows) - 1), (1, len(rows) - 1)))
+    elif mirror:
+        rows = [r[::-1] for r in rows]
+    if mirror and spans:
+        rows = [r[::-1] for r in rows[:-1]] + [rows[-1]]
+    return rows, spans
+
+
 def _details(rows: list[tuple[str, str]], S: dict, ink: colors.Color, mirror: bool) -> Table:
-    label_w = max((_text_w(_visible(k), _fam().bold, 9) for k, _ in rows), default=0)
+    """The meeting-details block (date, location ...), laid out per the design."""
+    kind = _D().details
+    font = ("FONTNAME", (0, 0), (-1, -1), _fam().regular)       # not the unembedded default
+    if kind == "cards":                         # label over value, two cards per row
+        half = CONTENT_W / 2
+        cells = [[_para(k, S["card_label"], half - 18,
+                        markup=_text_markup(_visible(k).upper())),
+                  _value(v, S, half - 18)] for k, v in rows]
+        grid, spans = _pairs(cells, mirror)
+        tbl = Table(grid, colWidths=[half, half], hAlign="LEFT", splitByRow=1)
+        tbl.setStyle(TableStyle(spans + [
+            ("BACKGROUND", (0, 0), (-1, -1), PANEL),
+            ("INNERGRID", (0, 0), (-1, -1), 3, colors.white),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"), font,
+            ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ("LEFTPADDING", (0, 0), (-1, -1), 9), ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+        ]))
+        return tbl
+    if kind == "inline":                        # "Label: value", two per row, no fill
+        half = CONTENT_W / 2
+        cells = [_para(f"**{k}:** {v}", S["value"], half - 10) for k, v in rows]
+        grid, spans = _pairs(cells, mirror)
+        tbl = Table(grid, colWidths=[half, half], hAlign="LEFT", splitByRow=1)
+        tbl.setStyle(TableStyle(spans + [
+            ("LINEABOVE", (0, 0), (-1, 0), 0.5, BORDER),
+            ("LINEBELOW", (0, -1), (-1, -1), 0.5, BORDER),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"), font,
+            ("TOPPADDING", (0, 0), (-1, -1), 2.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        ]))
+        return tbl
+    label_w = max((_text_w(_visible(k), _fam().bold, S["label"].fontSize) for k, _ in rows),
+                  default=0)
     label_w = min(max(label_w + 16, 30 * mm), 50 * mm)
     value_w = CONTENT_W - label_w
     data = []
     for key, value in rows:
         lab = _para(key, S["label"], label_w - 16)
-        if _is_placeholder(value):
-            val = _para(value, S["value"], value_w - 16,
-                        markup=f'<font color="{_hex(MUTED)}"><i>{_text_markup(_visible(value))}</i></font>')
-        else:
-            val = _para(value, S["value"], value_w - 16)
+        val = _value(value, S, value_w - 16)
         data.append([val, lab] if mirror else [lab, val])
     widths = [value_w, label_w] if mirror else [label_w, value_w]
     tbl = Table(data, colWidths=widths, hAlign="LEFT", splitByRow=1)
-    edge = ("LINEAFTER", (-1, 0), (-1, -1), 3, ink) if mirror else \
-        ("LINEBEFORE", (0, 0), (0, -1), 3, ink)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PANEL),
-        edge,
-        ("LINEBELOW", (0, 0), (-1, -2), 0.5, BORDER),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("FONTNAME", (0, 0), (-1, -1), _fam().regular),     # not the unembedded default
+    label_col = (-1, 0), (-1, -1)
+    if not mirror:
+        label_col = (0, 0), (0, -1)
+    if kind == "grid":                          # fully ruled, shaded label column
+        look = [("BACKGROUND", label_col[0], label_col[1], GRID_HEAD),
+                ("GRID", (0, 0), (-1, -1), 0.5, GRID_LINE),
+                ("BOX", (0, 0), (-1, -1), 0.8, MUTED)]
+    else:                                       # "panel": shaded, accent edge
+        look = [("BACKGROUND", (0, 0), (-1, -1), PANEL),
+                ("LINEAFTER", (-1, 0), (-1, -1), 3, ink) if mirror
+                else ("LINEBEFORE", (0, 0), (0, -1), 3, ink),
+                ("LINEBELOW", (0, 0), (-1, -2), 0.5, BORDER)]
+    tbl.setStyle(TableStyle(look + [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"), font,
         ("TOPPADDING", (0, 0), (-1, -1), 6),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
         ("LEFTPADDING", (0, 0), (-1, -1), 8),
@@ -754,40 +878,111 @@ def _details(rows: list[tuple[str, str]], S: dict, ink: colors.Color, mirror: bo
 
 def _people(key: str, value: str, S: dict, ink: colors.Color, mirror: bool) -> list:
     """An attendee (or apologies) list as a grid of names, 1-3 columns."""
+    kind = _D().details
+    numbered = kind == "grid"
     names = _split_names(_visible(value)) or [_visible(value)]
     real = [n for n in names if not _is_placeholder(n)]
     heading = f"{key} ({len(real)})" if len(real) > 1 else key
     out: list = [_Heading([_para(heading, S["group"], CONTENT_W)])]
-    widest = max((_text_w(n, _fam().regular, 9.5) for n in names), default=0) + 9 + 16
+    style = S["name_num"] if numbered else S["name"]
+    widest = max((_text_w(n, _fam().regular, style.fontSize) for n in names), default=0) \
+        + style.leftIndent + 16
     cols = 3 if widest <= CONTENT_W / 3 else 2 if widest <= CONTENT_W / 2 else 1
     cols = min(cols, max(len(names), 1))
     col_w = CONTENT_W / cols
     cells = []
-    for nm in names:
+    for i, nm in enumerate(names, 1):
         if _is_placeholder(nm):
             cells.append(_para(nm, S["value"], col_w - 16,
                                markup=f'<font color="{_hex(MUTED)}"><i>{_text_markup(nm)}</i></font>'))
+        elif rtl.has_arabic(nm):                # the marker goes inside RTL text
+            cells.append(_para(f"{i}. {nm}" if numbered else nm, style, col_w - 16))
         else:
-            cells.append(_para(nm, S["name"], col_w - 16,
-                               bulletText=None if rtl.has_arabic(nm) else "•"))
+            cells.append(_para(nm, style, col_w - 16, bulletText=f"{i}." if numbered else "•"))
     grid = [cells[i:i + cols] for i in range(0, len(cells), cols)]
     grid[-1] += [""] * (cols - len(grid[-1]))
     if mirror:
         grid = [row[::-1] for row in grid]
     tbl = Table(grid, colWidths=[col_w] * cols, hAlign="LEFT", splitByRow=1)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), PANEL),
+    if kind == "grid":
+        look, edge = [("GRID", (0, 0), (-1, -1), 0.5, GRID_LINE),
+                      ("BOX", (0, 0), (-1, -1), 0.8, MUTED)], 4
+    elif kind == "inline":
+        look, edge = [("LINEBELOW", (0, -1), (-1, -1), 0.5, BORDER)], 3
+    else:
+        look, edge = [("BACKGROUND", (0, 0), (-1, -1), PANEL)], 7
+    tbl.setStyle(TableStyle(look + [
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("FONTNAME", (0, 0), (-1, -1), _fam().regular),     # not the unembedded default
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("TOPPADDING", (0, 0), (-1, 0), 7),
-        ("BOTTOMPADDING", (0, -1), (-1, -1), 7),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, 0), edge),
+        ("BOTTOMPADDING", (0, -1), (-1, -1), edge),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0 if kind == "inline" else 8),
         ("RIGHTPADDING", (0, 0), (-1, -1), 8),
     ]))
     out.append(tbl)
     return out
+
+
+def _section_heading(text: str, S: dict, accent: colors.Color, counter: list) -> "_Heading":
+    """A section (##) heading in the design's style."""
+    d = _D()
+    ink = _readable(accent)
+    if d.heading == "numbered":                 # "1. PURPOSE OF MEETING" + dark rule
+        counter[0] += 1
+        para = _para(f"{counter[0]}. {text}", S["h2"], CONTENT_W,
+                     markup=_text_markup(f"{counter[0]}. {_visible(text).upper()}"))
+        return _Heading([para, HRFlowable(width="100%", thickness=0.9, color=TEXT,
+                                          spaceBefore=1, spaceAfter=6)])
+    if d.heading == "bar":                      # tinted bar with an accent edge
+        cell = _para(text, S["h2"], CONTENT_W - 18)
+        cell.style = ParagraphStyle("m_h2_bar", parent=cell.style, spaceBefore=0, spaceAfter=0)
+        tbl = Table([[cell]], colWidths=[CONTENT_W], hAlign="LEFT")
+        rtl_text = rtl.has_arabic(text)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), _tint(accent, 0.08)),
+            ("LINEAFTER", (-1, 0), (-1, -1), 3, ink) if rtl_text
+            else ("LINEBEFORE", (0, 0), (0, -1), 3, ink),
+            ("FONTNAME", (0, 0), (-1, -1), _fam().regular),
+            ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 9), ("RIGHTPADDING", (0, 0), (-1, -1), 9),
+        ]))
+        tbl.spaceBefore, tbl.spaceAfter = 13 * d.gap, 7
+        return _Heading([tbl])
+    para = _para(text, S["h2"], CONTENT_W)
+    if d.heading == "plain":                    # dark heading, hairline
+        return _Heading([para, HRFlowable(width="100%", thickness=0.5, color=BORDER,
+                                          spaceBefore=1, spaceAfter=4)])
+    return _Heading([para, HRFlowable(width="100%", thickness=0.7, color=BORDER,
+                                      spaceBefore=1, spaceAfter=6)])
+
+
+_SIGN_EN = ("Minutes recorded by", "Approved by", "Name", "Signature", "Date")
+_SIGN_AR = ("أعد المحضر", "اعتمد المحضر", "الاسم", "التوقيع", "التاريخ")
+
+
+def _signatures(S: dict, arabic: bool) -> list:
+    """The closing "recorded by / approved by" block (kept on one page)."""
+    L = _SIGN_AR if arabic else _SIGN_EN
+    gap, lab = 10 * mm, 24 * mm
+    col = (CONTENT_W - gap) / 2
+    data = [[_para(f"**{L[0]}**", S["value"], col), "", "",
+             _para(f"**{L[1]}**", S["value"], col), ""]]
+    for item in L[2:]:
+        data.append([_para(item, S["label"], lab - 6), "", "",
+                     _para(item, S["label"], lab - 6), ""])
+    tbl = Table(data, colWidths=[lab, col - lab, gap, lab, col - lab],
+                rowHeights=[None, 9 * mm, 9 * mm, 9 * mm], hAlign="LEFT")
+    tbl.setStyle(TableStyle([
+        ("SPAN", (0, 0), (1, 0)), ("SPAN", (3, 0), (4, 0)),
+        ("LINEBELOW", (1, 1), (1, -1), 0.6, TEXT), ("LINEBELOW", (4, 1), (4, -1), 0.6, TEXT),
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("FONTNAME", (0, 0), (-1, -1), _fam().regular),
+        ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    return [Spacer(1, 9 * mm), KeepTogether([tbl])]
 
 
 def _list_item(text: str, marker: str, style) -> Paragraph:
@@ -847,8 +1042,25 @@ def _resolve_headings(items: list, frame_h: float) -> list:
 # public API
 # ----------------------------------------------------------------------------
 def export_pdf(minutes_md: str, path: str | Path,
-               profile: CompanyProfile | None = None) -> Path:
-    path = Path(path)
+               profile: CompanyProfile | None = None, design: str | None = None) -> Path:
+    """Write the minutes as a PDF in the company's branding.
+
+    The layout is the company's chosen design (`profile.pdf_design`); `design`
+    overrides it (used for exports without a company profile and for previews)."""
+    # One PDF is built at a time: a preview on the GUI thread and an export or
+    # e-mail attachment on a worker can overlap, and reportlab's shared font
+    # objects aren't documented as safe for concurrent builds. Builds take well
+    # under a second, so serialising them costs nothing noticeable.
+    with _BUILD_LOCK:
+        _ctx.design = pdf_designs.get(design or (profile.pdf_design if profile else None))
+        try:
+            return _export_pdf(minutes_md, Path(path), profile)
+        finally:
+            _ctx.design = None
+
+
+def _export_pdf(minutes_md: str, path: Path, profile: CompanyProfile | None) -> Path:
+    d = _D()
     accent = _accent(profile.accent_color if profile else DEFAULT_ACCENT)
     ink = _readable(accent)
     head_text = colors.white if _contrast(accent, colors.white) >= 3 else TEXT
@@ -870,6 +1082,7 @@ def export_pdf(minutes_md: str, path: str | Path,
             title, title_at = v, n
             break
     mirror = rtl.has_arabic(h1 or title or (details[0][0] if details else ""))
+    counter = [0]                                   # numbered section headings
 
     letterhead = _Letterhead(profile, accent) if profile else None
     footer = _Footer(profile)
@@ -898,11 +1111,7 @@ def export_pdf(minutes_md: str, path: str | Path,
 
     for blk in blocks[i:]:
         if blk.kind in ("h1", "h2"):
-            items.append(_Heading([
-                _para(blk.text, S["h2"], CONTENT_W),
-                HRFlowable(width="100%", thickness=0.7, color=BORDER, spaceBefore=1,
-                           spaceAfter=6),
-            ]))
+            items.append(_section_heading(blk.text, S, accent, counter))
         elif blk.kind == "h3":
             items.append(_Heading([_para(blk.text, S["h3"], CONTENT_W)]))
         elif blk.kind == "olist":
@@ -925,6 +1134,8 @@ def export_pdf(minutes_md: str, path: str | Path,
             items.append(Spacer(1, 8))
     if len(items) == 1:                                   # nothing but the template switch
         items.append(_para("No minutes content.", S["body"], CONTENT_W))
+    elif d.signatures:
+        items.extend(_signatures(S, mirror))
 
     flow = _resolve_headings(items, later_h)
 
@@ -944,6 +1155,6 @@ def export_pdf(minutes_md: str, path: str | Path,
     doc.addPageTemplates([PageTemplate(id="first", frames=[first]),
                           PageTemplate(id="later", frames=[later])])
     doc.build(flow, canvasmaker=_PageCanvas.factory(
-        footer=footer, letterhead=letterhead, ink=ink, company=company,
+        footer=footer, letterhead=letterhead, ink=ink, accent=accent, company=company,
         title=_visible(title or h1).strip()))
     return path

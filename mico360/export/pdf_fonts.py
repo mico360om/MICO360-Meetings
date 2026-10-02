@@ -27,6 +27,12 @@ _FAMILIES = [
     ("segoeui.ttf", "segoeuib.ttf", "segoeuii.ttf", "segoeuiz.ttf"),
     ("tahoma.ttf", "tahomabd.ttf", "tahoma.ttf", "tahomabd.ttf"),
 ]
+# Serif family for the "Formal" PDF design (falls back to the sans family).
+_SERIF_FAMILIES = [
+    ("times.ttf", "timesbd.ttf", "timesi.ttf", "timesbi.ttf"),
+    ("georgia.ttf", "georgiab.ttf", "georgiai.ttf", "georgiaz.ttf"),
+    ("cambria.ttc", "cambriab.ttf", "cambriai.ttf", "cambriaz.ttf"),
+]
 # Per-character fallbacks, tried in order: (file, index in a .ttc collection).
 _FALLBACKS = [
     ("seguisym.ttf", 0),     # symbols, arrows, check marks, dingbats
@@ -93,17 +99,28 @@ def _register(name: str, path: Path, index: int = 0):
     return font
 
 
-@lru_cache(maxsize=1)
-def family() -> Family:
-    """Register (once) and return the main embedded family, else Helvetica."""
+@lru_cache(maxsize=4)
+def family(kind: str = "sans") -> Family:
+    """Register (once) and return an embedded family: "sans" (the default) or
+    "serif". Serif falls back to sans, sans to the built-in Helvetica."""
+    from reportlab.pdfbase import pdfmetrics
+    if kind == "serif":
+        got = _register_family("MICOSerif", _SERIF_FAMILIES)
+        return got or family("sans")
+    got = _register_family("MICOSans", _FAMILIES)
+    return got or Family("Helvetica", "Helvetica-Bold", "Helvetica-Oblique",
+                         "Helvetica-BoldOblique", embedded=False)
+
+
+def _register_family(base: str, candidates: list) -> "Family | None":
     from reportlab.pdfbase import pdfmetrics
     with _lock:
-        for files in _FAMILIES:
+        for files in candidates:
             paths = [_FONTS_DIR / f for f in files]
             if not paths[0].exists():
                 continue
             try:
-                names = ["MICOSans", "MICOSans-Bold", "MICOSans-Italic", "MICOSans-BoldItalic"]
+                names = [base, f"{base}-Bold", f"{base}-Italic", f"{base}-BoldItalic"]
                 reg = _register(names[0], paths[0])
                 for n, p in zip(names[1:], paths[1:]):
                     _register(n, p if p.exists() else paths[0])
@@ -120,8 +137,7 @@ def family() -> Family:
                               mono=mono, mono_charset=mono_set)
             except Exception:
                 continue
-    return Family("Helvetica", "Helvetica-Bold", "Helvetica-Oblique",
-                  "Helvetica-BoldOblique", embedded=False)
+    return None
 
 
 _loaded: list[tuple[str, frozenset]] = []
@@ -154,22 +170,22 @@ def _fallback_for(ch: str) -> str | None:
     return None
 
 
-@lru_cache(maxsize=4096)
-def font_for(ch: str) -> str | None:
+@lru_cache(maxsize=8192)
+def font_for(ch: str, kind: str = "sans") -> str | None:
     """None if the main family has `ch`, else the fallback font to use (or None
     when no installed font has it — the main font then shows its missing-glyph
     box, which is the best anyone can do)."""
-    if ch.isspace() or ord(ch) < 0x20 or family().has(ch):
+    if ch.isspace() or ord(ch) < 0x20 or family(kind).has(ch):
         return None
     return _fallback_for(ch)
 
 
-def runs(text: str) -> list[tuple[str, str | None]]:
+def runs(text: str, kind: str = "sans") -> list[tuple[str, str | None]]:
     """Split text into (segment, fallback font or None) runs."""
     out: list[tuple[str, str | None]] = []
     cur, cur_font = [], None
     for ch in text:
-        f = font_for(ch)
+        f = font_for(ch, kind)
         if f != cur_font and cur:
             out.append(("".join(cur), cur_font))
             cur = []

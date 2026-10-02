@@ -13,7 +13,8 @@ Runs, in order:
   3c. Release fixes        (tests/release_fixes.py — remote audio, thread crashes,
                             pywin32 in builds, recordings kept, multi-installer)
   3d. Fix suites           (tests/fixes_capture.py, fixes_capture2.py, fixes_ai.py,
-                            fixes_data.py, fixes_ui.py, fixes_pdf.py — each runs
+                            fixes_data.py, fixes_ui.py, fixes_pdf.py,
+                            fixes_templates.py — each runs
                             when present, SKIP otherwise)
   4. Security scan          (no secrets in tracked files / source tree)
   5. Version coherence      (mico360.__version__ == installer.iss AppVersion)
@@ -335,7 +336,7 @@ def main() -> int:
     for area, script in (("CAPTURE", "tests/fixes_capture.py"), ("CAPTURE2", "tests/fixes_capture2.py"),
                          ("AI", "tests/fixes_ai.py"),
                          ("DATA", "tests/fixes_data.py"), ("UI", "tests/fixes_ui.py"),
-                         ("PDF", "tests/fixes_pdf.py")):
+                         ("PDF", "tests/fixes_pdf.py"), ("TEMPLATES", "tests/fixes_templates.py")):
         run_suite(f"Fixes: {area.lower()}", script, rf"==== {area}: (\d+)/\1 passed ====",
                   optional=True)
     if not fast:

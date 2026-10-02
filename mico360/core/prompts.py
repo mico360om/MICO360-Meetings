@@ -10,10 +10,10 @@ import json
 import logging
 import re
 import uuid
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-from ..config import PROMPTS_DIR
+from ..config import PROMPTS_DIR, atomic_write_text
 
 log = logging.getLogger("mico360.prompts")
 
@@ -317,7 +317,13 @@ class PromptLibrary:
 
     def _from_dict(self, d: dict) -> SavedPrompt:
         valid = {f.name for f in fields(SavedPrompt)}
-        return SavedPrompt(**{k: v for k, v in d.items() if k in valid})
+        p = SavedPrompt(**{k: v for k, v in d.items() if k in valid})
+        # a hand-edited / imported file can hold anything: keep the types sane
+        p.name = str(p.name or "").strip() or "Untitled"
+        p.text = "" if p.text is None else str(p.text)
+        p.category = str(p.category or "").strip() or "General"
+        p.builtin, p.favorite = bool(p.builtin), bool(p.favorite)
+        return p
 
     def list(self) -> list[SavedPrompt]:
         items: list[SavedPrompt] = []
@@ -370,14 +376,144 @@ class PromptLibrary:
         self._write(p)
         return p
 
+    def unique_name(self, name: str) -> str:
+        """`name`, or "name (2)", "name (3)" ... if a prompt already has it."""
+        taken = {p.name.strip().lower() for p in self.list()}
+        base = (name or "").strip() or "Untitled"
+        if base.lower() not in taken:
+            return base
+        n = 2
+        while f"{base} ({n})".lower() in taken:
+            n += 1
+        return f"{base} ({n})"
+
     def duplicate(self, prompt_id: str) -> SavedPrompt | None:
-        """Copy a prompt into a new editable Custom prompt (never a built-in)."""
+        """Copy a prompt into a new editable Custom prompt (never a built-in).
+        The text and category are copied exactly; the name is made unique."""
         src = self.get(prompt_id)
         if not src:
             return None
-        return self.add(f"{src.name} (copy)", src.text, builtin=False, category=src.category)
+        return self.add(self.copy_name(src.name), src.text, builtin=False,
+                        category=src.category)
+
+    def copy_name(self, name: str) -> str:
+        """"X (copy)", then "X (copy 2)", "X (copy 3)" ..."""
+        taken = {p.name.strip().lower() for p in self.list()}
+        cand, n = f"{name} (copy)", 2
+        while cand.lower() in taken:
+            cand, n = f"{name} (copy {n})", n + 1
+        return cand
+
+    # -- built-ins ----------------------------------------------------------
+    @staticmethod
+    def builtin_text(name: str) -> str | None:
+        """The shipped text of a built-in prompt (None if `name` isn't one)."""
+        for n, _cat, text in BUILTIN_PROMPTS:
+            if n == name:
+                return text
+        return None
+
+    def is_modified(self, p: SavedPrompt) -> bool:
+        """True for a built-in whose text was edited away from the shipped one."""
+        shipped = self.builtin_text(p.name) if p.builtin else None
+        return shipped is not None and shipped != p.text
+
+    def restore_builtin(self, prompt_id: str) -> SavedPrompt | None:
+        """Put a built-in's shipped text and category back."""
+        p = self.get(prompt_id)
+        if not p or not p.builtin:
+            return None
+        for n, cat, text in BUILTIN_PROMPTS:
+            if n == p.name:
+                p.text, p.category = text, cat
+                self._write(p)
+                return p
+        return None
+
+    # -- import / export ----------------------------------------------------
+    def export_file(self, prompts: list[SavedPrompt], path: str | Path) -> Path:
+        """Write prompts to a JSON file that import_file() reads back exactly
+        (name, category, favourite and the text character-for-character)."""
+        path = Path(path)
+        rows = [{"name": p.name, "category": p.category, "favorite": p.favorite,
+                 "text": p.text} for p in prompts]
+        atomic_write_text(path, json.dumps({"mico360_prompts": 1, "prompts": rows},
+                                           indent=2, ensure_ascii=False))
+        return path
+
+    def import_file(self, path: str | Path) -> "PromptImportResult":
+        """Import prompts from a JSON export, or one prompt from a .txt / .md
+        file (named after the file). Nothing existing is overwritten: an
+        identical prompt is skipped, a different one with the same name is
+        imported as "Name (2)". Imported prompts are always Custom."""
+        path = Path(path)
+        ext = path.suffix.lower()
+        raw = path.read_text(encoding="utf-8-sig")
+        if ext == ".json":
+            data = json.loads(raw)
+            if isinstance(data, dict) and isinstance(data.get("prompts"), list):
+                records = data["prompts"]
+            elif isinstance(data, list):
+                records = data
+            elif isinstance(data, dict):
+                records = [data]
+            else:
+                raise ValueError("This file doesn't contain prompts.")
+        elif ext in (".txt", ".md"):
+            records = [{"name": path.stem.replace("_", " ").strip(), "text": raw}]
+        else:
+            raise ValueError(f"Unsupported file type: {ext or '(no extension)'} - "
+                             "use a .json prompt export, or a .txt / .md file")
+        res = PromptImportResult()
+        have = {(p.name.strip().lower(), p.category.strip().lower(), p.text) for p in self.list()}
+        for rec in records:
+            if not isinstance(rec, dict):
+                res.invalid += 1
+                continue
+            text = rec.get("text")
+            if not isinstance(text, str) or not text.strip():
+                res.invalid += 1
+                continue
+            text = text.replace("\r\n", "\n").replace("\r", "\n")     # line endings only
+            name = str(rec.get("name") or "").strip() or "Imported prompt"
+            category = str(rec.get("category") or "").strip() or "General"
+            key = (name.lower(), category.lower(), text)
+            if key in have:
+                res.skipped.append(name)
+                continue
+            new_name = self.unique_name(name)
+            if new_name != name:
+                res.renamed.append((name, new_name))
+            p = self.add(new_name, text, builtin=False, category=category)
+            if rec.get("favorite") is True:
+                p = self.set_favorite(p.id, True) or p
+            have.add((new_name.lower(), category.lower(), text))
+            res.imported.append(p)
+        log.info("imported %d prompt(s) from %s (skipped %d, invalid %d)",
+                 len(res.imported), path.name, len(res.skipped), res.invalid)
+        return res
 
     def _write(self, p: SavedPrompt) -> None:
-        (self.dir / f"{p.id}.json").write_text(
-            json.dumps(p.to_dict(), indent=2), encoding="utf-8"
-        )
+        # temp file + replace: a crash mid-save can't leave a half-written prompt
+        atomic_write_text(self.dir / f"{p.id}.json",
+                          json.dumps(p.to_dict(), indent=2, ensure_ascii=False))
+
+
+@dataclass
+class PromptImportResult:
+    """What a prompt import did (shown to the user)."""
+    imported: list = field(default_factory=list)        # SavedPrompt
+    skipped: list = field(default_factory=list)         # names already in the library, identical
+    renamed: list = field(default_factory=list)         # (old name, new name)
+    invalid: int = 0                                    # records with no usable text
+
+    def summary(self) -> str:
+        parts = [f"Imported {len(self.imported)} prompt(s)"]
+        if self.skipped:
+            parts.append(f"skipped {len(self.skipped)} already in the library")
+        if self.renamed:
+            parts.append("renamed " + ", ".join(f'"{a}" to "{b}"' for a, b in self.renamed[:3]))
+        if self.invalid:
+            parts.append(f"{self.invalid} entr{'y' if self.invalid == 1 else 'ies'} "
+                         "without prompt text ignored")
+        return "; ".join(parts) + "."

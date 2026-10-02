@@ -211,6 +211,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "whisper_device": "auto",           # auto/cpu/cuda
     "output_style": "Formal Minutes",
     "active_profile": "",               # company profile id
+    "pdf_design": "classic",            # PDF design for exports WITHOUT a company profile
     "remove_fillers": True,
     "diarize": False,                   # lightweight speaker identification
     "audio_source": "mic",              # mic | system | both

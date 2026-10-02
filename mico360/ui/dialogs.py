@@ -6,7 +6,7 @@ from dataclasses import replace
 from email.utils import getaddresses
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QRectF, Signal
+from PySide6.QtCore import Qt, QRectF, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QColorDialog, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
@@ -18,6 +18,8 @@ from ..core.profiles import (
     ALIGNMENTS, CompanyProfile, LOGO_POSITIONS, PAGENUM_POSITIONS, ProfileStore,
 )
 from ..core.prompts import TRANSCRIPT_TOKEN
+from ..export import pdf_designs
+from . import pdf_preview
 from .components import tip
 
 
@@ -100,6 +102,34 @@ class PagePreview(QWidget):
             p.drawText(QRectF(pad, yy, w - 2 * pad, 12), pa, pn)
 
 
+class DesignPreview(QLabel):
+    """Page 1 of a sample export, rendered from the REAL PDF for this profile and
+    design — what is shown is what an export will look like."""
+    WIDTH = 300
+
+    def __init__(self):
+        super().__init__()
+        self.setAlignment(Qt.AlignTop | Qt.AlignHCenter)
+        self.setMinimumSize(self.WIDTH + 2, int(self.WIDTH * 1.414) + 2)
+        self.setStyleSheet("border: 1px solid #C9C2C0; background: #FFFFFF;")
+        self.profile: CompanyProfile | None = None
+        self.rendered = False                     # True once a real page is shown
+
+    def set_profile(self, p: CompanyProfile | None, design: str | None = None):
+        self.profile = p
+        img = pdf_preview.render_design(p, design or (p.pdf_design if p else "classic"),
+                                        self.WIDTH * 2)
+        if img is None:
+            self.rendered = False
+            self.setText("Preview unavailable")
+            return
+        from PySide6.QtGui import QPixmap as _QPixmap
+        pm = _QPixmap.fromImage(pdf_preview.scaled(img, self.WIDTH * 2))
+        pm.setDevicePixelRatio(2.0)               # crisp on high-DPI screens
+        self.setPixmap(pm)
+        self.rendered = True
+
+
 class ProfileDialog(QDialog):
     def __init__(self, store: ProfileStore, profile: CompanyProfile | None = None, parent=None):
         super().__init__(parent)
@@ -110,7 +140,7 @@ class ProfileDialog(QDialog):
         self._saved_logo = self.profile.logo_path     # what the saved profile uses
         self._pending_logo = ""                        # chosen, not yet copied in
         self.setWindowTitle("Company Profile")
-        self.resize(820, 600)
+        self.resize(900, 640)
 
         root = QHBoxLayout()
 
@@ -138,6 +168,15 @@ class ProfileDialog(QDialog):
         self.page_pos.setCurrentText(self.profile.page_number_position)
         self.page_fmt = QLineEdit(self.profile.page_number_format)
 
+        self.design = QComboBox()
+        for d in pdf_designs.choices():
+            self.design.addItem(d.name, d.key)
+        self.design.setCurrentIndex(max(0, self.design.findData(
+            pdf_designs.get(self.profile.pdf_design).key)))
+        tip(self.design, "The layout of this company's PDF minutes. Each company keeps its own "
+                         "choice; it applies to every PDF exported or e-mailed for it")
+        self.design_blurb = QLabel(); self.design_blurb.setObjectName("Hint")
+        self.design_blurb.setWordWrap(True)
         tip(self.logo_pos, "Where the logo sits in the exported letterhead: left, centre or right")
         tip(self.logo_w, "Printed logo width in millimetres — height scales automatically "
                          "without losing quality")
@@ -176,12 +215,19 @@ class ProfileDialog(QDialog):
         form.addRow("Page number position", self.page_pos)
         form.addRow("Page number format", self.page_fmt)
         form.addRow("Accent", self.color_btn)
+        form.addRow("PDF design", self.design)
+        form.addRow("", self.design_blurb)
 
-        # --- right: live preview ---
+        # --- right: live preview (the real PDF; a schematic if Qt's PDF module is missing) ---
         right = QVBoxLayout()
-        right.addWidget(QLabel("Live preview"))
-        self.preview = PagePreview()
+        right.addWidget(QLabel("PDF preview"))
+        self.preview = DesignPreview() if pdf_preview.available() else PagePreview()
         right.addWidget(self.preview, 1)
+        # Typing shouldn't re-render the PDF on every keystroke.
+        self._preview_timer = QTimer(self)
+        self._preview_timer.setSingleShot(True)
+        self._preview_timer.setInterval(350)
+        self._preview_timer.timeout.connect(self._render_preview)
 
         root.addWidget(form_host, 3)
         right_host = QWidget(); right_host.setLayout(right)
@@ -202,7 +248,8 @@ class ProfileDialog(QDialog):
             w.currentTextChanged.connect(self._refresh_preview)
         self.logo_w.valueChanged.connect(self._refresh_preview)
         self.page_nums.toggled.connect(self._refresh_preview)
-        self._refresh_preview()
+        self.design.currentIndexChanged.connect(self._design_changed)
+        self._design_changed()
 
     def _collect(self) -> CompanyProfile:
         p = self.profile
@@ -220,10 +267,19 @@ class ProfileDialog(QDialog):
         p.page_number_format = self.page_fmt.text().strip() or "Page {n} of {total}"
         p.logo_path = self._logo_path
         p.accent_color = self._accent
+        p.pdf_design = self.design.currentData() or "classic"
         return p
 
-    def _refresh_preview(self):
-        self.preview.set_profile(self._collect())
+    def _design_changed(self, *_):
+        self.design_blurb.setText(pdf_designs.get(self.design.currentData()).blurb)
+        self._render_preview()
+
+    def _refresh_preview(self, *_):
+        self._preview_timer.start()               # debounced; see _render_preview
+
+    def _render_preview(self):
+        self._preview_timer.stop()
+        self.preview.set_profile(replace(self._collect()))
 
     def _choose_logo(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -249,6 +305,7 @@ class ProfileDialog(QDialog):
             f"background:{self._accent}; color:white; border:none; border-radius:8px; padding:8px 14px;")
 
     def _save(self):
+        self._preview_timer.stop()
         p = self._collect()
         if self._pending_logo:
             try:
@@ -265,6 +322,13 @@ class ProfileDialog(QDialog):
         self._saved_logo = self.profile.logo_path
         self._pending_logo = ""
         self.accept()
+
+
+def exact_text(editor) -> str:
+    """The editor's text character-for-character. toPlainText() silently turns
+    non-breaking spaces into ordinary ones (and drops other separators), so a
+    template would change just by being opened and saved."""
+    return editor.document().toRawText().replace("\u2029", "\n")
 
 
 class PromptDialog(QDialog):
@@ -309,7 +373,7 @@ class PromptDialog(QDialog):
         self.accept()
 
     def values(self) -> tuple[str, str, str]:
-        return (self.name.text().strip(), self.text.toPlainText(),
+        return (self.name.text().strip(), exact_text(self.text),
                 self.category.currentText().strip() or "General")
 
 

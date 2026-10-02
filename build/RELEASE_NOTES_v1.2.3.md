@@ -11,6 +11,9 @@ The biggest release yet — new hands-free recording features plus a full code r
 - **Reminders, follow-ups & calendar:** overdue reminders, per-owner follow-ups and calendar (.ics) export that updates events instead of duplicating them.
 - **Paste text as a source:** start a meeting from pasted notes or a transcript.
 - **Professional PDF minutes:** company letterhead, a meeting-details panel, attendees as a name grid, colour-coded action-item statuses, and clean page breaks — no split table rows, no stranded headings, nothing cut off. Names and text in any language print correctly (fonts are embedded, so the PDF looks the same in every viewer).
+- **A PDF design for each company:** choose Classic, Modern, Formal or Compact in Settings → PDF design, from real previews in that company's branding. The choice is saved with the company and used for every PDF exported or e-mailed for it.
+- **Company branding per meeting:** the Minutes step shows whose letterhead, footer and design the export will use (the meeting's own company by default), so minutes never go out under the wrong company.
+- **Templates you can move and copy:** export / import prompts and company profiles (logos included), duplicate a company profile, and restore an edited built-in prompt. Imports never overwrite what you have.
 - **Arabic / right-to-left:** Arabic minutes display and export correctly in PDF, Word and HTML.
 - **Per-user install:** `Setup.exe /CURRENTUSER` installs without administrator rights.
 

@@ -321,6 +321,12 @@ class SettingsPage(QWidget):
         form.addRow("", report_btn)
         self._updates_tab_index = self._tabs.addTab(up_sa, "Updates")
 
+        # ---- PDF design tab (per company; saves immediately into the profile) ----
+        from .pdf_design_tab import PdfDesignTab
+        self.design_tab = PdfDesignTab(ctx, toast)
+        self._design_tab_index = self._tabs.addTab(self.design_tab, "PDF design")
+        self._tabs.currentChanged.connect(self._tab_shown)
+
         # ---- Data tab -----------------------------------------------------
         da_sa, form = self._tab_form()
         from ..config import DATA_DIR, LOG_DIR
@@ -467,6 +473,11 @@ class SettingsPage(QWidget):
                 "participants. While capturing, the window title shows “● Recording”.")
             self.ctx.settings.set("auto_record_consent_ack", True)
 
+    def _tab_shown(self, index: int):
+        # thumbnails are real PDF renders: build them only when the tab is opened
+        if index == getattr(self, "_design_tab_index", -1):
+            self.design_tab.refresh()
+
     def _tab_form(self):
         """A scrollable QFormLayout for one Settings tab; returns (scrollarea, form)."""
         from PySide6.QtWidgets import QFormLayout as _QFL
@@ -501,6 +512,8 @@ class SettingsPage(QWidget):
     def sync_from_settings(self) -> None:
         """Called when the page is shown: pick up values changed elsewhere (the
         model chosen on New Meeting) unless the user is editing them here."""
+        if self._tabs.currentIndex() == getattr(self, "_design_tab_index", -1):
+            self.design_tab.refresh()             # companies may have changed elsewhere
         if "ollama_model" in self.dirty_fields():
             return
         saved = self.ctx.settings.get("ollama_model") or ""

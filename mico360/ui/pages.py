@@ -34,6 +34,9 @@ from .workers import GenerateWorker, TranscribeWorker
 log = logging.getLogger("mico360.pages")
 
 UPLOAD_EXTS = set(MEDIA_EXTS) | documents.DOC_EXTS | documents.IMAGE_EXTS
+# Stored as a meeting's profile_id when the user chose "No company branding" for
+# it — distinct from "" (no choice recorded: use the active company).
+NO_BRANDING = "none"
 
 
 def _open_path(path: str) -> None:
@@ -62,11 +65,13 @@ class EmailPrepWorker(QThread):
     finished_ok = Signal(list, str)     # attachment paths, html body
     failed = Signal(str)
 
-    def __init__(self, minutes_md: str, formats, profile, out_dir, base_name: str = "Meeting-Minutes"):
+    def __init__(self, minutes_md: str, formats, profile, out_dir,
+                 base_name: str = "Meeting-Minutes", design: str | None = None):
         super().__init__()
         self.minutes_md = minutes_md
         self.formats = list(formats or [])
         self.profile = profile
+        self.design = design                   # PDF design when there is no company profile
         self.out_dir = Path(out_dir)
         self.base_name = base_name
 
@@ -77,7 +82,8 @@ class EmailPrepWorker(QThread):
             paths = []
             for ext in self.formats:
                 p = self.out_dir / f"{self.base_name}{ext}"
-                service.export(self.minutes_md, str(p), self.profile)
+                extra = {"design": self.design} if self.design else {}
+                service.export(self.minutes_md, str(p), self.profile, **extra)
                 paths.append(str(p))
             html = render_document(self.minutes_md, self.profile)
             self.finished_ok.emit(paths, html)
@@ -116,6 +122,9 @@ class NewMeetingPage(QWidget):
         # set when a meeting is opened from History or minutes are generated, so
         # re-saving never overwrites it with whatever the Setup controls show.
         self._meta: dict | None = None
+        # Company branding picked for THIS meeting on the Minutes step ("" = plain);
+        # None = not picked: the meeting's own company, else the active one.
+        self._brand_choice: str | None = None
         # (id, meta) of a new meeting whose editors were emptied — if the same
         # content comes back (Undo), it re-links to that record instead of
         # forking a duplicate.
@@ -782,13 +791,98 @@ class NewMeetingPage(QWidget):
                             "Needs SMTP details in Settings → Email first")
         self.export_btn = QPushButton("Export…"); self.export_btn.setObjectName("Primary")
         self.export_btn.clicked.connect(self._export)
-        tip(self.export_btn, "Save as Word, PDF, text, Markdown or HTML (Ctrl+E). Uses the active "
-                             "Company Profile for logo, footer and page numbers")
+        tip(self.export_btn, "Save as Word, PDF, text, Markdown or HTML (Ctrl+E), branded for the "
+                             "company shown under “Company branding”")
+        # Whose letterhead / footer / PDF design the export uses — always visible,
+        # so minutes never go out under the wrong company.
+        brow = QHBoxLayout()
+        bl = QLabel("Company branding"); bl.setObjectName("Hint")
+        self.brand_box = QComboBox()
+        self.brand_box.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.brand_box.setMinimumContentsLength(22)
+        self.brand_box.activated.connect(self._brand_chosen)
+        tip(self.brand_box, "The company whose letterhead, logo, footer and PDF design are used "
+                            "when you export or e-mail these minutes. Starts as the company this "
+                            "meeting was created under")
+        self.brand_hint = QLabel(""); self.brand_hint.setObjectName("Hint")
+        self.brand_hint.setWordWrap(True)
+        brow.addWidget(bl); brow.addWidget(self.brand_box); brow.addWidget(self.brand_hint, 1)
+        lay.addLayout(brow)
+        self.refresh_brands()
         row.addWidget(self.minutes_count); row.addWidget(self.save_status)
         row.addWidget(self.copy_btn); row.addWidget(self.save_btn)
         row.addStretch(); row.addWidget(self.email_btn); row.addWidget(self.export_btn)
         lay.addLayout(row)
         return card
+
+    # -- company branding ---------------------------------------------------
+    def _brand_id(self) -> str:
+        """Id of the company whose branding this meeting's exports use ("" = none):
+        an explicit pick on the Minutes step, else the company saved with the
+        meeting (if it still exists), else the active company."""
+        if self._brand_choice is not None:
+            return self._brand_choice if (not self._brand_choice
+                                          or self.ctx.profiles.get(self._brand_choice)) else ""
+        saved = (self._meta or {}).get("profile_id", "")
+        if saved == NO_BRANDING:
+            return ""
+        if saved and self.ctx.profiles.get(saved):
+            return saved
+        active = self.ctx.settings.get("active_profile", "")
+        return active if active and self.ctx.profiles.get(active) else ""
+
+    def _brand_record(self) -> str:
+        """What to store with the meeting: the company id, or NO_BRANDING when
+        the user explicitly chose a plain export for it."""
+        if self._brand_choice is not None:              # picked on the Minutes step
+            return self._brand_choice or NO_BRANDING
+        saved = (self._meta or {}).get("profile_id", "")
+        if saved:
+            # The meeting's own company: kept even if that profile can't be read
+            # right now, so a re-save never erases which company it belongs to.
+            return saved
+        return self._brand_id()                         # a new meeting: the active company
+
+    def _branding_profile(self):
+        pid = self._brand_id()
+        return self.ctx.profiles.get(pid) if pid else None
+
+    def _plain_design(self) -> str | None:
+        """PDF design for an export WITHOUT a company profile (Settings → PDF design)."""
+        return None if self._brand_id() else (self.ctx.settings.get("pdf_design") or None)
+
+    def refresh_brands(self):
+        """Refill the Company branding list (profiles can change on other pages)."""
+        if not hasattr(self, "brand_box"):
+            return
+        cur = self._brand_id()
+        profiles = self.ctx.profiles.list()
+        self.brand_box.blockSignals(True)
+        self.brand_box.clear()
+        for p in profiles:
+            self.brand_box.addItem(p.name, p.id)
+        self.brand_box.addItem("No company branding (plain)", "")
+        idx = self.brand_box.findData(cur)
+        self.brand_box.setCurrentIndex(idx if idx >= 0 else self.brand_box.count() - 1)
+        self.brand_box.blockSignals(False)
+        active = self.ctx.settings.get("active_profile", "")
+        if not profiles:
+            hint = "Add a company in Company Profiles to brand your exports."
+        elif cur and cur != active and self.ctx.profiles.get(active):
+            hint = (f"This meeting uses its own company — the active company is "
+                    f"“{self.ctx.profiles.get(active).name}”.")
+        else:
+            hint = ""
+        self.brand_hint.setText(hint)
+
+    def _brand_chosen(self, _index: int = 0):
+        pid = self.brand_box.currentData() or ""
+        self._brand_choice = pid
+        if self._meta is not None:              # kept with the meeting in History
+            self._meta["profile_id"] = pid or NO_BRANDING
+        if self._current_id:
+            self._save_history(silent=True)
+        self.refresh_brands()
 
     # -- data refresh -------------------------------------------------------
     def _retry_ai_status(self):
@@ -881,6 +975,7 @@ class NewMeetingPage(QWidget):
             for p in self.ctx.profiles.list():
                 if p.name == mt.profile_name:
                     self.ctx.settings.set("active_profile", p.id); break
+            self.refresh_brands()
         self.toast.show_message(f"Applied “{mt.name}” meeting type.", "success")
 
     def _import_ics(self):
@@ -1151,7 +1246,7 @@ class NewMeetingPage(QWidget):
         snap = w.snap = {
             "id": self._current_id, "title": self.meeting_title.text().strip()
             or self.meet_title.text().strip(), "style": style, "model": model,
-            "profile": self.ctx.settings.get("active_profile", ""),
+            "profile": self._brand_record(),
             "transcript": self.transcript.toPlainText(),
         }
         w.progress.connect(lambda f, m, j=job: self._on_progress(f, m) if j == self._job else None)
@@ -1171,7 +1266,7 @@ class NewMeetingPage(QWidget):
                     "source_type": base.get("source_type") or "mixed",
                     "source_path": base.get("source_path", "")}
         return {"model": self._ui_model(), "style": self.style_box.currentText(),
-                "profile_id": self.ctx.settings.get("active_profile", ""),
+                "profile_id": self._brand_record(),
                 "source_type": base.get("source_type") or "mixed",
                 "source_path": base.get("source_path", "")}
 
@@ -1345,7 +1440,7 @@ class NewMeetingPage(QWidget):
             # A new meeting whose minutes weren't generated here: take the Setup
             # choices, but never a placeholder such as "⚠ Ollama not running".
             meta = {"model": self._ui_model(), "style": self.style_box.currentText(),
-                    "profile_id": self.ctx.settings.get("active_profile", ""),
+                    "profile_id": self._brand_record(),
                     "source_type": "mixed", "source_path": ""}
         m = Meeting(
             id=self._current_id or 0, title=title, created_at=0, updated_at=0,
@@ -1458,7 +1553,9 @@ class NewMeetingPage(QWidget):
             return False
         self._current_id = None
         self._meta = None
+        self._brand_choice = None                     # a new meeting: the active company
         self._loaded_from_history = False
+        self.refresh_brands()
         self.context_lbl.setVisible(False)            # back to "new" context
         self._autosave_sig = ""
         self._reset_form()
@@ -1504,7 +1601,8 @@ class NewMeetingPage(QWidget):
         self.export_btn.setEnabled(False)
         self.export_btn.setText("Exporting…")
         self._busy(True, f"Exporting to {Path(path).name}…")
-        self._export_worker = ExportWorker(md, path, self.ctx.active_profile())
+        self._export_worker = ExportWorker(md, path, self._branding_profile(),
+                                           design=self._plain_design())
         self._keep_alive(self._export_worker)
         self._export_worker.finished_ok.connect(self._on_exported)
         self._export_worker.failed.connect(self._on_export_failed)
@@ -1580,8 +1678,8 @@ class NewMeetingPage(QWidget):
         TMP_DIR.mkdir(parents=True, exist_ok=True)
         self._email_att_dir = tempfile.mkdtemp(prefix="email_", dir=str(TMP_DIR))
         w = self._email_prep_worker = EmailPrepWorker(
-            md, v.get("formats") or [], self.ctx.active_profile(), self._email_att_dir,
-            base_name=safe_filename(title))
+            md, v.get("formats") or [], self._branding_profile(), self._email_att_dir,
+            base_name=safe_filename(title), design=self._plain_design())
         self._keep_alive(w)
         w.finished_ok.connect(lambda atts, html, c=cfg, vv=v: self._send_prepared_email(c, vv, atts, html))
         w.failed.connect(self._on_email_prep_failed)
@@ -1760,6 +1858,8 @@ class NewMeetingPage(QWidget):
                       "profile_id": m.profile_id or "",
                       "source_type": m.source_type or "mixed",
                       "source_path": getattr(m, "source_path", "") or ""}
+        self._brand_choice = None                     # this meeting's own company
+        self.refresh_brands()
         self.context_lbl.setText(f"✎  Editing “{m.title}” — opened from History")
         self.context_lbl.setVisible(True)
         self.meeting_title.setText(m.title)

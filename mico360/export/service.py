@@ -50,8 +50,11 @@ def _discard(tmp: Path) -> None:
 
 
 def export(minutes_md: str, path: str | Path,
-           profile: CompanyProfile | None = None) -> Path:
+           profile: CompanyProfile | None = None, design: str | None = None) -> Path:
     """Write the minutes to `path` (format from its extension).
+
+    A PDF uses the company's own design (`profile.pdf_design`); `design`
+    overrides it — for exports without a company profile, and for previews.
 
     The file is built under a temporary name in the same folder and then moved
     over the target in one step, so a failed export never leaves a half-written
@@ -67,7 +70,10 @@ def export(minutes_md: str, path: str | Path,
         raise ExportError(f"The folder “{folder}” doesn't exist. Choose another folder.")
     tmp = folder / f".{path.stem[:60]}.{uuid.uuid4().hex[:8]}.tmp{path.suffix}"
     try:
-        fn(minutes_md, tmp, profile)
+        if design and path.suffix.lower() == ".pdf":
+            fn(minutes_md, tmp, profile, design=design)
+        else:
+            fn(minutes_md, tmp, profile)
     except PermissionError as exc:
         _discard(tmp)
         raise ExportError(f"You don't have permission to save files in “{folder}”. "
