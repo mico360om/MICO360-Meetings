@@ -112,6 +112,7 @@ QPushButton#NavBtn:hover {{ background: {surface2}; color: {text}; }}
 QPushButton#NavBtn:checked {{ background: {accent}; color: {accent_text};
     font-weight: 700; border-left: 3px solid {accent_text}; }}
 QPushButton#NavBtn:checked:hover {{ background: {accent_hover}; }}
+QPushButton#NavBtn[badge="true"] {{ color: {accent}; font-weight: 700; }}   /* update available */
 
 /* ---- Typography / page header ------------------------------------------- */
 #PageTitle {{ font-size: {fs_title}; font-weight: 800; color: {text}; }}

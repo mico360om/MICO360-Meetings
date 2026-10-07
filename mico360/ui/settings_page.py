@@ -306,7 +306,8 @@ class SettingsPage(QWidget):
         form.addRow("GitHub repo (for updates)", self.repo)
         self.auto_check = QCheckBox("Auto-check on startup")
         self.auto_check.setChecked(ctx.settings.get("auto_check_updates", True))
-        tip(self.auto_check, "Quietly check GitHub for a newer version when the app starts — "
+        tip(self.auto_check, "Check GitHub for a newer version every time the app starts (and "
+                             "every few hours while it stays open) — "
                              "nothing installs without your confirmation")
         form.addRow("", self.auto_check)
         self.crash_reporter = QCheckBox("Show crash reporter on unexpected errors")

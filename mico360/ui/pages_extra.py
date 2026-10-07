@@ -52,6 +52,8 @@ class UpdatesPage(QWidget):
         self._dl = None
         self._bg_workers: set = set()       # running QThreads, kept until finished
         self._info: updater.UpdateInfo | None = None
+        self.last_check: float = 0.0        # time.time() of the last completed check
+        self.on_result = None               # MainWindow hook: called with each UpdateInfo
 
         content = QWidget()
         self.v = QVBoxLayout(content)
@@ -226,17 +228,18 @@ class UpdatesPage(QWidget):
         QApplication.instance().quit()
 
     # -- check --------------------------------------------------------------
-    def check(self):
+    STALE_AFTER = 3600                      # re-check when the page is opened after this
+
+    def check(self, auto: bool = False):
+        """Check GitHub for a newer release. `auto` marks the start-up / periodic
+        checks (logged as such; the user's own clicks are not)."""
         if _running(self._worker) or _running(self._dl):
             return                          # a check or a download is already running
-        repo = self.ctx.settings.get("github_repo", "")
-        try:                                # a pasted URL ("https://github.com/o/n") works too
-            from .settings_page import normalize_repo
-            norm = normalize_repo(repo)
-            if norm:
-                repo = norm
-        except Exception:
-            pass
+        repo = self.ctx.update_repo() if hasattr(self.ctx, "update_repo") else \
+            self.ctx.settings.get("github_repo", "")
+        self._auto = auto
+        log.info("update check: %s against %s (current v%s)",
+                 "automatic" if auto else "requested", repo, __version__)
         self._set_status(updater.CHECKING, "Checking for updates…")
         self.check_btn.setEnabled(False)
         for b in (self.download_btn, self.install_btn, self.release_btn, self.retry_btn):
@@ -249,11 +252,23 @@ class UpdatesPage(QWidget):
     def _on_checked(self, info: updater.UpdateInfo):
         self.check_btn.setEnabled(True)
         self._info = info
+        self.last_check = time.time()
+        log.info("update check: %s — current v%s, latest v%s%s", info.status,
+                 info.current_version, info.latest_version or "?",
+                 f" ({info.error})" if info.error else "")
         self.repo_btn.setVisible(bool(info.repo_url))
         self._render(info)
-        if info.update_available and self.toast:
+        if self.on_result:                  # the window shows the badge / toast
+            self.on_result(info)
+        elif info.update_available and self.toast:
             self.toast.show_message(
                 f"Update available: v{info.latest_version}", "info", 6000)
+
+    def refresh_if_stale(self):
+        """Called when the page is shown: re-check if the last check is old (the
+        app may have been open for days)."""
+        if time.time() - self.last_check > self.STALE_AFTER and not self.is_busy():
+            self.check(auto=True)
 
     def _render(self, info: updater.UpdateInfo):
         self._set_status(info.status, self._status_text(info))
@@ -1089,11 +1104,13 @@ class HelpPage(QWidget):
           <h3>Network access</h3>
           <p>{__app_name__} contacts other servers only for the following:</p>
           <ul>
-            <li><b>Update check</b> — on start-up the app asks GitHub whether a newer
-                version exists (only the version is fetched; nothing about you or your
-                meetings is sent). Turn this off in Settings → Updates →
+            <li><b>Update check</b> — every time the app opens (and every few hours
+                while it stays open) it asks GitHub whether a newer version exists;
+                only the release information is fetched, nothing about you or your
+                meetings is sent. When one exists, <b>Updates</b> in the sidebar shows the
+                new version number. Turn the checks off in Settings → Updates →
                 “Auto-check on startup”. Updates are never installed without your
-                confirmation.</li>
+                confirmation, and only after their checksum has been verified.</li>
             <li><b>Model downloads</b> — the one-time download of a Whisper or Ollama
                 model you choose.</li>
             <li><b>Crash reports</b> — only if you choose to report a problem: it opens

@@ -41,6 +41,7 @@ The biggest release yet — new hands-free recording features plus a full code r
 - Settings, profiles and task edits are saved atomically — a crash mid-save can no longer wipe them.
 - The app stays responsive when Ollama or the Cloud server is slow or unreachable.
 - Updates install the right file even when a release carries more than one installer, and the app reopens after an in-app update.
+- The update check runs every time the app opens (and every few hours while it stays open), even if the repository setting was cleared; a newer version is marked on **Updates** in the sidebar with an "Open Updates" link in the notice.
 
 ## Security
 

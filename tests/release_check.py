@@ -249,8 +249,6 @@ def check_built_app(exe: Path, wait_s: int = 45) -> None:
             if main_win:
                 break
             time.sleep(0.5)
-        if main_win:
-            time.sleep(3)                    # let deferred startup work run
         shown_after = time.time() - t0
 
         def _log_text() -> str:
@@ -259,6 +257,19 @@ def check_built_app(exe: Path, wait_s: int = 45) -> None:
                                  for p in sorted((data / "logs").glob("*.log")))
             except OSError:
                 return ""
+
+        # The app checks for updates on EVERY start (2.5 s after the window shows);
+        # wait for that check to finish and log its result.
+        update_line = None
+        if main_win:
+            t1 = time.time()
+            while time.time() - t1 < 20 and proc.poll() is None:
+                m = re.search(r"update check: (?!automatic|requested)(.+)", _log_text())
+                if m:
+                    update_line = m.group(1).strip()
+                    break
+                time.sleep(0.5)
+            time.sleep(1)                    # let other deferred startup work run
 
         def _crashes() -> list[str]:
             return sorted(p.name for p in (data / "logs").glob("crash_*.txt"))
@@ -277,6 +288,9 @@ def check_built_app(exe: Path, wait_s: int = 45) -> None:
         if not main_win and not problems:
             problems.append(f"no main window within {wait_s}s (stuck on a dialog?) - "
                             f"visible windows: {[(t, w, h) for _, t, w, h in seen]}")
+        if main_win and not update_line:
+            problems.append("the app did not check for updates within 20 s of opening "
+                            "(no 'update check:' result in its log)")
         if problems:
             record(name, "FAIL", "; ".join(problems))
             return
@@ -304,8 +318,8 @@ def check_built_app(exe: Path, wait_s: int = 45) -> None:
                                  f"ended with exit code {_fmt_rc(rc)}"
                                  + (f" and crash report {after[0]}" if after else ""))
             return
-        record(name, "PASS", f"main window shown in {shown_after:.0f}s; "
-                             "closed cleanly (exit 0, no crash report)")
+        record(name, "PASS", f"main window shown in {shown_after:.0f}s; update check on open: "
+                             f"{update_line}; closed cleanly (exit 0, no crash report)")
     finally:
         if proc.poll() is None:
             proc.kill()
@@ -336,7 +350,8 @@ def main() -> int:
     for area, script in (("CAPTURE", "tests/fixes_capture.py"), ("CAPTURE2", "tests/fixes_capture2.py"),
                          ("AI", "tests/fixes_ai.py"),
                          ("DATA", "tests/fixes_data.py"), ("UI", "tests/fixes_ui.py"),
-                         ("PDF", "tests/fixes_pdf.py"), ("TEMPLATES", "tests/fixes_templates.py")):
+                         ("PDF", "tests/fixes_pdf.py"), ("TEMPLATES", "tests/fixes_templates.py"),
+                         ("UPDATES", "tests/fixes_updates.py")):
         run_suite(f"Fixes: {area.lower()}", script, rf"==== {area}: (\d+)/\1 passed ====",
                   optional=True)
     if not fast:

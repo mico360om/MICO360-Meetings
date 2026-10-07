@@ -91,9 +91,17 @@ class MainWindow(QMainWindow):
         self._update_status()
         self._setup_shortcuts()
 
-        # optional silent update check on startup
-        if ctx.settings.get("auto_check_updates", True) and ctx.settings.get("github_repo", ""):
-            QTimer.singleShot(2500, self.updates_page.check)
+        # Update check on every start (Settings → Updates → "Auto-check on startup",
+        # on by default), then every few hours while the app stays open. Results
+        # are logged ("update check: …"); an available update marks the Updates
+        # entry in the sidebar until the update is installed.
+        self.updates_page.on_result = self._on_update_result
+        self._update_timer = QTimer(self)
+        self._update_timer.setInterval(6 * 3600 * 1000)
+        self._update_timer.timeout.connect(self._auto_update_check)
+        if ctx.settings.get("auto_check_updates", True):
+            QTimer.singleShot(2500, self._auto_update_check)
+            self._update_timer.start()
         # optional git auto-update (source checkouts)
         if ctx.settings.get("git_auto_update", False):
             QTimer.singleShot(1800, self._git_auto_update)
@@ -370,11 +378,40 @@ class MainWindow(QMainWindow):
             self.profiles_page.reload()
         elif page is self.settings_page:
             self.settings_page.sync_from_settings()
+        elif page is self.updates_page:
+            self.updates_page.refresh_if_stale()
         elif page is self.new_page:
             self.new_page.refresh_models()
             self.new_page.refresh_brands()        # profiles may have changed elsewhere
             self._update_status()
         return True
+
+    # -- update checks --------------------------------------------------------
+    def _auto_update_check(self):
+        if self.ctx.settings.get("auto_check_updates", True):
+            self.updates_page.check(auto=True)
+
+    def _updates_nav_button(self):
+        return self.nav_group.button(self.stack.indexOf(self.updates_page))
+
+    def _on_update_result(self, info):
+        """Mark the sidebar entry and tell the user when a newer version exists;
+        quiet otherwise (a failed automatic check must not nag)."""
+        btn = self._updates_nav_button()
+        label, icon = NAV[self.stack.indexOf(self.updates_page)][:2]
+        if info.update_available:
+            if btn is not None:
+                btn.setText(f"  {icon}   {label}   ● v{info.latest_version}")
+                btn.setProperty("badge", "true")
+                btn.style().unpolish(btn); btn.style().polish(btn)
+            if self.stack.currentWidget() is not self.updates_page:
+                self.toast.show_message(
+                    f"Update available: v{info.latest_version}", "info", 10000,
+                    links={"Open Updates": lambda: self._goto(self.updates_page)})
+        elif btn is not None and btn.property("badge") == "true":
+            btn.setText(f"  {icon}   {label}")              # the update was installed elsewhere
+            btn.setProperty("badge", "false")
+            btn.style().unpolish(btn); btn.style().polish(btn)
 
     def _open_meeting(self, meeting):
         if not self.new_page.load_meeting(meeting):   # user chose to keep the current work

@@ -24,9 +24,11 @@ minutes — see the in-app Privacy Policy for details.
 - **Rendered minutes preview** + export to **DOCX/PDF/TXT/Markdown/HTML** and
   **copy-with-formatting**.
 - **First-run setup guide**, keyboard shortcuts, drag-to-reorder file queue.
-- **Application Updates** page — checks GitHub Releases and shows current vs.
-  new version, status, size, release date, description, new features, bug fixes,
-  security improvements, download progress, restart note, and a direct repo link.
+- **Application Updates** — the app checks GitHub Releases every time it opens
+  (and every 6 hours while open); a newer version marks **Updates** in the
+  sidebar. The Updates page shows current vs. new version, status, size, release
+  date, description, new features, bug fixes, security improvements, download
+  progress, restart note, and a direct repo link.
 - **Offline transcription** with [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
   (tiny → large-v3), with live progress.
 - **Local AI minutes** via [Ollama](https://ollama.com) — Llama 3.1, Qwen, Mistral, Gemma…

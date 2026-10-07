@@ -326,6 +326,18 @@ def _checks(audio: str | None) -> None:
         return "version + repo parsing ok"
     _check("updater logic", _updater)
 
+    def _live_check():
+        from mico360.config import DEFAULT_REPO
+        from mico360.core import updater as U
+        info = U.check_for_updates(DEFAULT_REPO, timeout=10)
+        if info.status == U.FAILED and "reach" in (info.error or ""):
+            return f"SKIP: offline ({info.error[:60]})"
+        assert info.status in (U.UP_TO_DATE, U.AVAILABLE), f"{info.status}: {info.error}"
+        assert info.download_url.lower().endswith(".exe"), "no installer asset in the latest release"
+        assert info.checksum_url or info.expected_sha256, "latest release has no checksum"
+        return f"{info.status}: v{info.current_version} vs latest v{info.latest_version}"
+    _check("update check reaches GitHub (live)", _live_check, required=False)
+
     # -- GUI: build the whole window and visit every page ------------------------
     def _gui():
         from PySide6.QtCore import QThread

@@ -1,7 +1,7 @@
 """Shared application context: the services every page needs, in one place."""
 from __future__ import annotations
 
-from ..config import Settings, connect_api_key
+from ..config import DEFAULT_REPO, Settings, connect_api_key
 from ..core.history import History
 from ..core.cloud_client import CloudGenerator, check_cloud_status
 from ..core.cloud_client import invalidate_status_cache as invalidate_cloud_status
@@ -23,6 +23,13 @@ class AppContext:
         self.action_items = ActionItemStore(self.history)
         self.meeting_types = MeetingTypeStore()
         self._engine: TranscriptionEngine | None = None
+
+    def update_repo(self) -> str:
+        """The GitHub repository the update check uses: the one in Settings, or
+        the product's own when that is blank — so a cleared field never
+        silently turns update checks off."""
+        from ..core.updater import normalize_repo
+        return normalize_repo(self.settings.get("github_repo", "")) or DEFAULT_REPO
 
     # -- transcription engine (rebuilt when model settings change) ----------
     def transcription_engine(self) -> TranscriptionEngine:
