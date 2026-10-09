@@ -1000,8 +1000,11 @@ class HelpPage(QWidget):
                 <b>model</b>, the output <b>style</b> and the prompt.</li>
             <li><b>Review:</b> check everything, then click <b>Create meeting</b>
                 (Ctrl+G) — it transcribes any queued media and writes the minutes.</li>
-            <li><b>Minutes:</b> edit, copy, save to History, e-mail, or export to
-                Word, PDF, Markdown, HTML or plain text.</li>
+            <li><b>Minutes:</b> edit the minutes like a document — headings, bold,
+                lists and tables from the toolbar (the <b>Markdown</b> tab shows the
+                same text as plain source) — then copy, save to History, e-mail, or
+                export to Word, PDF, Markdown, HTML or plain text. Exports show
+                exactly what you see in the editor.</li>
           </ol>
           <h3>Recording</h3>
           <p>The Record tab supports microphone audio, screen+audio, and camera+audio,

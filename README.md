@@ -35,7 +35,9 @@ minutes — see the in-app Privacy Policy for details.
 - **5 output styles:** Formal Minutes · Short Summary · Detailed Minutes ·
   Action Item Report · Executive Summary. **Model and style are chosen right next
   to the Generate button.**
-- **Editable everything** — transcript and minutes are fully editable before export.
+- **Editable everything** — the transcript is editable, and the minutes open in a
+  rich-text editor (headings, bold/italic, lists, tables, undo) with a Markdown
+  source tab; every export is exactly what the editor shows.
 - **Export** to **Word (.docx)**, **PDF**, and **TXT**, with a chosen
   **company profile** (logo, letterhead, footer, page numbers). The PDF is a
   print-ready Minutes of Meeting: letterhead, meeting-details panel, attendee

@@ -386,7 +386,7 @@ def main():
         np_ = win.new_page
         np_.refresh_models(); np_.refresh_prompts()
         assert np_.style_box.count() == 5 and np_.prompt_box.count() >= 24
-        assert np_.minutes_tabs.count() == 2
+        assert np_.minutes_tabs.count() == 3          # Edit (rich) / Preview / Markdown
         win.history_page.reload(); win.profiles_page.reload(); win.prompts_page.reload()
         win.actions_page.reload()
         assert win.settings_page.preset.count() >= 3
@@ -485,13 +485,18 @@ def main():
 
     def _preview_default():
         np_ = win.new_page
-        np_.minutes_tabs.setCurrentIndex(0)                 # start on raw Edit
+        np_.minutes_tabs.setCurrentIndex(2)                 # start on the Markdown source
         np_.minutes.setPlainText("# Minutes\n\n- point one")
         np_._show_minutes_preview()
-        assert np_.minutes_tabs.tabText(np_.minutes_tabs.currentIndex()) == "Preview"
+        assert np_.minutes_tabs.tabText(np_.minutes_tabs.currentIndex()) == "Edit"
+        doc = np_.rich.document()
+        assert doc.firstBlock().blockFormat().headingLevel() == 1       # formatted, not raw
+        assert "point one" in doc.toPlainText()
+        np_.minutes_tabs.setCurrentIndex(1)
+        np_._on_minutes_tab(1)
         assert np_.minutes_preview.toHtml().strip()
         np_.minutes.clear(); np_.minutes_tabs.setCurrentIndex(0)
-        return "minutes default to formatted Preview"
+        return "minutes open formatted (rich Edit tab); Preview still renders"
     t("ui.minutes_preview_default", _preview_default)
 
     def _empty_states():

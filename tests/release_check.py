@@ -351,7 +351,8 @@ def main() -> int:
                          ("AI", "tests/fixes_ai.py"),
                          ("DATA", "tests/fixes_data.py"), ("UI", "tests/fixes_ui.py"),
                          ("PDF", "tests/fixes_pdf.py"), ("TEMPLATES", "tests/fixes_templates.py"),
-                         ("UPDATES", "tests/fixes_updates.py"), ("LAYOUT", "tests/fixes_layout.py")):
+                         ("UPDATES", "tests/fixes_updates.py"), ("LAYOUT", "tests/fixes_layout.py"),
+                         ("EDITOR", "tests/fixes_editor.py")):
         run_suite(f"Fixes: {area.lower()}", script, rf"==== {area}: (\d+)/\1 passed ====",
                   optional=True)
     if not fast:

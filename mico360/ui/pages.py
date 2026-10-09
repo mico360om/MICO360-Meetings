@@ -197,7 +197,7 @@ class NewMeetingPage(QWidget):
         # than their minimum) instead of demanding a fixed preferred height that
         # a short window cannot give — the step would scroll instead of shrinking.
         for ed in (self.transcript, self.minutes, self.minutes_preview, self.paste_box,
-                   self.prompt_edit):
+                   self.prompt_edit, self.rich.edit):
             ed.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
         self.minutes_preview.setMinimumHeight(140)
 
@@ -224,6 +224,7 @@ class NewMeetingPage(QWidget):
         self.files_list.setMaximumHeight(64 if on else 80)
         self.transcript.setMinimumHeight(90 if on else 150)
         self.minutes.setMinimumHeight(120 if on else 240)
+        self.rich.setMinimumHeight(88 if on else 200)
         self.minutes_preview.setMinimumHeight(120 if on else 240)
         self.paste_box.setMinimumHeight(130 if on else 220)
         self.prompt_edit.setMinimumHeight(80 if on else 120)
@@ -826,19 +827,33 @@ class NewMeetingPage(QWidget):
         lay.addLayout(trow)
 
         self.minutes_tabs = CurrentPageTabs()     # as tall as the visible tab, no taller
-        self.minutes = BidiPlainTextEdit()            # Arabic lines right-aligned (L1)
-        self.minutes.setPlaceholderText("Generated minutes will appear here. You can edit before exporting.")
+        # The minutes are Markdown underneath (what generation, History, export
+        # and e-mail use). `self.minutes` holds that Markdown; the Edit tab is a
+        # rich-text editor kept in sync with it both ways (see _sync_*).
+        from .rich_editor import RichMinutesEditor
+        self.minutes = BidiPlainTextEdit()            # the Markdown source (Markdown tab)
+        self.minutes.setPlaceholderText("The minutes as Markdown — edit here if you prefer plain text.")
         self.minutes.setMinimumHeight(240)
         self.minutes.textChanged.connect(self._update_minutes_status)
+        self.minutes.textChanged.connect(self._sync_rich_from_source)
+        self.rich = RichMinutesEditor()
+        self.rich.setPlaceholderText("Generated minutes will appear here. You can edit before exporting.")
+        self.rich.setMinimumHeight(200)               # + its toolbar ~= the plain editor's 240
+        self.rich.changed.connect(self._sync_source_from_rich)
+        self._rich_md = ""                            # the Markdown the rich editor last produced / loaded
+        self._syncing = False
         self.minutes_preview = QTextBrowser()
         self.minutes_preview.setOpenExternalLinks(True)
-        self.minutes_tabs.addTab(self.minutes, "Edit")
+        self.minutes_tabs.addTab(self.rich, "Edit")
         self.minutes_tabs.addTab(self.minutes_preview, "Preview")
+        self.minutes_tabs.addTab(self.minutes, "Markdown")
         self.minutes_tabs.currentChanged.connect(self._on_minutes_tab)
-        tip(self.minutes, "The generated minutes — edit freely before exporting (Ctrl+Z to undo). "
-                          "Autosaved to History")
-        tip(self.minutes_preview, "Read-only formatted view of the minutes, exactly as headings and "
-                                  "tables will look when exported")
+        tip(self.rich.edit, "The minutes, formatted — edit like a document: headings, bold, lists and "
+                            "tables (Ctrl+Z to undo). Exports show exactly what you see. "
+                            "Autosaved to History")
+        tip(self.minutes, "The same minutes as Markdown text, for anyone who prefers to edit the "
+                          "source — changes appear in the Edit tab too")
+        tip(self.minutes_preview, "Read-only view of the minutes as they will look when exported")
         lay.addWidget(self.minutes_tabs)
 
         row = QHBoxLayout()
@@ -1488,10 +1503,43 @@ class NewMeetingPage(QWidget):
                                          else "<p style='color:#888'>Nothing to preview yet.</p>")
 
     def _show_minutes_preview(self):
-        """Open the formatted Preview tab (so readers see nicely formatted minutes
-        first, not raw Markdown) and make sure it's rendered."""
-        self.minutes_tabs.setCurrentIndex(1)      # 0 = Edit, 1 = Preview
-        self._on_minutes_tab(1)
+        """Show the formatted minutes: the Edit tab is itself formatted now
+        (readers never see raw Markdown first)."""
+        self.minutes_tabs.setCurrentIndex(0)      # 0 = Edit (rich), 1 = Preview, 2 = Markdown
+        self._on_minutes_tab(0)
+
+    # -- rich editor <-> Markdown sync ------------------------------------------
+    def _sync_rich_from_source(self):
+        """The Markdown changed (generation, History, the Markdown tab): show it
+        in the rich editor — unless it is the Markdown the editor itself just
+        produced."""
+        if self._syncing:
+            return
+        md = self.minutes.toPlainText()
+        if md == self._rich_md:
+            return
+        self._syncing = True
+        try:
+            self._rich_md = md
+            self.rich.set_markdown(md)
+        finally:
+            self._syncing = False
+
+    def _sync_source_from_rich(self):
+        """An edit in the rich editor: refresh the Markdown (what gets saved,
+        exported and e-mailed) without echoing back into the editor."""
+        if self._syncing:
+            return
+        md = self.rich.to_markdown()
+        if md == self._rich_md and md == self.minutes.toPlainText():
+            return
+        self._syncing = True
+        try:
+            self._rich_md = md
+            if self.minutes.toPlainText() != md:
+                self.minutes.setPlainText(md)
+        finally:
+            self._syncing = False
 
     def _copy(self):
         txt = self.minutes.toPlainText()

@@ -561,9 +561,16 @@ def main() -> int:
     check("transcript: English line starts at the left", xe < wv * 0.25, f"x={xe} w={wv}")
     check("transcript: Arabic line starts at the right", xa > wv * 0.6, f"x={xa} w={wv}")
     page.minutes.setPlainText("# Minutes\nمحضر الاجتماع")
-    page.wizard.setCurrentIndex(page.STEP_MINUTES); page.minutes_tabs.setCurrentIndex(0); pump(0.1)
+    page.wizard.setCurrentIndex(page.STEP_MINUTES)
+    page.minutes_tabs.setCurrentIndex(2); pump(0.1)          # the Markdown source tab
     wv = page.minutes.viewport().width()
-    check("minutes: Arabic line is right-aligned", start_x(page.minutes, 1) > wv * 0.6)
+    check("minutes (Markdown): Arabic line is right-aligned", start_x(page.minutes, 1) > wv * 0.6)
+    page.minutes_tabs.setCurrentIndex(0); pump(0.1)          # the rich editor
+    rich_doc = page.rich.document()
+    rtl_blk = next((rich_doc.findBlockByNumber(i) for i in range(rich_doc.blockCount())
+                    if "محضر" in rich_doc.findBlockByNumber(i).text()), None)
+    check("minutes (editor): the Arabic paragraph is laid out right-to-left",
+          rtl_blk is not None and rtl_blk.blockFormat().layoutDirection() == Qt.RightToLeft)
     check("editor stays plain text (no rich paste)", not page.transcript.acceptRichText())
     page._new_meeting(quiet=True)
 

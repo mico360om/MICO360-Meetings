@@ -355,7 +355,7 @@ def main() -> int:
     hp = Path(tempfile.gettempdir()) / "qa.html"
     _svc.export(md2, str(hp), None)
     check("HTML export renders table", "<table" in hp.read_text(encoding="utf-8")); hp.unlink(missing_ok=True)
-    check("Minutes Edit/Preview tabs", win.new_page.minutes_tabs.count() == 2)
+    check("Minutes Edit/Preview/Markdown tabs", win.new_page.minutes_tabs.count() == 3)
     from mico360.core import recording as RR2
     check("Audio source selector (mic/system/both)", win.new_page.recorder_panel.source_box.count() >= 1)
     check("System-audio detection callable", callable(RR2.system_audio_device))

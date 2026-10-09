@@ -19,7 +19,8 @@ The biggest release yet — new hands-free recording features plus a full code r
 
 ## Experience overhaul
 
-- Unified design system; New Meeting is a clear step-by-step wizard.
+- Unified design system; New Meeting is a clear step-by-step wizard that fits the window without scrolling — the progress bar and Back / Next buttons stay in view.
+- **Rich-text minutes editor:** edit the minutes like a document — headings, bold, italic, lists and tables from a toolbar, with undo — plus a Markdown source tab. Exports and e-mails show exactly what the editor shows.
 - Action Items: statuses, filters, overdue highlighting (readable in dark theme), edit-in-place, Excel-friendly CSV.
 - Meeting History with sort, filter, preview and correct Draft status.
 - Settings: language picker, unsaved-changes prompt, Cancel buttons for model and update downloads.
