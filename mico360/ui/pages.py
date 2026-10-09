@@ -23,7 +23,8 @@ from ..core.transcription import WHISPER_MODELS
 from . import metrics as M
 from . import theme
 from .components import (
-    BidiPlainTextEdit, Card, CollapsibleSection, DropArea, EmptyState, StepIndicator, hint,
+    BidiPlainTextEdit, Card, CollapsibleSection, CurrentPageStack, CurrentPageTabs, DropArea,
+    EmptyState, StepIndicator, hint,
     scroll_area as _scroll, section_title, subtitle, tip,
 )
 from .context import AppContext
@@ -167,7 +168,7 @@ class NewMeetingPage(QWidget):
         v.addWidget(self._build_stepper())
 
         # The steps live in a stack; only one shows at a time.
-        self.wizard = QStackedWidget()
+        self.wizard = CurrentPageStack()       # as tall as the step on screen, no taller
         self.sec_source = self._step1_source()
         self.sec_transcript = self._step2_transcript()
         self.sec_generate = self._step3_generate()      # meeting details + AI setup
@@ -177,17 +178,73 @@ class NewMeetingPage(QWidget):
                   self.sec_review, self.sec_minutes):
             self.wizard.addWidget(p)
         v.addWidget(self.wizard)
-
-        # Operation status: named stages, progress, message, inline errors.
-        v.addWidget(self._build_gen_status())
-
-        # Back / Next / Create footer.
-        v.addLayout(self._build_footer())
         v.addStretch()
 
+        # The step content scrolls if it ever has to; the status (progress,
+        # message, errors) and the Back / Next / Create footer stay pinned
+        # below it, always visible — they used to scroll off the bottom.
+        self._scroll = _scroll(content)
+        outer.addWidget(self._scroll, 1)
+        bottom = QWidget(); bottom.setObjectName("WizardFooter")
+        bl = QVBoxLayout(bottom)
+        left, _top, right, _bot = M.PAGE_MARGINS
+        bl.setContentsMargins(left, M.XS, right, M.MD); bl.setSpacing(M.XS)
+        bl.addWidget(self._build_gen_status())
+        bl.addLayout(self._build_footer())
+        outer.addWidget(bottom)
+
+        # Text editors fill whatever height is left on their step (never less
+        # than their minimum) instead of demanding a fixed preferred height that
+        # a short window cannot give — the step would scroll instead of shrinking.
+        for ed in (self.transcript, self.minutes, self.minutes_preview, self.paste_box,
+                   self.prompt_edit):
+            ed.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Ignored)
+        self.minutes_preview.setMinimumHeight(140)
+
         self._reached = 0
+        self._compact = None
         self._goto_step(self.STEP_SOURCE)
-        outer.addWidget(_scroll(content))
+
+    COMPACT_BELOW = 760                 # page height (px) under which the compact layout is used
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._set_compact(self.height() < self.COMPACT_BELOW)
+
+    def _set_compact(self, on: bool) -> None:
+        """Short windows (small laptops, the 660 px minimum): trim what the
+        steps spend on decoration so each one fits without scrolling — the
+        subtitle, the drop area's tall layout, the file list, editor minimums."""
+        if on == self._compact:
+            return
+        self._compact = on
+        self.page_sub.setVisible(not on)
+        self.upload_hint.setVisible(not on)         # the drop area says the same
+        self.drop.set_compact(on)
+        self.files_list.setMaximumHeight(64 if on else 80)
+        self.transcript.setMinimumHeight(90 if on else 150)
+        self.minutes.setMinimumHeight(120 if on else 240)
+        self.minutes_preview.setMinimumHeight(120 if on else 240)
+        self.paste_box.setMinimumHeight(130 if on else 220)
+        self.prompt_edit.setMinimumHeight(80 if on else 120)
+        # Review: tighter rows and no intro line on a short window
+        self._review_hint.setVisible(not on)
+        self._review_lay.setSpacing(M.XS if on else M.CARD_GAP)
+        for sub in self._review_subs:
+            sub.setContentsMargins(0, 2 if on else M.SM, 0, 0)
+        for grid in self._review_grids:
+            grid.setVerticalSpacing(M.XS if on else M.SM)
+        self._relayout()
+
+    def _relayout(self) -> None:
+        """Drop every cached height between the step content and the scroll
+        area (the layouts cache height-for-width per width, and the width did
+        not change) so the new, shorter content is measured right away."""
+        content = self._scroll.widget()
+        for w in (self.drop, self.wizard, content):
+            if w.layout() is not None:
+                w.layout().invalidate()
+            w.updateGeometry()
 
     # -- wizard shell -------------------------------------------------------
     def _build_stepper(self) -> QWidget:
@@ -222,7 +279,9 @@ class NewMeetingPage(QWidget):
         i = max(0, min(i, len(self.STEP_TITLES) - 1))
         if i > self._reached and not self._advance_ok(self.wizard.currentIndex()):
             return                                       # forward jump blocked by validation
-        self.wizard.setCurrentIndex(i)
+        self.wizard.setCurrentIndex(i)             # CurrentPageStack: only this step's height counts
+        if getattr(self, "_scroll", None) is not None:
+            self._relayout()
         self._reached = max(self._reached, i)
         if i == self.STEP_REVIEW:
             self._refresh_review()
@@ -356,8 +415,12 @@ class NewMeetingPage(QWidget):
 
     def _step_review(self) -> QWidget:
         card, lay = self._card("Review & create")
-        lay.addWidget(hint("Check everything below, then click “Create meeting” to transcribe "
-                           "(if needed) and generate the minutes."))
+        self._review_lay = lay
+        self._review_hint = hint("Check everything below, then click “Create meeting” to transcribe "
+                                 "(if needed) and generate the minutes.")
+        lay.addWidget(self._review_hint)
+        self._review_subs: list = []
+        self._review_grids: list = []
         # Grouped for scannability. (display label, storage key) — keys are kept
         # stable because _refresh_review and tests look them up by key.
         self._review_vals: dict[str, QLabel] = {}
@@ -372,8 +435,10 @@ class NewMeetingPage(QWidget):
             sub = QLabel(gname.upper()); sub.setObjectName("ReviewGroup")
             if gi:
                 sub.setContentsMargins(0, M.SM, 0, 0)
+                self._review_subs.append(sub)
             lay.addWidget(sub)
             grid = QGridLayout(); grid.setHorizontalSpacing(M.LG); grid.setVerticalSpacing(M.SM)
+            self._review_grids.append(grid)
             for r, (disp, key) in enumerate(rows):
                 k = QLabel(disp); k.setObjectName("Hint")
                 val = QLabel("—"); val.setObjectName("ReviewVal"); val.setWordWrap(True)
@@ -403,7 +468,7 @@ class NewMeetingPage(QWidget):
 
     def _step1_source(self) -> QWidget:
         card, lay = self._card("Add your meeting")
-        self.source_tabs = QTabWidget()
+        self.source_tabs = CurrentPageTabs()      # as tall as the tab on screen, no taller
 
         # Upload tab
         up = QWidget(); upl = QVBoxLayout(up)
@@ -414,7 +479,7 @@ class NewMeetingPage(QWidget):
             sub="MP3 · WAV · M4A · MP4 · MOV · MKV · PDF · DOCX · TXT · images — multiple files supported",
         )
         self.drop.filesChosen.connect(self._add_files)      # every dropped / browsed file
-        self.files_list = QListWidget(); self.files_list.setMaximumHeight(92)
+        self.files_list = QListWidget(); self.files_list.setMaximumHeight(80)
         self.files_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.files_list.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.files_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
@@ -446,8 +511,9 @@ class NewMeetingPage(QWidget):
         list_bar.addSpacing(8)
         list_bar.addWidget(self.transcribe_btn)
         upl.addWidget(self.drop)
-        upl.addWidget(hint("Documents are read instantly into the transcript; audio/video are transcribed with Whisper. "
-                           "Recordings also appear here."))
+        self.upload_hint = hint("Documents are read instantly into the transcript; audio/video are "
+                                "transcribed with Whisper. Recordings also appear here.")
+        upl.addWidget(self.upload_hint)
         upl.addWidget(self.files_list)
         upl.addLayout(list_bar)
         self.source_tabs.addTab(up, "Upload files")
@@ -759,7 +825,7 @@ class NewMeetingPage(QWidget):
         trow.addWidget(tl); trow.addWidget(self.meeting_title, 1)
         lay.addLayout(trow)
 
-        self.minutes_tabs = QTabWidget()
+        self.minutes_tabs = CurrentPageTabs()     # as tall as the visible tab, no taller
         self.minutes = BidiPlainTextEdit()            # Arabic lines right-aligned (L1)
         self.minutes.setPlaceholderText("Generated minutes will appear here. You can edit before exporting.")
         self.minutes.setMinimumHeight(240)

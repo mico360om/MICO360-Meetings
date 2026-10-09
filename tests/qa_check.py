@@ -76,7 +76,7 @@ def main() -> int:
               np_.model_box.currentText().startswith("⚠"), np_.model_box.currentText())
     check("Style dropdown has 5 styles after upload", np_.style_box.count() == 5)
     check("Prompt dropdown usable after upload", np_.prompt_box.count() > 0)
-    tabs = np_.findChild(QTabWidget)
+    tabs = np_.source_tabs                    # page-sized tabs (not a QTabWidget)
     tabs.setCurrentIndex(1); app.processEvents()
     check("Tabs switch after upload", tabs.currentIndex() == 1)
     tabs.setCurrentIndex(0)

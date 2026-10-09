@@ -7,7 +7,7 @@ from typing import Callable
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QFileDialog, QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
-    QTextEdit, QToolButton, QVBoxLayout, QWidget,
+    QTabBar, QTextEdit, QToolButton, QVBoxLayout, QWidget,
 )
 
 from ..core.audio import MEDIA_EXTS
@@ -284,6 +284,123 @@ def scroll_area(inner: QWidget, max_width: int = 1440) -> QScrollArea:
     return sa
 
 
+class CurrentPageStack(QWidget):
+    """A page stack that holds ONLY the page on screen in its layout.
+
+    Qt measures a widget that has a layout through that layout, and both
+    QStackedWidget and QTabWidget report the height of their TALLEST page even
+    when it is hidden — so a short wizard step was laid out as tall as the
+    Minutes step and the page scrolled for nothing. Here the other pages are
+    parked (hidden, out of the layout), so only the visible one is measured.
+    Same API subset as QStackedWidget."""
+    currentChanged = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._lay = QVBoxLayout(self)
+        self._lay.setContentsMargins(0, 0, 0, 0)
+        self._lay.setSpacing(0)
+        self._pages: list[QWidget] = []
+        self._cur = -1
+
+    def addWidget(self, w: QWidget) -> int:
+        self._pages.append(w)
+        w.setParent(self)
+        w.hide()
+        if self._cur < 0:
+            self.setCurrentIndex(0)
+        return len(self._pages) - 1
+
+    def count(self) -> int:
+        return len(self._pages)
+
+    def widget(self, i: int):
+        return self._pages[i] if 0 <= i < len(self._pages) else None
+
+    def indexOf(self, w) -> int:
+        return self._pages.index(w) if w in self._pages else -1
+
+    def currentIndex(self) -> int:
+        return self._cur
+
+    def currentWidget(self):
+        return self.widget(self._cur)
+
+    def setCurrentIndex(self, i: int) -> None:
+        if not (0 <= i < len(self._pages)) or i == self._cur:
+            return
+        old = self.currentWidget()
+        if old is not None:
+            self._lay.removeWidget(old)
+            old.hide()
+        new = self._pages[i]
+        self._lay.addWidget(new)
+        new.show()
+        self._cur = i
+        self.updateGeometry()
+        self.currentChanged.emit(i)
+
+    def setCurrentWidget(self, w) -> None:
+        self.setCurrentIndex(self.indexOf(w))
+
+
+class CurrentPageTabs(QWidget):
+    """Tabs whose height follows the tab on screen (see CurrentPageStack): a
+    QTabBar over a CurrentPageStack, with the QTabWidget API the app uses."""
+    currentChanged = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self._bar = QTabBar()
+        self._bar.setExpanding(False)
+        self._bar.setDrawBase(False)
+        self._stack = CurrentPageStack()
+        self._stack.setObjectName("TabPane")
+        lay.addWidget(self._bar)
+        lay.addWidget(self._stack)
+        self._bar.currentChanged.connect(self._on_bar)
+
+    def _on_bar(self, i: int) -> None:
+        self._stack.setCurrentIndex(i)
+        self.currentChanged.emit(i)
+
+    def tabBar(self):
+        return self._bar
+
+    def addTab(self, w: QWidget, label: str) -> int:
+        idx = self._stack.addWidget(w)
+        self._bar.addTab(label)
+        return idx
+
+    def count(self) -> int:
+        return self._stack.count()
+
+    def widget(self, i: int):
+        return self._stack.widget(i)
+
+    def indexOf(self, w) -> int:
+        return self._stack.indexOf(w)
+
+    def tabText(self, i: int) -> str:
+        return self._bar.tabText(i)
+
+    def currentIndex(self) -> int:
+        return self._bar.currentIndex()
+
+    def currentWidget(self):
+        return self._stack.currentWidget()
+
+    def setCurrentIndex(self, i: int) -> None:
+        self._bar.setCurrentIndex(i)
+        self._stack.setCurrentIndex(i)             # also when the bar index is unchanged
+
+    def setCurrentWidget(self, w) -> None:
+        self.setCurrentIndex(self._stack.indexOf(w))
+
+
 class DropArea(QFrame):
     """Drag-and-drop + click-to-browse area for media/document files.
 
@@ -304,20 +421,20 @@ class DropArea(QFrame):
         self._accept = accept_exts or set(MEDIA_EXTS)
         self._multiple = bool(multiple)
 
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(M.XL, M.XXL, M.XL, M.XXL)
-        lay.setSpacing(M.SM)
+        self._lay = lay = QVBoxLayout(self)
+        lay.setContentsMargins(M.XL, M.MD, M.XL, M.MD)
+        lay.setSpacing(M.XS)
         lay.setAlignment(Qt.AlignCenter)
 
-        icon = QLabel("⬆")
+        self._icon = icon = QLabel("⬆")
         icon.setAlignment(Qt.AlignCenter)
-        icon.setStyleSheet("font-size: 26pt;")
-        title = QLabel(caption); title.setObjectName("DropTitle")
+        icon.setStyleSheet("font-size: 22pt;")
+        self._title = title = QLabel(caption); title.setObjectName("DropTitle")
         title.setAlignment(Qt.AlignCenter)
         self._sub = QLabel(sub); self._sub.setObjectName("Hint")
         self._sub.setAlignment(Qt.AlignCenter); self._sub.setWordWrap(True)
 
-        browse = QPushButton("Browse files…")
+        self._browse_btn = browse = QPushButton("Browse files…")
         browse.setObjectName("Ghost")
         browse.setCursor(Qt.PointingHandCursor)
         browse.clicked.connect(self._browse)
@@ -325,9 +442,45 @@ class DropArea(QFrame):
         lay.addWidget(icon)
         lay.addWidget(title)
         lay.addWidget(self._sub)
-        row = QHBoxLayout(); row.addStretch(); row.addWidget(browse); row.addStretch()
+        self._row = row = QHBoxLayout(); row.addStretch(); row.addWidget(browse); row.addStretch()
         lay.addLayout(row)
-        self.setMinimumHeight(140)
+        self.setMinimumHeight(110)
+        # Grows sideways with the window; its height is its content's, so a
+        # taller window does not inflate it (the step must fit without scrolling).
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Maximum)
+        self._compact = False
+
+    def set_compact(self, on: bool) -> None:
+        """Short window: icon, caption and the Browse button on ONE row, the
+        file-type list below — about a third of the height of the full layout."""
+        on = bool(on)
+        if on == self._compact:
+            return
+        self._compact = on
+        lay = self._lay
+        while lay.count():                                   # detach, keep the widgets
+            item = lay.takeAt(0)
+            if item.layout() is not None:
+                sub = item.layout()
+                while sub.count():
+                    sub.takeAt(0)
+        if on:
+            self._icon.setStyleSheet("font-size: 15pt;")
+            row = QHBoxLayout(); row.setSpacing(M.MD)
+            row.addStretch(); row.addWidget(self._icon); row.addWidget(self._title)
+            row.addSpacing(M.MD); row.addWidget(self._browse_btn); row.addStretch()
+            lay.setContentsMargins(M.XL, M.MD, M.XL, M.MD)
+            lay.addLayout(row)
+            lay.addWidget(self._sub)
+            self.setMinimumHeight(64)
+        else:
+            self._icon.setStyleSheet("font-size: 22pt;")
+            lay.setContentsMargins(M.XL, M.MD, M.XL, M.MD)
+            lay.addWidget(self._icon); lay.addWidget(self._title); lay.addWidget(self._sub)
+            row = QHBoxLayout(); row.addStretch(); row.addWidget(self._browse_btn); row.addStretch()
+            lay.addLayout(row)
+            self.setMinimumHeight(110)
+        self.updateGeometry()
 
     def set_sub(self, text: str):
         self._sub.setText(text)

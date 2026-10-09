@@ -227,6 +227,7 @@ QScrollBar::handle:horizontal:hover {{ background: {muted}; }}
 /* ---- Tabs (underline style) --------------------------------------------- */
 #StatusChip {{ border-radius: {r_md}; padding: 4px 10px; font-size: {fs_small}; }}
 QTabWidget::pane {{ border: none; border-top: {bw} solid {border}; top: -1px; }}
+#TabPane {{ border: none; border-top: {bw} solid {border}; }}
 QTabBar::tab {{
     background: transparent; color: {muted}; padding: 9px 16px; margin-right: 2px;
     border: none; border-bottom: 2px solid transparent; font-weight: 500;
