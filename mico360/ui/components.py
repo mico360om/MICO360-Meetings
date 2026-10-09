@@ -466,6 +466,7 @@ class DropArea(QFrame):
                     sub.takeAt(0)
         if on:
             self._icon.setStyleSheet("font-size: 15pt;")
+            self._title.setWordWrap(True)             # may wrap at the minimum window width
             row = QHBoxLayout(); row.setSpacing(M.MD)
             row.addStretch(); row.addWidget(self._icon); row.addWidget(self._title)
             row.addSpacing(M.MD); row.addWidget(self._browse_btn); row.addStretch()
@@ -475,6 +476,7 @@ class DropArea(QFrame):
             self.setMinimumHeight(64)
         else:
             self._icon.setStyleSheet("font-size: 22pt;")
+            self._title.setWordWrap(False)
             lay.setContentsMargins(M.XL, M.MD, M.XL, M.MD)
             lay.addWidget(self._icon); lay.addWidget(self._title); lay.addWidget(self._sub)
             row = QHBoxLayout(); row.addStretch(); row.addWidget(self._browse_btn); row.addStretch()
