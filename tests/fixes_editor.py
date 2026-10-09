@@ -273,6 +273,21 @@ def test_editing_behaviour() -> None:
     cur = ed.edit.textCursor(); cur.movePosition(QTextCursor.EndOfBlock); ed.edit.setTextCursor(cur)
     ed.edit.insertPlainText(" — إضافة")
     check("…and the Arabic text is kept in the Markdown", "إضافة" in ed.to_markdown())
+    ed.set_markdown("# Meeting Minutes\n\n## Action Items\n")
+    cur = QTextCursor(ed.document()); cur.movePosition(QTextCursor.End); ed.edit.setTextCursor(cur)
+    ed.insert_table(rows=3, cols=3)                       # the toolbar's Insert table
+    table = ed.edit.textCursor().currentTable()
+    check("Insert table leaves the caret inside the new table", table is not None)
+    if table is not None:
+        for c, text in enumerate(("Send the deck", "Sara", "Done")):
+            table.cellAt(1, c).firstCursorPosition().insertText(text)
+        tbl = next(b for b in md_blocks.parse(ed.to_markdown()) if b.kind == "table")
+        check("a table typed from scratch has its default headers and the typed row",
+              tbl.headers == ["Task", "Responsible Person", "Deadline"]
+              and ["Send the deck", "Sara", "Done"] in tbl.rows and len(tbl.rows) == 2, str(tbl.rows))
+        ed.remove_row(); ed.remove_row(); ed.remove_row()
+        check("deleting every row removes the table from the Markdown", "|" not in ed.to_markdown(),
+              repr(ed.to_markdown()))
     before = ed.to_markdown()
     # typing somewhere else is its own undo step (consecutive typing at one
     # spot merges into one step, as in any editor)

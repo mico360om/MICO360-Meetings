@@ -190,8 +190,8 @@ def _table_markdown(table: QTextTable) -> str:
                 blk = blk.next()
             row.append(" ".join(texts))
         grid.append(row)
-    if not grid:
-        return ""
+    if not grid or not any(c.strip() for row in grid for c in row):
+        return ""                                   # an empty table is nothing to export
     head = grid[0]
     lines = ["| " + " | ".join(h or " " for h in head) + " |",
              "| " + " | ".join("---" for _ in head) + " |"]
@@ -457,6 +457,8 @@ class RichMinutesEditor(QWidget):
             f = QTextCharFormat(); f.setFontWeight(QFont.Weight.Bold)
             cell.insertText(text, f)
         cur.endEditBlock()
+        # leave the caret in the first data cell, ready to type (+ Row / − Row act there)
+        self.edit.setTextCursor(table.cellAt(min(1, rows - 1), 0).firstCursorPosition())
         self.edit.setFocus()
 
     def add_row(self):
@@ -470,12 +472,13 @@ class RichMinutesEditor(QWidget):
         table = cur.currentTable()
         if table is None:
             return
-        if table.rows() <= 1:
+        if table.rows() <= 1:                       # the last row: remove the whole table
             cur.beginEditBlock()
-            cur.setPosition(table.firstCursorPosition().position() - 1)
-            cur.setPosition(table.lastCursorPosition().position() + 1, QTextCursor.KeepAnchor)
+            cur.setPosition(table.firstPosition() - 1)
+            cur.setPosition(table.lastPosition() + 1, QTextCursor.KeepAnchor)
             cur.removeSelectedText()
             cur.endEditBlock()
+            self.edit.setTextCursor(cur)
             return
         table.removeRows(table.cellAt(cur).row(), 1)
 
