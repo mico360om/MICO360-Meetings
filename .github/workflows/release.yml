@@ -31,13 +31,16 @@ jobs:
             Write-Error "Tag ${{ github.ref_name }} does not match mico360.__version__ ($ver)."; exit 1
           }
 
-      # Never publish a Cloud-disabled release by accident: existing users would
-      # auto-update into an app whose Cloud mode no longer works.
-      - name: Require the MICO360 Connect key for tagged releases
+      # A release without the MICO360 Connect key ships with Local (Ollama) AI
+      # only — Cloud mode stays inactive until a keyed release. Say so loudly in
+      # the run log; the release notes must say so too.
+      - name: Note when the MICO360 Connect key is absent
         if: ${{ github.ref_type == 'tag' && env.HAS_CONNECT_KEY != 'true' }}
         run: |
-          Write-Error "The MICO360_CONNECT_API_KEY repository secret is not set — refusing to publish a Local-only release."
-          exit 1
+          Write-Warning "MICO360_CONNECT_API_KEY is not set: publishing a LOCAL-ONLY release (Cloud mode inactive)."
+          if (-not (Select-String -Path "build\RELEASE_NOTES_${{ github.ref_name }}.md" -Pattern 'Local-only' -Quiet)) {
+            Write-Error "The release notes must state that this is a Local-only release."; exit 1
+          }
 
       - uses: actions/setup-python@v5
         with:
@@ -92,9 +95,10 @@ jobs:
           $d.results | ForEach-Object { Write-Host ("{0,-5} {1} - {2}" -f $_.status.ToUpper(), $_.name, $_.detail) }
           if (-not $d.ok -or -not $d.frozen) { Write-Error "Built-app self-test failed ($($d.failed) required check(s))."; exit 1 }
           $key = $d.results | Where-Object { $_.name -eq 'MICO360 Cloud key bundled' }
-          if ("${{ github.ref_type }}" -eq "tag" -and $key.status -ne 'pass') {
-            Write-Error "Tagged release but the Cloud key is not in the build."; exit 1
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ env.HAS_CONNECT_KEY }}" -eq "true" -and $key.status -ne 'pass') {
+            Write-Error "The Cloud key secret is set but is not in the build."; exit 1
           }
+          if ($key.status -ne 'pass') { Write-Warning "Cloud key not bundled: this is a Local-only build." }
           Write-Host "Self-test: $($d.passed) passed, $($d.skipped) skipped, $($d.failed) failed."
 
       - name: Install Inno Setup

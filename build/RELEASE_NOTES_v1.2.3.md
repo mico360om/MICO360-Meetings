@@ -1,6 +1,8 @@
 # MICO360 Meetings v1.2.3
 
-The biggest release yet — new hands-free recording features plus a full code review with 90 fixes. Still offline by default: audio is transcribed on your PC with Whisper and minutes are written by a local Ollama model; MICO360 Cloud remains optional.
+The biggest release yet — new hands-free recording features plus a full code review with 90 fixes. Still offline by default: audio is transcribed on your PC with Whisper and minutes are written by a local Ollama model.
+
+**Local-only release:** this build ships with Local (Ollama) AI only. The optional MICO360 Cloud mode is inactive in it and will return in a later release built with the MICO360 Connect key.
 
 ## New features
 
