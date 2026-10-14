@@ -1,0 +1,28 @@
+{
+  "name": "mico360-meetings-android",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@noble/hashes": "^2.4.0",
+    "docx": "^9.11.0",
+    "expo": "~57.0.29",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "0.86.3"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "jszip": "^3.10.2",
+    "typescript": "~6.0.3",
+    "vitest": "^5.0.4"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "private": true
+}
