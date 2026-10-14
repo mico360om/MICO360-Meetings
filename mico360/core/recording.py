@@ -272,6 +272,13 @@ _USE_CONFIG = object()          # _open_mic(): "use the configured device index"
 _LOST_MIC_MSG = ("The microphone stopped sending audio (was it unplugged?). "
                  "Everything recorded up to that point was saved.")
 
+# M37: a working microphone always picks up some noise; a stream of exact zeros
+# means it is muted (in Windows, on the headset, or by its software) or the
+# audio engine is wedged. Say so while recording instead of saving silence.
+MUTED_MIC_SECONDS = 8.0
+_MUTED_MIC_MSG = ("The microphone is sending complete silence — it may be muted (in Windows, "
+                  "on the headset or by its software). Check it, or select a different microphone.")
+
 
 # ---------------------------------------------------------------------------
 # Streaming mix (M31): mic + system audio are mixed block by block, so a long
@@ -608,6 +615,8 @@ class AudioRecorder(BaseRecorder):
         self._temps: list[str] = []
         self._finalizing = False
         self.reopened = 0                            # times a lost mic was reopened
+        self._mic_peak = 0.0                         # loudest mic sample so far (M37)
+        self._mic_silence_warned = False
         # live-transcription tap (opt-in): captured mic frames buffered for a
         # separate worker to pull and transcribe as recording proceeds.
         self._live_on = False
@@ -664,6 +673,26 @@ class AudioRecorder(BaseRecorder):
         return arr, self._live_rate
 
     # -- bookkeeping ----------------------------------------------------------
+    def _note_mic_peak(self, block) -> None:
+        """Remember the loudest microphone sample captured so far (M37)."""
+        try:
+            p = float(abs(block).max())
+        except Exception:
+            return
+        if p > self._mic_peak:
+            self._mic_peak = p
+
+    def _check_mic_silence(self) -> None:
+        """M37: warn once when the mic has delivered only digital silence for
+        MUTED_MIC_SECONDS of recording. Called from the capture loops."""
+        if self._mic_silence_warned or self._mic_peak > 1e-6 or self.state != RECORDING:
+            return
+        frames, rate = self._written.get("mic", (0, 0))
+        if rate and frames / float(rate) >= MUTED_MIC_SECONDS:
+            self._mic_silence_warned = True
+            self.warnings.append(_MUTED_MIC_MSG)
+            log.warning("the microphone delivered %.0f s of complete silence", frames / float(rate))
+
     def _note_audio(self, src: str, frames: int, rate: int) -> None:
         """Account for `frames` samples of `src` that were just written."""
         n, _ = self._written.get(src, (0, rate))
@@ -969,6 +998,8 @@ class AudioRecorder(BaseRecorder):
                         and time.monotonic() - start > 6.0):
                     raise RuntimeError("No audio is being received. For system audio make "
                                        "sure something is playing; for the mic check it isn't muted.")
+                if "mic" in plan and "mic" not in self._failed_sources:
+                    self._check_mic_silence()
         except Exception as exc:
             self._fail(str(exc))
             log.exception("multi-source audio capture failed")
@@ -1034,6 +1065,7 @@ class AudioRecorder(BaseRecorder):
                     gap -= n
                 w.write(data.copy())
                 self._note_audio("mic", frames, rate)
+                self._note_mic_peak(data)
                 self._level = float(min(1.0, float(np.abs(data).max()) * 1.4))
                 if self._live_on:
                     self._live_rate = rate
@@ -1189,6 +1221,7 @@ class AudioRecorder(BaseRecorder):
                     if not write(indata):
                         return
                 self._note_audio("mic", frames, self._rate)
+                self._note_mic_peak(indata)
                 self._level = float(min(1.0, float(np.abs(indata).max()) * 1.4))
                 if self._live_on:
                     self._live_rate = self._rate
@@ -1214,6 +1247,7 @@ class AudioRecorder(BaseRecorder):
                         and time.monotonic() - start > 4.0):
                     raise RuntimeError("Microphone opened but no audio is being received. "
                                        "Check it isn't muted or disabled, or select a different microphone.")
+                self._check_mic_silence()
                 # H13: the device went away mid-recording — reopen it (or another
                 # input) at the same rate; if that fails, stop with a clear error
                 # instead of silently producing a file that ends early.

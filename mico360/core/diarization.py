@@ -1,10 +1,13 @@
 """Lightweight, offline speaker diarization.
 
-Assigns "Speaker 1/2/3…" labels to Whisper segments by computing a small MFCC
-voice embedding for each segment and clustering them (cosine distance,
-average-linkage agglomerative, auto speaker count). Pure NumPy — no PyTorch,
-no Hugging Face, no extra downloads. Approximate: good for a few clear
-speakers, weaker on heavy crosstalk.
+Assigns "Speaker 1/2/3…" labels to Whisper segments: each segment's voice is
+the average of its MFCCs (without c0, i.e. without loudness), normalised per
+coefficient over the whole recording; segments are compared by how far apart
+those averages are relative to their standard error (longer segments carry
+more evidence) and grouped by average-linkage agglomerative clustering with an
+automatic speaker count. Pure NumPy — no PyTorch, no Hugging Face, no extra
+downloads. Approximate: good for a few speakers taking turns of a few seconds,
+weaker on heavy crosstalk and very short turns (those stay with one speaker).
 """
 from __future__ import annotations
 
@@ -128,26 +131,77 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
     return float(1.0 - np.dot(a, b))
 
 
+# M38: segment-mean distances are divided by their standard error and by this
+# many frames per second, so the threshold reads as "separation per second of
+# speech"; one voice stays well under it at any loudness, different voices
+# taking turns of ~3 s or more are well over it.
+_FRAMES_PER_SECOND = _SR / _HOP
+VOICE_THRESHOLD = 0.05
+
+
+def _voice_stats(audio: np.ndarray, segments, cancel=None):
+    """Per-segment mean MFCC (c1..c12, normalised over the whole recording) and
+    frame count. Segments too short for one frame get count 0."""
+    means, counts = [], []
+    s1 = np.zeros(_N_MFCC - 1)
+    s2 = np.zeros(_N_MFCC - 1)
+    total = 0
+    for n, seg in enumerate(segments):
+        if n % 25 == 0:
+            _check_cancel(cancel)
+        a = int(max(0, seg.start) * _SR)
+        b = int(max(seg.start, seg.end) * _SR)
+        m = _mfcc(audio[a:b])[:, 1:].astype(np.float64)     # c0 = loudness, not voice
+        if len(m):
+            means.append(m.mean(axis=0))
+            counts.append(len(m))
+            s1 += m.sum(axis=0)
+            s2 += (m * m).sum(axis=0)
+            total += len(m)
+        else:
+            means.append(np.zeros(_N_MFCC - 1))
+            counts.append(0)
+    if total == 0:
+        return np.zeros((len(segments), _N_MFCC - 1)), np.zeros(len(segments))
+    mu = s1 / total
+    sd = np.sqrt(np.maximum(s2 / total - mu * mu, 1e-12))
+    return (np.asarray(means) - mu) / sd, np.asarray(counts, dtype=np.float64)
+
+
+def _voice_distances(M: np.ndarray, N: np.ndarray) -> np.ndarray:
+    """Separation of segment voices: RMS difference of the normalised means
+    divided by its standard error, per second of speech."""
+    sq = (M * M).sum(axis=1)                     # |a-b|² = |a|² + |b|² - 2a·b: n×n memory only
+    diff = np.sqrt(np.maximum(sq[:, None] + sq[None, :] - 2.0 * (M @ M.T), 0.0) / M.shape[1])
+    se = np.sqrt(1.0 / N[:, None] + 1.0 / N[None, :])
+    return diff / se / _FRAMES_PER_SECOND
+
+
 def _check_cancel(cancel) -> None:
     if cancel is not None and cancel():
         raise InterruptedError("Transcription cancelled.")
 
 
-def _agglomerative(embeddings, threshold: float, max_k: int, cancel=None) -> list[int]:
+def _agglomerative(embeddings, threshold: float, max_k: int, cancel=None,
+                   distances: np.ndarray | None = None) -> list[int]:
     """Average-linkage agglomerative clustering on cosine distance.
 
     Vectorised (H11): one distance matrix, updated in place with the
     Lance–Williams average-linkage rule after each merge, so every step is a
     NumPy argmin + two row updates instead of an O(n²) Python double loop that
     recomputed every pairwise mean. Same merges and stopping rule as before.
-    `cancel()` is checked every step."""
-    n = len(embeddings)
+    `cancel()` is checked every step. `distances` (n×n) replaces the cosine
+    distances of `embeddings` when given (M38)."""
+    n = len(embeddings) if distances is None else len(distances)
     if n == 0:
         return []
     if n == 1:
         return [0]
-    X = np.asarray(embeddings, dtype=np.float64).reshape(n, -1)
-    D = 1.0 - X @ X.T
+    if distances is None:
+        X = np.asarray(embeddings, dtype=np.float64).reshape(n, -1)
+        D = 1.0 - X @ X.T
+    else:
+        D = np.array(distances, dtype=np.float64)
     np.fill_diagonal(D, np.inf)
     sizes = np.ones(n, dtype=np.float64)
     members: list[list[int]] = [[i] for i in range(n)]
@@ -211,8 +265,44 @@ def _cluster(embeddings, durations, threshold: float, max_k: int, cancel=None) -
     return [int(x) for x in labels]
 
 
-def diarize(audio_path: str, segments, max_speakers: int = 4, threshold: float = 0.22,
-            cancel=None) -> list[int]:
+def _cluster_voices(M: np.ndarray, N: np.ndarray, durations, threshold: float, max_k: int,
+                    cancel=None) -> list[int]:
+    """M38: cluster segment voices (see _voice_stats). Segments without a single
+    frame join the speaker before them. Very long meetings are clustered on
+    their longest segments; the rest join the nearest speaker's average voice."""
+    n = len(M)
+    labels = np.zeros(n, dtype=int)
+    real = np.flatnonzero(N > 0)
+    if len(real) <= 1:
+        return [0] * n
+    keep = real
+    if len(real) > _MAX_CLUSTER_ITEMS:
+        dur = np.asarray(durations, dtype=np.float64)[real]
+        keep = np.sort(real[np.argsort(-dur, kind="stable")[:_MAX_CLUSTER_ITEMS]])
+    sub = np.asarray(_agglomerative(None, threshold, max_k, cancel,
+                                    distances=_voice_distances(M[keep], N[keep])))
+    _check_cancel(cancel)
+    labels[keep] = sub
+    if len(keep) < len(real):
+        k = int(sub.max()) + 1
+        w = N[keep]
+        cent = np.stack([(M[keep][sub == c] * w[sub == c, None]).sum(0) / w[sub == c].sum()
+                         for c in range(k)])
+        cn = np.array([w[sub == c].sum() for c in range(k)])
+        rest = np.setdiff1d(real, keep)
+        d = _voice_distances(np.vstack([M[rest], cent]), np.concatenate([N[rest], cn]))
+        labels[rest] = np.argmin(d[:len(rest), len(rest):], axis=1)
+    last = labels[real[0]]
+    for i in range(n):                       # frame-less snippets: previous speaker
+        if N[i] > 0:
+            last = labels[i]
+        else:
+            labels[i] = last
+    return [int(x) for x in labels]
+
+
+def diarize(audio_path: str, segments, max_speakers: int = 4,
+            threshold: float = VOICE_THRESHOLD, cancel=None) -> list[int]:
     """Return a speaker index (0-based) for each segment. Raises InterruptedError
     if `cancel()` becomes true."""
     if len(segments) <= 1:
@@ -221,15 +311,9 @@ def diarize(audio_path: str, segments, max_speakers: int = 4, threshold: float =
         audio = _load_audio(audio_path)
         if len(audio) == 0:
             return [0] * len(segments)
-        embeddings, durations = [], []
-        for n, seg in enumerate(segments):
-            if n % 25 == 0:
-                _check_cancel(cancel)
-            a = int(max(0, seg.start) * _SR)
-            b = int(max(seg.start, seg.end) * _SR)
-            embeddings.append(_embedding(audio[a:b]))
-            durations.append(max(0.0, float(seg.end) - float(seg.start)))
-        labels = _cluster(embeddings, durations, threshold, max_speakers, cancel)
+        M, N = _voice_stats(audio, segments, cancel)
+        durations = [max(0.0, float(seg.end) - float(seg.start)) for seg in segments]
+        labels = _cluster_voices(M, N, durations, threshold, max_speakers, cancel)
         # relabel by first appearance so speakers are 0,1,2… in order
         remap: dict[int, int] = {}
         for lab in labels:

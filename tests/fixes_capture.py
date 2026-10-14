@@ -15,6 +15,8 @@
   M34  in Mic + System mode a mic that won't open falls back / is reported
   M35  Outlook lookup uses the locale date format and never launches Outlook
   M36  Teams section windows ("Chat | Jane | Microsoft Teams") aren't meetings
+  M37  a microphone that sends complete silence (muted) is reported while recording
+  M38  speaker identification tells two voices apart and keeps one voice as one speaker
 
 Runs against a THROWAWAY data folder (LOCALAPPDATA is redirected before the app
 is imported) and needs no microphone, camera, network, Ollama or Whisper model:
@@ -113,9 +115,10 @@ class Toast:
 # Fake audio devices (sounddevice + soundcard) — no hardware needed
 # -----------------------------------------------------------------------------
 class FakeStream:
-    def __init__(self, sd, device, rate, blocksize, callback, stall, freq):
+    def __init__(self, sd, device, rate, blocksize, callback, stall, freq, amp=0.3):
         self.sd, self.device, self.rate = sd, device, int(rate)
         self.blocksize, self.callback, self.stall, self.freq = blocksize, callback, stall, freq
+        self.amp = amp
         self._closed = threading.Event()
 
     def start(self):
@@ -129,7 +132,7 @@ class FakeStream:
                 self.sd.fail.add(self.device)          # the device was "unplugged"
                 return
             t = (n + np.arange(self.blocksize)) / self.rate
-            blk = (0.3 * np.sin(2 * np.pi * self.freq * t)).astype("float32").reshape(-1, 1)
+            blk = (self.amp * np.sin(2 * np.pi * self.freq * t)).astype("float32").reshape(-1, 1)
             try:
                 self.callback(blk, self.blocksize, None, None)
             except Exception:
@@ -147,8 +150,10 @@ class FakeStream:
 class FakeSD(types.ModuleType):
     """Stand-in for the `sounddevice` module."""
 
-    def __init__(self, n_devices=2, fail=(), stall_after=None, default_rate=44100, freq=440.0):
+    def __init__(self, n_devices=2, fail=(), stall_after=None, default_rate=44100, freq=440.0,
+                 amp=0.3):
         super().__init__("sounddevice")
+        self.amp = amp                         # 0 = a muted mic (digital silence)
         self.devices = [{"name": f"Mic {i}", "max_input_channels": 1, "max_output_channels": 0,
                          "default_samplerate": default_rate} for i in range(n_devices)]
         self.fail = set(fail)                  # device or (device, rate) that won't open
@@ -175,7 +180,7 @@ class FakeSD(types.ModuleType):
             raise RuntimeError("Error opening InputStream: Unanticipated host error [PaErrorCode -9999]")
         self.opened.append((device, int(samplerate)))
         return FakeStream(self, device, samplerate, blocksize, callback,
-                          self.stall_after.pop(device, None), self.freq)
+                          self.stall_after.pop(device, None), self.freq, self.amp)
 
 
 class FakeLoopRecorder:
@@ -994,12 +999,123 @@ def test_meeting_watch() -> None:
           got == [] and dispatched == [], f"{dispatched}")
 
 
+def test_m37_muted_mic() -> None:
+    print("M37 — a muted microphone (complete silence) is reported while recording")
+    saved = R.MUTED_MIC_SECONDS
+    R.MUTED_MIC_SECONDS = 1.0                    # the app waits longer; the logic is the same
+    try:
+        def muted(w):
+            return "silence" in w.lower() and "muted" in w.lower()
+
+        with Devices(FakeSD(n_devices=1, amp=0.0)):
+            rec = R.AudioRecorder(R.RecordingConfig(kind="audio", source="mic"))
+            rec.start()
+            seen = pump(lambda: any(muted(w) for w in rec.all_warnings()), 6)
+            res = rec.stop()
+        check("Microphone only: a muted mic is reported while still recording",
+              seen and rec.state == R.STOPPED, f"{rec.all_warnings()} state={rec.state}")
+        check("…once, and the recording is still saved (the user may unmute)",
+              sum(muted(w) for w in rec.all_warnings()) == 1 and Path(res.path).exists())
+
+        with Devices(FakeSD(n_devices=1, amp=0.3)):
+            rec = R.AudioRecorder(R.RecordingConfig(kind="audio", source="mic"))
+            record_for(rec, 2.0)
+        check("a mic that hears something is not reported",
+              not any(muted(w) for w in rec.all_warnings()), f"{rec.all_warnings()}")
+
+        with Devices(FakeSD(n_devices=1, amp=0.0), fake_soundcard(True, 1000.0)):
+            rec = R.AudioRecorder(R.RecordingConfig(kind="audio", source="both"))
+            rec.start()
+            seen = pump(lambda: any(muted(w) for w in rec.all_warnings()), 6)
+            rec.stop()
+        check("Mic + System: a muted mic is reported (system audio keeps recording)",
+              seen, f"{rec.all_warnings()}")
+
+        with Devices(FakeSD(n_devices=1, amp=0.0), fake_soundcard(True, 1000.0)):
+            rec = R.AudioRecorder(R.RecordingConfig(kind="audio", source="system"))
+            record_for(rec, 2.0)
+        check("System audio only: silence on the speakers is not a 'muted mic'",
+              not any(muted(w) for w in rec.all_warnings()), f"{rec.all_warnings()}")
+    finally:
+        R.MUTED_MIC_SECONDS = saved
+
+
+# Vowel formants (Hz) of an adult male vocal tract; a shorter tract scales them up.
+_VOWELS = [(730, 1090, 2440), (270, 2290, 3010), (300, 870, 2240), (530, 1840, 2480),
+           (570, 840, 2410), (440, 1020, 2240), (660, 1720, 2410), (490, 1350, 1690)]
+
+
+def synth_voice(seconds: float, f0: float, tract: float, seed: int, gain: float = 0.3) -> np.ndarray:
+    """A crude but speech-like voice: 160 ms vowels (harmonics of a wobbling F0
+    shaped by formant resonances), short pauses and a little room noise."""
+    rng = np.random.default_rng(seed)
+    sr, out, total = 16000, [], 0
+    while total < seconds * sr:
+        n = int(0.16 * sr)
+        t = np.arange(n) / sr
+        pitch = f0 * (1 + 0.04 * np.sin(2 * np.pi * rng.uniform(2, 5) * t))
+        phase = 2 * np.pi * np.cumsum(pitch) / sr
+        formants = [f * tract for f in _VOWELS[rng.integers(len(_VOWELS))]]
+        k = np.arange(1, int(3800 / f0) + 1)
+        amp = sum(1.0 / (1 + ((k * f0 - fc) / (60 + 0.06 * fc)) ** 2) for fc in formants) / k ** 0.5
+        v = (amp[:, None] * np.sin(k[:, None] * phase[None, :])).sum(0)
+        v *= np.hanning(n) * gain / (np.abs(v).max() + 1e-9)
+        out.append(v)
+        if rng.random() < 0.25:
+            out.append(np.zeros(int(rng.uniform(0.05, 0.2) * sr)))
+        total += sum(len(o) for o in out[-2:])
+    sig = np.concatenate(out)[: int(seconds * sr)]
+    return (sig + rng.normal(0, 0.002, sig.size)).astype("float32")
+
+
+def test_m38_speaker_identification() -> None:
+    print("M38 — speaker identification tells two voices apart")
+    from mico360.core import diarization as D
+
+    class Seg:
+        def __init__(self, a, b):
+            self.start, self.end, self.speaker = a, b, None
+
+    def run(parts):
+        audio, segs, t = [], [], 0.0
+        for a in parts:
+            segs.append(Seg(t, t + a.size / 16000))
+            audio += [a, np.zeros(4000, "float32")]
+            t += a.size / 16000 + 0.25
+        wav = str(config.TMP_DIR / "m38.wav")
+        sf.write(wav, np.concatenate(audio), 16000)
+        try:
+            return D.diarize(wav, segs)
+        finally:
+            Path(wav).unlink(missing_ok=True)
+
+    lo = dict(f0=115.0, tract=1.0)           # deeper voice
+    hi = dict(f0=205.0, tract=1.17)          # higher voice, shorter vocal tract
+    turns = [lo, hi, lo, hi, lo, hi, hi, lo]
+    labels = run([synth_voice(4.0, seed=i, gain=(0.3, 0.12)[i % 2], **v) for i, v in enumerate(turns)])
+    truth = [0 if v is lo else 1 for v in turns]
+    check("two voices taking turns are labelled as two speakers, each turn correctly",
+          labels == truth or labels == [1 - x for x in truth], f"{labels} vs {truth}")
+
+    similar = dict(f0=150.0, tract=1.0)
+    other = dict(f0=175.0, tract=1.12)
+    labels = run([synth_voice(5.0, seed=20 + i, **(similar if i % 2 == 0 else other)) for i in range(6)])
+    check("…also two voices that are closer in pitch",
+          labels in ([0, 1] * 3, [1, 0] * 3), f"{labels}")
+
+    for secs in (5.0, 2.0):
+        labels = run([synth_voice(secs, seed=40 + i, gain=g, **lo)
+                      for i, g in enumerate((0.3, 0.05, 0.2, 0.08, 0.3, 0.1, 0.15, 0.25))])
+        check(f"one voice at changing loudness stays one speaker ({secs:.0f} s turns)",
+              set(labels) == {0}, f"{labels}")
+
+
 # =============================================================================
 def main() -> int:
     for fn in (test_meeting_watch, test_h11_diarization, test_m33_gpu_fallback,
                test_m31_streaming_mix, test_m32_async_stop, test_h13_device_loss,
                test_m34_mic_fallback, test_h10_video_clock, test_h10_audio_alignment,
-               test_h9_video_system_audio):
+               test_h9_video_system_audio, test_m37_muted_mic, test_m38_speaker_identification):
         try:
             fn()
         except Exception as exc:
