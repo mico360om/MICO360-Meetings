@@ -1,0 +1,334 @@
+{
+ "deadlines": [
+  {
+   "input": "2026-10-12",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "20261012",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "12/10/2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "10/25/2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-25"
+  },
+  {
+   "input": "12-10-2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "12.10.2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "Oct 12, 2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "October 12, 2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "12 Oct 2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "12 October 2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "Oct 12 2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "12 Oct, 2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "12th October 2026",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "1st Nov",
+   "ref": "2026-10-05",
+   "output": "2026-11-01"
+  },
+  {
+   "input": "10 Jan",
+   "ref": "2026-10-05",
+   "output": "2027-01-10"
+  },
+  {
+   "input": "Feb 29",
+   "ref": "2026-10-05",
+   "output": "2028-02-29"
+  },
+  {
+   "input": "5 Oct",
+   "ref": "2026-10-05",
+   "output": "2026-10-05"
+  },
+  {
+   "input": "3 Jul",
+   "ref": "2026-10-05",
+   "output": "2027-07-03"
+  },
+  {
+   "input": "Not specified",
+   "ref": "2026-10-05",
+   "output": null
+  },
+  {
+   "input": "tbd",
+   "ref": "2026-10-05",
+   "output": null
+  },
+  {
+   "input": "next week",
+   "ref": "2026-10-05",
+   "output": null
+  },
+  {
+   "input": "31/02/2026",
+   "ref": "2026-10-05",
+   "output": null
+  },
+  {
+   "input": "  12 oct  2026. ",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  },
+  {
+   "input": "2026-10-12T10:00",
+   "ref": "2026-10-05",
+   "output": "2026-10-12"
+  }
+ ],
+ "status": [
+  {
+   "input": "done",
+   "output": "Completed"
+  },
+  {
+   "input": "In-Progress",
+   "output": "In Progress"
+  },
+  {
+   "input": "WIP",
+   "output": "In Progress"
+  },
+  {
+   "input": "",
+   "output": "Pending"
+  },
+  {
+   "input": "open",
+   "output": "Pending"
+  },
+  {
+   "input": "Blocked",
+   "output": "Blocked"
+  },
+  {
+   "input": "Cancelled",
+   "output": "Cancelled"
+  }
+ ],
+ "priority": [
+  {
+   "input": "urgent",
+   "output": "High"
+  },
+  {
+   "input": "P2",
+   "output": "Medium"
+  },
+  {
+   "input": "low",
+   "output": "Low"
+  },
+  {
+   "input": "",
+   "output": ""
+  },
+  {
+   "input": "n/a",
+   "output": ""
+  },
+  {
+   "input": "Whenever",
+   "output": "Whenever"
+  }
+ ],
+ "extract": [
+  {
+   "input": "# Meeting Minutes\n**Meeting Title:** Budget review\n**Date and Time:** 5 Oct 2026\n**Attendees:** Ali, Sara\n\n## Purpose of Meeting\nPlan Q4.\nSecond line.",
+   "items": []
+  },
+  {
+   "input": "## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| Send report | Ali | 10 Oct | Pending |\n| Fix `a|b` pipe | Sara | 2026-10-12 | Done |\n| Escaped \\| pipe | Omar | | In progress |",
+   "items": [
+    {
+     "task": "Send report",
+     "owner": "Ali",
+     "deadline": "10 Oct",
+     "status": "Pending",
+     "meeting_id": 0,
+     "meeting_title": "",
+     "meeting_date": "",
+     "priority": "",
+     "notes": "",
+     "okey": "",
+     "occ": 0
+    },
+    {
+     "task": "Fix `a|b` pipe",
+     "owner": "Sara",
+     "deadline": "2026-10-12",
+     "status": "Done",
+     "meeting_id": 0,
+     "meeting_title": "",
+     "meeting_date": "",
+     "priority": "",
+     "notes": "",
+     "okey": "",
+     "occ": 0
+    },
+    {
+     "task": "Escaped | pipe",
+     "owner": "Omar",
+     "deadline": "",
+     "status": "In progress",
+     "meeting_id": 0,
+     "meeting_title": "",
+     "meeting_date": "",
+     "priority": "",
+     "notes": "",
+     "okey": "",
+     "occ": 0
+    }
+   ]
+  },
+  {
+   "input": "Task | Owner\n---|---\nNo leading pipe | Me\n\nAfter table",
+   "items": [
+    {
+     "task": "No leading pipe",
+     "owner": "Me",
+     "deadline": "",
+     "status": "Pending",
+     "meeting_id": 0,
+     "meeting_title": "",
+     "meeting_date": "",
+     "priority": "",
+     "notes": "",
+     "okey": "",
+     "occ": 0
+    }
+   ]
+  },
+  {
+   "input": "- one\n- **two** bold\n* three\n\n1. first\n2) second\n7. seventh\n\n---\n\nPara with **bold** and `code`.",
+   "items": []
+  },
+  {
+   "input": "### Deep ###\n#### Deeper\n###### Six\n####### Seven is text",
+   "items": []
+  },
+  {
+   "input": "# محضر الاجتماع\n**عنوان الاجتماع:** الميزانية\n- بند أول\n| المهمة | المسؤول | الحالة |\n| --- | --- | --- |\n| إرسال التقرير | علي | قيد التنفيذ |",
+   "items": []
+  },
+  {
+   "input": "Line with \u000b vertical tab and \u0007 bell and emoji 😀 kept\n| Header only |\n| --- |",
+   "items": []
+  },
+  {
+   "input": "| # | Task | Owner |\n| --- | --- | --- |\n| 1 | Extra | cell | Bob |",
+   "items": [
+    {
+     "task": "Extra | cell",
+     "owner": "Bob",
+     "deadline": "",
+     "status": "Pending",
+     "meeting_id": 0,
+     "meeting_title": "",
+     "meeting_date": "",
+     "priority": "",
+     "notes": "",
+     "okey": "",
+     "occ": 0
+    }
+   ]
+  },
+  {
+   "input": "Don`t | split\n| A | B |\n|---|---|\n| x | y |",
+   "items": []
+  },
+  {
+   "input": "",
+   "items": []
+  },
+  {
+   "input": "| Action | Owner | Due | State | Priority |\n|---|---|---|---|---|\n| **Ship** it | Ana | 1st Nov | done | urgent |\n| ... | x | | | |",
+   "items": [
+    {
+     "task": "Ship it",
+     "owner": "Ana",
+     "deadline": "1st Nov",
+     "status": "done",
+     "meeting_id": 0,
+     "meeting_title": "",
+     "meeting_date": "",
+     "priority": "High",
+     "notes": "",
+     "okey": "",
+     "occ": 0
+    }
+   ]
+  }
+ ],
+ "csvSafe": [
+  {
+   "input": "=SUM(A1)",
+   "output": "'=SUM(A1)"
+  },
+  {
+   "input": "+1",
+   "output": "'+1"
+  },
+  {
+   "input": "-x",
+   "output": "'-x"
+  },
+  {
+   "input": "@a",
+   "output": "'@a"
+  },
+  {
+   "input": "\tt",
+   "output": "'\tt"
+  },
+  {
+   "input": "ok",
+   "output": "ok"
+  }
+ ]
+}

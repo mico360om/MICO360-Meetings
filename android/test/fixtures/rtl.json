@@ -1,0 +1,22 @@
+[
+ {
+  "input": "hello",
+  "arabic": false
+ },
+ {
+  "input": "مرحبا",
+  "arabic": true
+ },
+ {
+  "input": "שלום",
+  "arabic": true
+ },
+ {
+  "input": "x ي",
+  "arabic": true
+ },
+ {
+  "input": "",
+  "arabic": false
+ }
+]
