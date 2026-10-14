@@ -310,6 +310,11 @@ class GenerateWorker(QThread):
             if self._cancel:
                 self.failed.emit("Cancelled.")
                 return
+            # MICO360 Cloud: another model answered, or part of a request was not
+            # honoured (API guide §6/§8) — the page tells the user.
+            snap = getattr(self, "snap", None)
+            if isinstance(snap, dict):
+                snap["warnings"] = list(getattr(self.generator, "warnings", None) or [])
             self.finished_ok.emit(md)
         except InterruptedError:
             self.failed.emit("Generation cancelled.")

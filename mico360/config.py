@@ -163,9 +163,11 @@ MICO360_CONNECT_BASE_URL = "http://ai.mico360.com:5310/v1"
 # Encrypted endpoints tried automatically (certificate-verified). The first one
 # that answers over HTTPS is used for all Cloud traffic from then on; the plain
 # HTTP URL above is only a fallback until the server offers TLS (BUG_REPORT C5).
+# API guide §9: TLS is enabled on port 5311 (5310 stays plain HTTP, so https on
+# 5310 can never work); 443 only if an administrator exposes the API there.
 MICO360_CONNECT_HTTPS_CANDIDATES = (
+    "https://ai.mico360.com:5311/v1",
     "https://ai.mico360.com/v1",
-    "https://ai.mico360.com:5310/v1",
 )
 # A model the fleet is expected to have (per the API guide). It is only a default —
 # the real list comes live from GET /v1/models and the user picks from it.

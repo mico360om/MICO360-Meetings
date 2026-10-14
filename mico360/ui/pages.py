@@ -1396,7 +1396,12 @@ class NewMeetingPage(QWidget):
         self._reached = self.STEP_MINUTES
         self._goto_step(self.STEP_MINUTES)
         self._show_minutes_preview()
-        self.toast.show_message("Minutes generated and saved to History.", "success")
+        notes = (snap or {}).get("warnings") or []
+        if notes:
+            self.toast.show_message("Minutes generated and saved to History. MICO360 Cloud: "
+                                    + " ".join(notes[:2]), "warn", 12000)
+        else:
+            self.toast.show_message("Minutes generated and saved to History.", "success")
 
     def _cancel(self):
         if self._worker:

@@ -10,8 +10,12 @@ docs/BUG_REPORT.md.
   M25  filler removal only drops true disfluencies
   M26  the chunker splits on Arabic/CJK punctuation and newlines, never mid-word,
        and overlaps unpunctuated text
-  M27  cloud generation retries 429/5xx/timeouts (Retry-After, capped) with
+  M27  cloud generation retries 429/5xx/timeouts (Retry-After honoured) with
        friendly error messages
+  API  the Cloud client follows the MICO360 Connect API guide (2.6.7): headers,
+       Idempotency-Key + correlation id, 32,000-character limit, 503/429
+       Retry-After rules, a 504 collected from GET /api/v1/jobs/{id}, model
+       substitution warnings, the documented TLS port and its 307 redirect
   M28  the single-instance lock is per session and reports errors distinctly
   M29  an unfetchable/unusable checksum asset makes the update unverifiable
   L7   a pasted GitHub URL is normalised to owner/name for update checks
@@ -75,6 +79,7 @@ class FakeServer:
         self.script = list(script)
         self.hits = 0
         self.paths: list[str] = []
+        self.requests: list[dict] = []        # method, path, headers, body (parsed JSON or None)
         outer = self
 
         class H(BaseHTTPRequestHandler):
@@ -85,11 +90,17 @@ class FakeServer:
 
             def _handle(self):
                 n = int(self.headers.get("Content-Length") or 0)
-                if n:
-                    self.rfile.read(n)
+                raw = self.rfile.read(n) if n else b""
+                try:
+                    body = json.loads(raw) if raw else None
+                except ValueError:
+                    body = None
                 with lock:
                     outer.hits += 1
                     outer.paths.append(self.path)
+                    outer.requests.append({"method": self.command, "path": self.path,
+                                           "headers": {k.lower(): v for k, v in self.headers.items()},
+                                           "body": body})
                     act = outer.script.pop(0) if len(outer.script) > 1 else outer.script[0]
                 kind = act[0]
                 if kind == "stall":
@@ -452,9 +463,9 @@ def test_m27_cloud_retries() -> None:
         s = FakeServer([("status", 503, {"Retry-After": "3600"}, "{}")])
         _, dt, err = timed(lambda: gen(s)._chat("hi"))
         s.close()
-        check("a huge Retry-After is capped and the total wait is bounded",
-              isinstance(err, RuntimeError) and dt < 3 and "503" in str(err)
-              and "tried" in str(err), f"dt={dt:.2f} {err!r}")
+        check("a Retry-After longer than we wait is honoured: no early retry, the wait is reported",
+              isinstance(err, RuntimeError) and dt < 3 and s.hits == 1 and "503" in str(err)
+              and "60 minutes" in str(err), f"dt={dt:.2f} hits={s.hits} {err!r}")
 
         cc.MAX_SINGLE_WAIT, cc.MAX_TOTAL_WAIT = 30.0, 60.0
         s = FakeServer([("status", 503, {"Retry-After": "20"}, "{}")])
@@ -487,6 +498,215 @@ def test_m27_cloud_retries() -> None:
         _, _, err = timed(lambda: cc.CloudGenerator(base_url=dead + "/v1", key="k")._chat("hi"))
         check("connection refused maps to a friendly message",
               isinstance(err, RuntimeError) and "Could not reach MICO360 Connect" in str(err), f"{err!r}")
+    finally:
+        for k, v in saved.items():
+            setattr(cc, k, v)
+
+
+# =============================================================================
+_JOB_504 = ('{"error":{"message":"The request did not complete within 300 seconds '
+            '(job JOB-GW1-20261015-000042, correlation id REQ-ABC123).","type":"timeout","code":null}}')
+
+
+def test_api_guide_conformance() -> None:
+    print("API — the Cloud client follows the MICO360 Connect API guide")
+    import io
+    from mico360 import config as cfg
+    from mico360.core import cloud_client as cc
+    saved = {k: getattr(cc, k) for k in ("BACKOFF_BASE", "MAX_TOTAL_WAIT", "MAX_SINGLE_WAIT",
+                                         "MAX_ATTEMPTS", "_TIMEOUT", "JOB_POLL_INTERVAL",
+                                         "_secure_base", "_open") if hasattr(cc, k)}
+    token = re.compile(r"^[A-Za-z0-9_\-:.]+$")
+
+    def gen(srv):
+        return cc.CloudGenerator(base_url=srv.url + "/v1", key="mico_test", model="m")
+
+    def posts(srv):
+        return [r for r in srv.requests if r["method"] == "POST"]
+
+    try:
+        cc.BACKOFF_BASE = 0.1
+        cc.JOB_POLL_INTERVAL = 0.05
+
+        # -- §1/§5 request shape ------------------------------------------------
+        s = FakeServer([("json", _CHAT_OK)])
+        gen(s)._chat("hello")
+        s.close()
+        r = posts(s)[0]
+        h, b = r["headers"], r["body"] or {}
+        check("POST /v1/chat/completions with Bearer key, JSON content type and Accept",
+              r["path"] == "/v1/chat/completions" and h.get("authorization") == "Bearer mico_test"
+              and h.get("content-type", "").startswith("application/json")
+              and "application/json" in h.get("accept", ""), f"{r['path']} {h}")
+        check("body: model, one user message, stream false; ignored fields not sent",
+              b.get("model") == "m" and b.get("stream") is False
+              and b.get("messages") == [{"role": "user", "content": "hello"}]
+              and "temperature" not in b, f"{b}")
+        idem, corr = h.get("idempotency-key", ""), h.get("x-mico-correlation-id", "")
+        check("Idempotency-Key (≤128, letters/digits/- _ : .) and X-Mico-Correlation-Id (≤64) sent",
+              token.match(idem) and len(idem) <= 128 and token.match(corr) and len(corr) <= 64,
+              f"idem={idem!r} corr={corr!r}")
+
+        # -- §11 a retry must not do the work twice -----------------------------
+        s = FakeServer([("status", 503, {"Retry-After": "1"},
+                         '{"error":{"message":"No connected node provides the \'Chat\' capability.",'
+                         '"type":"server_error","code":null}}'), ("json", _CHAT_OK)])
+        g = gen(s)
+        g._chat("one")
+        g._chat("two")
+        s.close()
+        keys = [p["headers"].get("idempotency-key") for p in posts(s)]
+        check("a retry repeats the same Idempotency-Key and correlation id; a new call gets new ones",
+              len(keys) == 3 and keys[0] == keys[1] != keys[2]
+              and posts(s)[0]["headers"].get("x-mico-correlation-id")
+              == posts(s)[1]["headers"].get("x-mico-correlation-id"), f"{keys}")
+
+        # -- §8 503 rules ---------------------------------------------------------
+        s = FakeServer([("status", 503, {}, '{"error":{"message":"Requested model \'m\' is currently '
+                         'unavailable. No alternative model is available.","type":"server_error","code":null}}')])
+        _, dt, err = timed(lambda: gen(s)._chat("hi"))
+        s.close()
+        check("503 without Retry-After (model unavailable, no alternative) is not retried; server says why",
+              isinstance(err, RuntimeError) and s.hits == 1 and "No alternative model" in str(err),
+              f"hits={s.hits} {err!r}")
+
+        # -- §8 429 quota with a long Retry-After ---------------------------------
+        s = FakeServer([("status", 429, {"Retry-After": "7200"},
+                         '{"error":{"message":"Quota exceeded: tokens per day.","type":"rate_limit_exceeded","code":null}}')])
+        _, dt, err = timed(lambda: gen(s)._chat("hi"))
+        s.close()
+        check("429 quota with a long Retry-After: not retried early; message and wait reported",
+              isinstance(err, RuntimeError) and s.hits == 1 and "Quota exceeded" in str(err)
+              and "2 hours" in str(err), f"hits={s.hits} {err!r}")
+
+        # -- §8 errors carry the correlation id ------------------------------------
+        s = FakeServer([("status", 400, {"X-Mico-Correlation-Id": "REQ-77AA"},
+                         '{"error":{"message":"n must be 1.","type":"invalid_request_error","code":null}}')])
+        _, _, err = timed(lambda: gen(s)._chat("hi"))
+        s.close()
+        check("an error names the server's correlation id to quote to support",
+              isinstance(err, RuntimeError) and "REQ-77AA" in str(err) and "n must be 1." in str(err),
+              f"{err!r}")
+
+        # -- §5/§8 504: collect the job, never resubmit ----------------------------
+        s = FakeServer([("status", 504, {}, _JOB_504),
+                        ("json", {"jobId": "JOB-GW1-20261015-000042", "state": "Running", "output": None}),
+                        ("json", {"jobId": "JOB-GW1-20261015-000042", "state": "Completed",
+                                  "output": "Collected minutes.", "error": None})])
+        out, _, err = timed(lambda: gen(s)._chat("hi"))
+        s.close()
+        polls = [q for q in s.requests if q["method"] == "GET"]
+        check("504 with a job id: the answer is collected from GET /api/v1/jobs/{id}",
+              out == "Collected minutes." and len(posts(s)) == 1
+              and all(q["path"] == "/api/v1/jobs/JOB-GW1-20261015-000042" for q in polls)
+              and len(polls) == 2, f"out={out!r} err={err!r} paths={s.paths}")
+        check("…using the native X-Mico-Api-Key header (Bearer is not read on /api/v1)",
+              polls and all(q["headers"].get("x-mico-api-key") == "mico_test" for q in polls),
+              f"{[q['headers'] for q in polls][:1]}")
+
+        s = FakeServer([("status", 504, {}, _JOB_504),
+                        ("json", {"jobId": "JOB-GW1-20261015-000042", "state": "Failed", "output": None,
+                                  "error": "Model ran out of memory."})])
+        _, _, err = timed(lambda: gen(s)._chat("hi"))
+        s.close()
+        check("504 then the job failed: its error is reported, nothing resubmitted",
+              isinstance(err, RuntimeError) and "ran out of memory" in str(err) and len(posts(s)) == 1,
+              f"{err!r} posts={len(posts(s))}")
+
+        s = FakeServer([("status", 504, {}, _JOB_504),
+                        ("json", {"jobId": "JOB-GW1-20261015-000042", "state": "Cancelled", "output": None,
+                                  "error": "Cancelled before a node started it."}),
+                        ("json", _CHAT_OK)])
+        out, _, err = timed(lambda: gen(s)._chat("hi"))
+        s.close()
+        check("504 for a job that never started (cancelled): sent again, then answered",
+              out == "Minutes OK." and len(posts(s)) == 2, f"out={out!r} err={err!r}")
+
+        # -- §5/§11 the 32,000-character limit --------------------------------------
+        s = FakeServer([("json", _CHAT_OK)])
+        _, _, err = timed(lambda: gen(s)._chat("x" * 32_001))
+        s.close()
+        check("a prompt over 32,000 characters is refused before sending, with a clear message",
+              isinstance(err, RuntimeError) and s.hits == 0 and "32,000" in str(err), f"{err!r}")
+
+        class Echo(FakeServer):
+            pass
+        s = FakeServer([("json", {"choices": [{"message": {"content": "Notes."}}]})])
+        transcript = " ".join(f"Sentence number {i} about the budget and the plan." for i in range(4000))
+        long_template = "Write minutes. " * 300
+        gen(s).generate_minutes(transcript, long_template, chunk_chars=20000)
+        s.close()
+        sizes = [len(p["body"]["messages"][0]["content"]) for p in posts(s)]
+        check("long meetings: every prompt the pipeline sends fits the 32,000-character limit",
+              sizes and max(sizes) <= 32_000, f"max={max(sizes) if sizes else None} n={len(sizes)}")
+
+        # -- §6 model substitution ----------------------------------------------------
+        s = FakeServer([("status", 200, {"X-Mico-Model-Warning": "Requested model 'm' is unavailable; "
+                                         "processing on 'qwen2.5:0.5b' instead."},
+                         json.dumps({"model": "qwen2.5:0.5b", "warning": "Requested model 'm' is "
+                                     "unavailable; processing on 'qwen2.5:0.5b' instead.",
+                                     "choices": [{"message": {"content": "OK"}}]}))])
+        g = gen(s)
+        g._chat("hi")
+        s.close()
+        check("a model substitution is kept as a warning for the user (once)",
+              len(g.warnings) == 1 and "qwen2.5:0.5b" in g.warnings[0], f"{g.warnings}")
+        from mico360.ui.workers import GenerateWorker
+        s = FakeServer([("status", 200, {"X-Mico-Model-Warning": "Processing on 'qwen2.5:0.5b' instead."},
+                         json.dumps({"choices": [{"message": {"content": "Minutes."}}]}))])
+        w = GenerateWorker(gen(s), "Short meeting text.", "Write minutes.", "minutes",
+                           remove_fillers=False, chunk_chars=6000)
+        w.snap = {}
+        got = []
+        w.finished_ok.connect(got.append)
+        w.run()
+        s.close()
+        check("…and handed to the page with the generated minutes",
+              got == ["Minutes."] and w.snap.get("warnings") == ["Processing on 'qwen2.5:0.5b' instead."],
+              f"{got} {w.snap}")
+
+        # -- §7 timeouts, §9 TLS ---------------------------------------------------------
+        check("the client waits longer than the server's 300 s, so the server's 504 (with the job id) arrives",
+              saved["_TIMEOUT"] > 300, f"{saved['_TIMEOUT']}")
+        cands = cfg.MICO360_CONNECT_HTTPS_CANDIDATES
+        check("encrypted endpoint: the documented TLS port 5311 is tried; https on the HTTP port 5310 is not",
+              "https://ai.mico360.com:5311/v1" in cands and not any(":5310" in c for c in cands), f"{cands}")
+
+        import urllib.error as ue
+        seen = []
+
+        class _Resp:
+            status = 200
+            headers = {}
+
+            def read(self, n=-1):
+                return json.dumps(_CHAT_OK).encode()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake_open(req, timeout=None):
+            seen.append(req.full_url)
+            if req.full_url.startswith("http://ai.mico360.com:5310/"):
+                raise ue.HTTPError(req.full_url, 307, "Temporary Redirect",
+                                   {"Location": "https://ai.mico360.com:5311/v1/chat/completions"}, io.BytesIO(b""))
+            if req.full_url.startswith("http://evil.example/"):
+                raise ue.HTTPError(req.full_url, 307, "Temporary Redirect",
+                                   {"Location": "https://other.example/v1/chat/completions"}, io.BytesIO(b""))
+            return _Resp()
+        cc._open = fake_open
+        cc._secure_base = None
+        out = cc.CloudGenerator(base_url="", key="mico_test", model="m")._chat("hi")
+        check("plain HTTP answered with 307 to HTTPS on the same host: switches to it and stays there",
+              out == "Minutes OK." and seen[-1].startswith("https://ai.mico360.com:5311/v1/")
+              and cc.is_encrypted(), f"{seen}")
+        _, _, err = timed(lambda: cc.CloudGenerator(base_url="http://evil.example/v1", key="k",
+                                                    model="m")._chat("hi"))
+        check("a redirect to another host is never followed (the key stays put)",
+              isinstance(err, RuntimeError) and not any("other.example" in u for u in seen), f"{seen}")
     finally:
         for k, v in saved.items():
             setattr(cc, k, v)
@@ -651,7 +871,7 @@ def test_l7_repo_normalisation() -> None:
 # =============================================================================
 def main() -> int:
     for fn in (test_h14_status_and_timeouts, test_h15_context_and_hierarchical_reduce,
-               test_m25_fillers, test_m26_chunking, test_m27_cloud_retries,
+               test_m25_fillers, test_m26_chunking, test_m27_cloud_retries, test_api_guide_conformance,
                test_m28_single_instance, test_m29_checksum, test_l7_repo_normalisation):
         try:
             fn()
