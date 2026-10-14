@@ -72,3 +72,5 @@ Android's installer.
 - A real two-person meeting with speaker identification; Arabic and English minutes.
 - Download the *small* model over a flaky connection (resume), then transcribe a 1-hour import.
 - Share a PDF to WhatsApp and Gmail; open the Word export.
+- Restart the phone with an action item due tomorrow: the reminder still arrives at 09:00.
+- Mute the microphone (or cover it) while recording: the silence warning appears within ~8 s.
