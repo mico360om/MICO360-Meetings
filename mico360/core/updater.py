@@ -285,10 +285,24 @@ def _classify_body(body: str) -> tuple[list[str], list[str], list[str], str]:
     security: list[str] = []
     summary_lines: list[str] = []
     bucket = summary_lines
+    last: list[str] | None = None        # the list whose last bullet may continue
+    in_code = False
     for raw in (body or "").splitlines():
         line = raw.strip()
+        if line.startswith(("```", "~~~")):  # code blocks (checksums, commands) are not prose
+            in_code = not in_code
+            last = None
+            continue
+        if in_code:
+            continue
+        if line.startswith(">"):             # a quoted note reads as ordinary text
+            line = line.lstrip("> ").strip()
         low = line.lower().lstrip("#* -")
+        if not line:
+            last = None
+            continue
         if line.startswith("#") or re.match(r"^\*\*.+\*\*$", line):
+            last = None
             if any(k in low for k in ("feature", "new", "added", "added")):
                 bucket = features
             elif any(k in low for k in ("fix", "bug", "patch")):
@@ -300,9 +314,13 @@ def _classify_body(body: str) -> tuple[list[str], list[str], list[str], str]:
             continue
         if line.startswith(("- ", "* ", "+ ")):
             item = line[2:].strip()
+            last = None
             if item:
-                (bucket if bucket is not summary_lines else features).append(item)
-        elif line:
+                last = bucket if bucket is not summary_lines else features
+                last.append(item)
+        elif last:
+            last[-1] = f"{last[-1]} {line}"      # a wrapped bullet continues
+        else:
             summary_lines.append(line)
     summary = " ".join(summary_lines).strip()
     return features, fixes, security, summary

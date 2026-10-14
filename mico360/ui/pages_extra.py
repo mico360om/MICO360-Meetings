@@ -26,6 +26,7 @@ from .components import (
     scroll_area as _scroll, section_title, subtitle, tip,
 )
 from .context import AppContext
+from .rich_editor import inline_html
 from .workers import UpdateCheckWorker, UpdateDownloadWorker
 
 log = logging.getLogger("mico360.pages_extra")
@@ -300,7 +301,8 @@ class UpdatesPage(QWidget):
 
     def _build_html(self, info: updater.UpdateInfo) -> str:
         def lst(items):
-            return "".join(f"<li>{i}</li>" for i in items) if items else "<li>Not specified</li>"
+            return ("".join(f"<li>{inline_html(i)}</li>" for i in items) if items
+                    else "<li>Not specified</li>")
         restart = "Yes — the app will restart after installing." if info.restart_required else "No"
         return f"""
         <div style='font-family:Segoe UI; font-size:13px;'>
@@ -313,7 +315,7 @@ class UpdatesPage(QWidget):
             <tr><td><b>Restart required</b></td><td>{restart}</td></tr>
           </table>
           <h4>Description</h4>
-          <p>{info.description or 'Not specified'}</p>
+          <p>{inline_html(info.description) if info.description else 'Not specified'}</p>
           <h4>New features</h4><ul>{lst(info.features)}</ul>
           <h4>Bugs fixed</h4><ul>{lst(info.fixes)}</ul>
           <h4>Security improvements</h4><ul>{lst(info.security)}</ul>

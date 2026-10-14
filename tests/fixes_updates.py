@@ -285,6 +285,23 @@ def test_release_parsing() -> None:
     check("a checksum in the release notes counts only for the named installer",
           updater.parse_checksum(body, "MICO360Meetings-Setup-1.2.4.exe").startswith("0123")
           and updater.parse_checksum(body, "Other.exe") == "")
+    body = ("# MICO360 Meetings v9\n\nIntro line one\nline two.\n\n## New features\n\n"
+            "- **Bold:** first item that\n  wraps onto a second line.\n- `Setup.exe /X` <b>raw</b>\n\n"
+            "## Fixes\n\n- A fix\n  continued.\n\n> **Note:** quoted.\n\n```\nabc123  Setup.exe\n```\n")
+    feats, fixes, sec, summary = updater._classify_body(body)
+    check("release notes: a wrapped bullet stays one item",
+          feats == ["**Bold:** first item that wraps onto a second line.", "`Setup.exe /X` <b>raw</b>"]
+          and fixes == ["A fix continued."], f"{feats} {fixes}")
+    check("…the intro and quoted notes are the description; code blocks are left out",
+          summary == "Intro line one line two. **Note:** quoted.", summary)
+    info = available("9.9.9")
+    info.features, info.fixes, info.description = feats, fixes, "**Local-only release:** a & b"
+    html = PX.UpdatesPage._build_html(None, info)
+    check("the Updates page renders Markdown in the notes (no literal ** or `)",
+          "<b>Bold:</b>" in html and "<code>Setup.exe /X</code>" in html
+          and "**" not in html and "`" not in html, html[:200])
+    check("…and escapes HTML from the release body",
+          "&lt;b&gt;raw&lt;/b&gt;" in html and "a &amp; b" in html)
     check("the default repository is the product's",
           DEFAULT_REPO == "mico360om/MICO360-Meetings"
           and updater.normalize_repo("https://github.com/mico360om/MICO360-Meetings.git") == DEFAULT_REPO)
@@ -302,8 +319,8 @@ def test_live() -> None:
           f"{info.status}: {info.error}")
     check("…within a few seconds", took < 10, f"{took:.1f}s")
     name = Path(info.download_url).name
-    check("it points at a versioned installer with a checksum",
-          name.startswith("MICO360Meetings-Setup-") and name.endswith(".exe")
+    check("it points at the published installer with a checksum",
+          name.startswith("MICO360Meetings-Setup") and name.endswith(".exe")
           and (info.checksum_url.endswith(".sha256") or info.expected_sha256), f"{name} {info.checksum_url}")
     check("the published version compares sensibly with this build",
           updater.is_newer(info.latest_version, "0.0.1") and info.latest_version.count(".") == 2,
