@@ -106,3 +106,12 @@ describe("cancel and progress on a phone", () => {
     expect(seen.slice(0, 2)).toEqual([0.25, 0.5]);
   });
 });
+
+it("Whisper's non-speech annotations are not transcript text", async () => {
+  const rec: Recognizer = { async transcribe() { return { language: "en", segments: [
+    { text: " [BLANK_AUDIO]", t0: 0, t1: 300 }, { text: " (music)", t0: 300, t1: 500 }, { text: " Hello [laughs] there", t0: 500, t1: 700 },
+  ] }; } };
+  const t = await transcribeAudio(source(new Float32Array(16000 * 8)), rec, {});
+  expect(t.text).toBe("Hello [laughs] there");
+  expect(t.segments).toHaveLength(1);
+});

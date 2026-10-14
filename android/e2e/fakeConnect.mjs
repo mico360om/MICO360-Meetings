@@ -29,6 +29,10 @@ createServer((req, res) => {
     log.requests.push({ method: req.method, url: req.url, auth: req.headers.authorization ? "present" : "absent",
       idem: req.headers["idempotency-key"] ?? "", corr: req.headers["x-mico-correlation-id"] ?? "", bytes: body.length });
     save();
+    if (req.url === "/__reset") {          // a fresh run: send the redirect again, forget old requests
+      log.requests = []; log.redirect = { sent: false, followed: false, authorizationArrived: null }; save();
+      return json(res, 200, { ok: true });
+    }
     if (req.method === "GET" && req.url === "/v1/models") return json(res, 200, { object: "list", data: [{ id: "llama3.1:latest", object: "model" }] });
     if (req.method === "POST" && req.url === "/v1/chat/completions") {
       if (!log.redirect.sent) {

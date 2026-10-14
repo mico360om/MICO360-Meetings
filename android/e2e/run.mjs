@@ -67,6 +67,7 @@ async function flow(name, f) {
   }
 }
 
+await fetch("http://127.0.0.1:8787/__reset").catch(() => { throw new Error("start the fake server first: node e2e/fakeConnect.mjs"); });
 if (apk) {
   try { adb("uninstall", PKG); } catch { /* not installed yet */ }
   adb("install", "-r", "-g", apk);
@@ -129,6 +130,36 @@ await flow("a company can be added in Settings", async () => {
   await tap("Save company");
   await find("Company E2E Trading");
 });
+
+if (process.argv.includes("--device")) {
+  // Whisper + recorder on the device: downloads the 32 MB tiny model from Hugging Face.
+  await flow("download the tiny speech model (verified by SHA256)", async () => {
+    adb("shell", "am", "start", "-n", `${PKG}/.MainActivity`);
+    for (let i = 0; i < 3 && !nodes(dump()).some((n) => /^Settings tab/.test(n.desc)); i++) { adb("shell", "input", "keyevent", "KEYCODE_BACK"); await sleep(600); }
+    await tap(/^Settings tab/);
+    await tap("Transcription");
+    await tap("Download tiny model");
+    await find(/Downloaded · in use/, 240000);
+    await tap("Navigate up");
+  });
+  await flow("record (silent emulator mic → muted-mic warning) → stop → transcribe", async () => {
+    adb("shell", "pm", "grant", PKG, "android.permission.RECORD_AUDIO");
+    await tap(/^Meetings tab/);
+    await tap("New meeting");
+    await tap("Record a meeting");
+    await type("Meeting title", "E2E Recording");
+    await hideKeyboard();
+    await scrollTo("Start meeting");
+    await tap("Start meeting");
+    // The recording screen never goes idle (timer, level), so uiautomator can't read it:
+    // let it record, then tap "Stop and transcribe" by its place on screen.
+    await sleep(15000);
+    const [w, h] = /(\d+)x(\d+)/.exec(adb("shell", "wm", "size")).slice(1).map(Number);
+    adb("shell", "input", "tap", String(Math.round(w / 2)), String(Math.round(h * 0.875)));
+    await find(/Show transcript|Transcribing on this phone|Transcription finished/, 60000);
+    await find("Show transcript", 180000);
+  });
+}
 
 const log = JSON.parse(readFileSync(new URL("./fake-connect-log.json", import.meta.url), "utf8"));
 const posts = log.requests.filter((r) => r.method === "POST");

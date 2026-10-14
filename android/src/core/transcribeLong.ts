@@ -6,6 +6,8 @@ import { CancelledError, type ProgressFn } from "./pipeline";
 
 export const SAMPLE_RATE = 16000;
 export const WINDOW_SECONDS = 600;
+/** A whole segment that is only a bracketed annotation, e.g. "[BLANK_AUDIO]" or "(music)". */
+const NON_SPEECH = /^(\[[^\]]*\]|\([^)]*\))$/;
 
 export interface Recognizer {
   /** t0/t1 in hundredths of a second from the start of `samples` (whisper.cpp);
@@ -47,7 +49,7 @@ export async function transcribeAudio(source: AudioSource, recognizer: Recognize
     let n = 0;
     for (const s of res.segments) {
       const text = (s.text ?? "").trim();
-      if (!text) continue;
+      if (!text || NON_SPEECH.test(text)) continue;
       const a = s.t0 / 100, b = Math.max(s.t0, s.t1) / 100;
       segments.push({ start: offsetSec + a, end: offsetSec + b, text });
       if (o.diarize) {

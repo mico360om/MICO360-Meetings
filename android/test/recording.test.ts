@@ -51,3 +51,13 @@ describe("WAV repair after the app was killed while recording (header only, in p
     expect(wavHeaderFixes(new Uint8Array([1, 2, 3]), 3)).toBeNull();
   });
 });
+
+describe("stream data that arrives as base64 PCM16", () => {
+  it("becomes float samples the level meter and the muted-mic check can use", async () => {
+    const { pcm16FromBase64 } = await import("../src/core/base64");
+    const pcm = new Int16Array([0, 16384, -32768, 32767]);
+    const b64 = Buffer.from(pcm.buffer).toString("base64");
+    expect(Array.from(pcm16FromBase64(b64))).toEqual([0, 0.5, -1, 32767 / 32768]);
+    expect(new SilenceWatch(1).feed(pcm16FromBase64(Buffer.from(new Int16Array(16000).buffer).toString("base64")), 16000)).toBe(true);
+  });
+});

@@ -3,6 +3,7 @@
 import { type AudioDataEvent, type RecordingConfig, type RecordingInterruptionReason, useSharedAudioRecorder } from "@siteed/audio-studio";
 import { Directory, File, Paths } from "expo-file-system";
 import { useCallback, useRef, useState } from "react";
+import { pcm16FromBase64 } from "../core/base64";
 import { SilenceWatch } from "../core/silence";
 import { fixBytes, wavHeaderFixes } from "../core/wav";
 
@@ -30,8 +31,8 @@ export function useMeetingRecorder() {
     watch.current = new SilenceWatch();
     await rec.startRecording(recordingConfig(`meeting-${Date.now()}`, async (e) => {
       const d = e.data;
-      if (typeof d === "string") return;
-      const samples = d instanceof Int16Array ? Float32Array.from(d, (x) => x / 32768) : d;
+      // float32 when the native side attaches it; otherwise base64 PCM16 (or Int16Array on web)
+      const samples = typeof d === "string" ? pcm16FromBase64(d) : d instanceof Int16Array ? Float32Array.from(d, (x) => x / 32768) : d;
       let peak = 0;
       for (let i = 0; i < samples.length; i++) peak = Math.max(peak, Math.abs(samples[i]));
       setLevel(peak);
