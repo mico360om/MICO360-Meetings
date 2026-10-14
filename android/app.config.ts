@@ -44,6 +44,7 @@ export default function config(): ExpoConfig {
       // Plain HTTP only to MICO360 Connect; an end-to-end test build may also reach the emulator's host.
       ["./plugins/withCleartextHosts.js", { hosts: ["ai.mico360.com", ...(process.env.MICO360_E2E_CONNECT_URL ? ["10.0.2.2", "localhost", "127.0.0.1"] : [])] }],
       "./plugins/withNinja.js",
+      "./plugins/withReleaseSigning.js",
     ],
     experiments: { typedRoutes: false },
     extra: {
