@@ -61,14 +61,20 @@ export async function getMeeting(db: Db, id: string): Promise<Meeting | null> {
   return r ? fromRow(r) : null;
 }
 
+/** Write only the patched columns, so two saves in flight (an autosave and a
+ *  finishing generation) never overwrite each other's fields. */
 export async function updateMeeting(db: Db, id: string, patch: Partial<Omit<Meeting, "id" | "createdAt">>): Promise<Meeting> {
-  const cur = await getMeeting(db, id);
-  if (!cur) throw new Error("This meeting no longer exists.");
-  const next: Meeting = { ...cur, ...patch, id, updatedAt: Math.max(Date.now(), cur.updatedAt) };
-  await db.runAsync(
-    `UPDATE meetings SET ${COLUMNS.map(([, c]) => `${c} = ?`).join(", ")}, segments_json = ? WHERE id = ?`,
-    [...COLUMNS.map(([k]) => value(next, k)), JSON.stringify(next.segments), id]);
-  return next;
+  const sets: string[] = ["updated_at = MAX(updated_at, ?)"];
+  const params: SqlParam[] = [Date.now()];
+  for (const [k, c] of COLUMNS) {
+    if (k === "updatedAt" || k === "createdAt" || !(k in patch)) continue;
+    sets.push(`${c} = ?`);
+    params.push(value(patch, k));
+  }
+  if ("segments" in patch) { sets.push("segments_json = ?"); params.push(JSON.stringify(patch.segments ?? [])); }
+  const r = await db.runAsync(`UPDATE meetings SET ${sets.join(", ")} WHERE id = ?`, [...params, id]);
+  if (!r.changes) throw new Error("This meeting no longer exists.");
+  return (await getMeeting(db, id))!;
 }
 
 const BACKSLASH = String.fromCharCode(92);

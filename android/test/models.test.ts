@@ -1,7 +1,7 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { describe, expect, it } from "vitest";
-import { checkModel, modelById, sha256Chunks, WHISPER_MODELS } from "../src/core/models";
+import { checkModel, modelById, resumePlan, sha256Chunks, WHISPER_MODELS } from "../src/core/models";
 import { ModelMissing, transcribeMeetingAudio } from "../src/services/transcription";
 import { DEFAULT_SETTINGS } from "../src/data/settings";
 
@@ -44,5 +44,14 @@ describe("transcription service", () => {
     });
     expect(seen).toEqual(["small", "/models/small", "ar"]);
     expect(t.text).toBe("مرحبا");
+  });
+});
+
+describe("resuming a model download", () => {
+  it("appends the rest, replaces when the server ignored the range, otherwise starts over", () => {
+    expect(resumePlan(400, 600, 1000)).toBe("append");
+    expect(resumePlan(400, 1000, 1000)).toBe("replace");
+    expect(resumePlan(400, 300, 1000)).toBe("restart");
+    expect(resumePlan(0, 0, 1000)).toBe("restart");
   });
 });

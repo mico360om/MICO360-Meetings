@@ -8,8 +8,9 @@ export const SAMPLE_RATE = 16000;
 export const WINDOW_SECONDS = 600;
 
 export interface Recognizer {
-  /** t0/t1 in hundredths of a second from the start of `samples` (whisper.cpp). */
-  transcribe(samples: Float32Array, language: string, signal?: AbortSignal):
+  /** t0/t1 in hundredths of a second from the start of `samples` (whisper.cpp);
+   *  `onProgress` reports 0..1 through this call. */
+  transcribe(samples: Float32Array, language: string, signal?: AbortSignal, onProgress?: (fraction: number) => void):
     Promise<{ language: string; segments: Array<{ text: string; t0: number; t1: number }> }>;
 }
 export interface AudioSource {
@@ -37,7 +38,11 @@ export async function transcribeAudio(source: AudioSource, recognizer: Recognize
     if (fill < SAMPLE_RATE / 2) { offsetSec += fill / SAMPLE_RATE; fill = 0; return; }   // < 0.5 s: nothing to hear
     check();
     const window = buf.subarray(0, fill);
-    const res = await recognizer.transcribe(window, language || o.language || "auto", o.signal);
+    const windowSec = fill / SAMPLE_RATE;
+    const report = (f: number) => {
+      if (o.totalMs) o.progress?.(Math.min(0.99, ((offsetSec + f * windowSec) * 1000) / o.totalMs), `Transcribed ${formatTime(offsetSec + f * windowSec)}`);
+    };
+    const res = await recognizer.transcribe(window, language || o.language || "auto", o.signal, (f) => report(Math.max(0, Math.min(1, f))));
     if (!language && res.language) language = res.language;
     let n = 0;
     for (const s of res.segments) {
@@ -58,7 +63,9 @@ export async function transcribeAudio(source: AudioSource, recognizer: Recognize
   };
 
   const result = await source.stream(async (chunk) => {
-    check();
+    // After a cancel, ignore what the decoder still delivers: throwing here would come back
+    // wrapped as a decoder error, and the cancel is reported right after the stream ends.
+    if (o.signal?.aborted) return;
     let i = 0;
     while (i < chunk.length) {
       const n = Math.min(chunk.length - i, windowSamples - fill);
@@ -68,7 +75,9 @@ export async function transcribeAudio(source: AudioSource, recognizer: Recognize
       if (fill === windowSamples) await flush();
     }
   }, o.signal);
+  check();
   await flush();
+  check();
 
   let speakers = 0;
   if (o.diarize && segments.length > 1) {

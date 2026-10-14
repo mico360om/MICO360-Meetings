@@ -30,3 +30,18 @@ describe("build-time configuration", () => {
     expect((config().extra as { connect: unknown }).connect).toBeNull();
   });
 });
+
+describe("network security", () => {
+  const hosts = (c: ReturnType<typeof config>) =>
+    ((c.plugins ?? []).find((p) => Array.isArray(p) && p[0] === "./plugins/withCleartextHosts.js") as [string, { hosts: string[] }])[1].hosts;
+  it("a release build allows plain HTTP only to the Connect host", () => {
+    delete process.env.MICO360_E2E_CONNECT_URL;
+    expect(hosts(config())).toEqual(["ai.mico360.com"]);
+  });
+  it("an end-to-end test build may also reach the emulator's host", () => {
+    process.env.MICO360_E2E_CONNECT_URL = "http://10.0.2.2:8787/v1";
+    const h = hosts(config());
+    delete process.env.MICO360_E2E_CONNECT_URL;
+    expect(h).toEqual(expect.arrayContaining(["ai.mico360.com", "10.0.2.2"]));
+  });
+});

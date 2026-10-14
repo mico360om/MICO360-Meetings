@@ -1,6 +1,7 @@
 /** Any recorded or imported audio/video file as 16 kHz mono float32 chunks. */
 import { streamAudioData } from "@siteed/audio-studio";
 import { File } from "expo-file-system";
+import { CancelledError } from "../core/pipeline";
 import type { AudioSource } from "../core/transcribeLong";
 
 export function fileSource(uri: string): AudioSource {
@@ -9,6 +10,8 @@ export function fileSource(uri: string): AudioSource {
       const r = await streamAudioData(
         { fileUri: uri, targetSampleRate: 16000, channels: 1, chunkDurationMs: 30_000, streamFormat: "float32", signal },
         { onChunk: async (c) => { await onChunk(c.samples); } });
+      // streamAudioData resolves (it does not reject) when its signal aborts.
+      if (r.cancelled || signal?.aborted) throw new CancelledError("Transcription cancelled.");
       return { durationMs: r.durationMs };
     },
   };

@@ -33,3 +33,11 @@ export function checkModel(m: WhisperModel, size: number, digest: string): "ok" 
   if (size !== m.sizeBytes) return "size";
   return digest.toLowerCase() === m.sha256 ? "ok" : "checksum";
 }
+
+/** After fetching the rest of a partial download (`restSize` bytes, asked for with a
+ *  Range header): append it, replace the part (the server sent the whole file), or restart. */
+export function resumePlan(partSize: number, restSize: number, total: number): "append" | "replace" | "restart" {
+  if (partSize > 0 && partSize + restSize === total) return "append";
+  if (restSize === total) return "replace";
+  return "restart";
+}

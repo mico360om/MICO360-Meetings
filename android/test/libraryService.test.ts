@@ -31,6 +31,12 @@ describe("profiles", () => {
     expect(await listProfiles(db)).toHaveLength(1);
     expect(files.size).toBe(1);
   });
+  it("a logo stored on the phone in different base64 formatting still counts as the same", async () => {
+    await S.importProfiles(db, "profiles.json", DESKTOP_EXPORT, logos);
+    const [p] = await listProfiles(db);
+    files.set(p.logo_path, "iVBORw0K" + String.fromCharCode(10) + "Ggo");      // re-encoded: wrapped, unpadded
+    expect(await S.importProfiles(db, "profiles.json", DESKTOP_EXPORT, logos)).toMatchObject({ imported: 0, skipped: 1 });
+  });
   it("a different profile with a taken name is renamed, never overwritten", async () => {
     await S.importProfiles(db, "a.json", DESKTOP_EXPORT, logos);
     const r = await S.importProfiles(db, "b.json", JSON.stringify([{ name: "Acme", phone: "999" }]), logos);
@@ -61,5 +67,14 @@ describe("prompts", () => {
     expect((await S.importPrompts(db, "p.json", file)).skipped).toBe(1);
     const weekly = (await listPrompts(db)).find((p) => p.name === "Weekly")!;
     expect(JSON.parse(await S.exportPrompts(db, [weekly.id])).prompts[0].text).toBe("Do [TRANSCRIPT_HERE]");
+  });
+});
+
+describe("base64", () => {
+  it("decodes the same bytes regardless of wrapping and padding", async () => {
+    const { base64Bytes } = await import("../src/core/base64");
+    const ref = Buffer.from("iVBORw0KGgo=", "base64");
+    expect(Buffer.from(base64Bytes("iVBORw0KGgo="))).toEqual(ref);
+    expect(Buffer.from(base64Bytes("iVBO Rw0K\nGgo"))).toEqual(ref);
   });
 });

@@ -22,8 +22,8 @@ export async function whisperRecognizer(modelPath: string): Promise<Recognizer> 
   }
   const ctx = cached.ctx;
   return {
-    async transcribe(samples, language, signal) {
-      const task = ctx.transcribeData(toPcm16(samples), { language });
+    async transcribe(samples, language, signal, onProgress) {
+      const task = ctx.transcribeData(toPcm16(samples), { language, onProgress: (p: number) => onProgress?.(p / 100) });
       const onAbort = () => { void task.stop(); };
       signal?.addEventListener("abort", onAbort);
       try {

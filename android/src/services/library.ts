@@ -2,7 +2,8 @@
  *  formats. Re-importing a file never duplicates anything; a different entry
  *  with a taken name is renamed, never overwritten. */
 import { sha1 } from "@noble/hashes/legacy.js";
-import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
+import { bytesToHex } from "@noble/hashes/utils.js";
+import { base64Bytes } from "../core/base64";
 import { buildProfilesJson, type CompanyProfile, contentKey, copyProfileName, parseProfileFile, uniqueProfileName } from "../core/profiles";
 import { buildPromptExport, parsePromptFile, planPromptImport } from "../core/prompts";
 import type { Db } from "../data/db";
@@ -20,7 +21,8 @@ export interface ImportSummary {
   imported: number; skipped: number; renamed: Array<[string, string]>; invalid: number; missingLogos: string[]; message: string;
 }
 
-const digest = (b64: string | null) => (b64 ? bytesToHex(sha1(utf8ToBytes(b64.replace(/\s+/g, "")))) : "");
+/** Identity of a logo: its decoded bytes, so wrapping or padding of the base64 text doesn't matter. */
+const digest = (b64: string | null) => (b64 ? bytesToHex(sha1(base64Bytes(b64))) : "");
 const LOGO_EXTS = new Set(["png", "jpg", "jpeg", "gif", "bmp", "webp"]);
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 

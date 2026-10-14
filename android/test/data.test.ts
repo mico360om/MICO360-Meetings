@@ -38,6 +38,14 @@ describe("meetings", () => {
   });
 });
 
+describe("concurrent saves", () => {
+  it("an autosave and a finishing generation never overwrite each other's fields", async () => {
+    const m = await createMeeting(db, { title: "Old" });
+    await Promise.all([updateMeeting(db, m.id, { title: "New title" }), updateMeeting(db, m.id, { minutes: "# Minutes" })]);
+    expect(await getMeeting(db, m.id)).toMatchObject({ title: "New title", minutes: "# Minutes" });
+  });
+});
+
 describe("action items", () => {
   it("come from the minutes and keep their own edits per row", async () => {
     const m = await createMeeting(db, { title: "Budget", minutes: MINUTES, createdAt: Date.UTC(2026, 9, 5, 12) });

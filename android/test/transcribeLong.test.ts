@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CancelledError } from "../src/core/pipeline";
 import fx from "./fixtures/diarization.json";
 import { diarize, diarizeStats, segmentStats } from "../src/core/diarization";
 import { type AudioSource, type Recognizer, speakerText, timestampedText, transcribeAudio } from "../src/core/transcribeLong";
@@ -73,5 +74,35 @@ describe("windowed transcription", () => {
     const t = await transcribeAudio(source(new Float32Array(16000 * 3)), { async transcribe() { return { language: "ar", segments: [] }; } }, {});
     expect(t.text).toBe("");
     expect(t.language).toBe("ar");
+  });
+});
+
+describe("cancel and progress on a phone", () => {
+  it("a source that finishes normally after cancel still ends as cancelled, never a partial transcript", async () => {
+    const ctl = new AbortController();
+    const src: AudioSource = { async stream(onChunk) {
+      await onChunk(new Float32Array(16000 * 12));
+      ctl.abort();
+      await onChunk(new Float32Array(1000));          // the decoder delivers one more small chunk, then resolves
+      return { durationMs: 12000 };
+    } };
+    const rec: Recognizer = { async transcribe() { return { language: "en", segments: [{ text: "hi", t0: 0, t1: 100 }] }; } };
+    await expect(transcribeAudio(src, rec, { windowSeconds: 10, signal: ctl.signal })).rejects.toBeInstanceOf(CancelledError);
+  });
+  it("a decoder that wraps callback errors still reports a cancel as a cancel", async () => {
+    const ctl = new AbortController();
+    const src: AudioSource = { async stream(onChunk) {
+      try { await onChunk(new Float32Array(16000)); ctl.abort(); await onChunk(new Float32Array(16000)); }
+      catch (e) { throw new Error(`Audio stream failed: ${(e as Error).message}`); }
+      return { durationMs: 2000 };
+    } };
+    const rec: Recognizer = { async transcribe() { return { language: "en", segments: [] }; } };
+    await expect(transcribeAudio(src, rec, { signal: ctl.signal })).rejects.toBeInstanceOf(CancelledError);
+  });
+  it("progress moves while a window is being recognised", async () => {
+    const seen: number[] = [];
+    const rec: Recognizer = { async transcribe(_s, _l, _sig, onProgress) { onProgress?.(0.5); return { language: "en", segments: [] }; } };
+    await transcribeAudio(source(new Float32Array(16000 * 20)), rec, { windowSeconds: 10, totalMs: 20000, progress: (f) => seen.push(f) });
+    expect(seen.slice(0, 2)).toEqual([0.25, 0.5]);
   });
 });

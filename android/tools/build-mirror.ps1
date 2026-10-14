@@ -1,6 +1,7 @@
 <# Build the Android app OUTSIDE Dropbox: mirror the sources, install, prebuild, gradle.
      powershell -File android\tools\build-mirror.ps1 [-Variant debug|release] #>
 param([ValidateSet("debug", "release")][string]$Variant = "release",
+      [string]$Abis = "arm64-v8a,armeabi-v7a,x86_64",
       [string]$BuildDir = "$env:USERPROFILE\mico360-build\app")
 $ErrorActionPreference = "Stop"
 $src = Split-Path -Parent $PSScriptRoot
@@ -10,7 +11,10 @@ Push-Location $BuildDir
 try {
   $lock = (Get-FileHash package-lock.json).Hash
   if (-not (Test-Path node_modules) -or -not (Test-Path .lockhash) -or (Get-Content .lockhash) -ne $lock) {
-    npm ci; if ($LASTEXITCODE) { throw "npm ci failed" }
+    # A fresh mirror gets `npm ci`; an existing one is updated in place, because a Gradle
+    # daemon can still hold files under node_modules open (npm ci would fail with EBUSY).
+    if (Test-Path node_modules) { npm install --no-audit --no-fund } else { npm ci }
+    if ($LASTEXITCODE) { throw "npm install failed" }
     Set-Content .lockhash $lock
   }
   $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
@@ -24,7 +28,7 @@ try {
   try {
     $task = "assemble" + $Variant.Substring(0, 1).ToUpper() + $Variant.Substring(1)
     $env:ORG_GRADLE_PROJECT_reactNativeArchitectures = $Abis   # -PreactNativeArchitectures was not applied when passed via gradlew.bat
-    .\gradlew.bat $task; if ($LASTEXITCODE) { throw "gradle failed" }
+    .\gradlew.bat $task --no-daemon; if ($LASTEXITCODE) { throw "gradle failed" }
   } finally { Pop-Location }
   $apk = Get-ChildItem "android\app\build\outputs\apk\$Variant\*.apk" | Select-Object -First 1
   Write-Output "APK: $($apk.FullName)"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MUTED_MIC_SECONDS, SilenceWatch } from "../src/core/silence";
-import { repairWavHeader } from "../src/core/wav";
+import { applyWavFixes, wavHeaderFixes } from "../src/core/wav";
 import { decodeWav16 } from "../src/core/diarization";
 
 describe("muted microphone", () => {
@@ -32,21 +32,22 @@ function wav(samples: number, dataSizeField: number, riffSizeField: number): Uin
   return new Uint8Array(buf);
 }
 
-describe("WAV repair after the app was killed while recording", () => {
+describe("WAV repair after the app was killed while recording (header only, in place)", () => {
+  const head = (bytes: Uint8Array) => bytes.subarray(0, 4096);
   it("fixes zero sizes so every recorded sample is readable", () => {
-    const fixed = repairWavHeader(wav(16000, 0, 0))!;
+    const w = wav(16000, 0, 0);
+    const fixes = wavHeaderFixes(head(w), w.length)!;
+    expect(fixes).toEqual([{ offset: 4, value: 36 + 32000 }, { offset: 40, value: 32000 }]);
+    const fixed = applyWavFixes(w.slice(), fixes);
     expect(decodeWav16(fixed).pcm.length).toBe(16000);
-    const v = new DataView(fixed.buffer);
-    expect(v.getUint32(4, true)).toBe(36 + 32000);
-    expect(v.getUint32(40, true)).toBe(32000);
   });
   it("a size field that claims more than was written is corrected too", () => {
-    const fixed = repairWavHeader(wav(100, 0xffffffff, 0xffffffff))!;
-    expect(decodeWav16(fixed).pcm.length).toBe(100);
+    const w = wav(100, 0xffffffff, 0xffffffff);
+    expect(decodeWav16(applyWavFixes(w.slice(), wavHeaderFixes(head(w), w.length)!)).pcm.length).toBe(100);
   });
-  it("leaves a healthy file alone and refuses non-WAV bytes", () => {
+  it("a healthy file needs nothing; non-WAV bytes are refused", () => {
     const ok = wav(10, 20, 56);
-    expect(repairWavHeader(ok)).toBe(ok);
-    expect(repairWavHeader(new Uint8Array([1, 2, 3]))).toBeNull();
+    expect(wavHeaderFixes(head(ok), ok.length)).toEqual([]);
+    expect(wavHeaderFixes(new Uint8Array([1, 2, 3]), 3)).toBeNull();
   });
 });
