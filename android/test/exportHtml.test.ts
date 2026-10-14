@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PROFILE, type CompanyProfile } from "../src/core/profiles";
 import { DESIGNS, getDesign } from "../src/core/designs";
-import { renderMinutesHtml, renderPreviewHtml, safeColor } from "../src/core/exportHtml";
+import { renderMinutesHtml, renderPreviewHtml, safeColor, splitNames } from "../src/core/exportHtml";
 
 const MD = [
   "# Meeting Minutes", "**Meeting Title:** Budget <review>", "**Date and Time:** 5 Oct 2026", "**Attendees:** Ali, Sara; Omar",
@@ -49,6 +49,24 @@ describe("branded HTML for printing", () => {
     expect(html).not.toContain("javascript:");
     expect(safeColor("#abc")).toBe("#abc");
     expect(safeColor("blue")).toBe("#8B1E1E");
+  });
+  it("profile choices that bypassed validation cannot break out of the page", () => {
+    const evil = { ...profile, show_page_numbers: true, logo_position: '"><script>a</script>',
+      footer_alignment: "x{}</style><script>b</script>", page_number_position: "</style><script>c</script>" };
+    const html = renderMinutesHtml(MD, { profile: evil as CompanyProfile, logoDataUri: "data:image/png;base64,iVBORw0KGgo=" });
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("logo-left");
+    expect(html).toContain("@bottom-center");
+    expect(html).toContain("@bottom-right");
+  });
+  it("attendee names split like the desktop (brackets, 'and', Arabic separators)", () => {
+    expect(splitNames("Ali (Chair, CEO), Sara and Omar")).toEqual(["Ali (Chair, CEO)", "Sara", "Omar"]);
+    expect(splitNames("A; B، C؛ D")).toEqual(["A", "B", "C", "D"]);
+    expect(splitNames("Ali.")).toEqual(["Ali"]);
+    expect(splitNames("Ali, Sara\nOmar and  Huda")).toEqual(["Ali", "Sara", "Omar", "Huda"]);
+    expect(splitNames("Mr. Ali Khan [Ops, IT], Dr. Sara.")).toEqual(["Mr. Ali Khan [Ops, IT]", "Dr. Sara"]);
+    expect(splitNames("Andrew Anderson")).toEqual(["Andrew Anderson"]);
+    expect(renderMinutesHtml("**Attendees:** Ali (Chair, CEO), Sara and Omar")).toMatch(/<li[^>]*>Ali \(Chair, CEO\)<\/li>\s*<li[^>]*>Sara<\/li>\s*<li[^>]*>Omar<\/li>/);
   });
   it("a logo is embedded only as an image data URI", () => {
     expect(renderMinutesHtml(MD, { profile, logoDataUri: "data:image/png;base64,iVBORw0KGgo=" })).toContain('<img class="logo" src="data:image/png;base64,iVBORw0KGgo="');

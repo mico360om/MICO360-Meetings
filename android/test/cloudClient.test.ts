@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { setRandomSource } from "../src/core/random";
 import { CancelledError } from "../src/core/pipeline";
 import {
-  CloudClient, CloudError, type CloudClientOptions, ConnectEndpoint, type HttpRequest, type HttpResponse, TransportError,
+  CloudClient, CloudError, type CloudClientOptions, newRequestIds, ConnectEndpoint, type HttpRequest, type HttpResponse, TransportError,
 } from "../src/core/cloudClient";
 
 type Step = HttpResponse | Error | ((r: HttpRequest) => HttpResponse);
@@ -181,5 +182,23 @@ describe("status", () => {
     expect(await client(s).c.status()).toEqual({ running: true, models: ["a", "b"], error: "" });
     const s2 = server([res(401, { error: { message: "x" } })]);
     expect((await client(s2).c.status()).error).toMatch(/rejected the API key/);
+  });
+});
+
+describe("request ids on a phone (Hermes has no WebCrypto)", () => {
+  it("come from the app's secure random source when one is installed", () => {
+    setRandomSource((n) => new Uint8Array(n).fill(0xab));
+    try {
+      expect(newRequestIds().idempotencyKey).toBe("mico360-meetings-" + "ab".repeat(16));
+    } finally { setRandomSource(null); }
+  });
+  it("without any secure source, two calls never repeat even when Math.random does", () => {
+    vi.stubGlobal("crypto", undefined);
+    const spy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const a = newRequestIds().idempotencyKey, b = newRequestIds().idempotencyKey;
+      expect(a).not.toBe(b);
+      expect(a).toMatch(/^[A-Za-z0-9_\-:.]{1,128}$/);
+    } finally { spy.mockRestore(); vi.unstubAllGlobals(); }
   });
 });

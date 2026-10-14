@@ -63,6 +63,13 @@ const MEL_FB: Float64Array[] = (() => {
   }
   return fb;
 })();
+/** The bins where each mel filter is non-zero (the rest add nothing). */
+const MEL_RANGE: Array<[number, number]> = MEL_FB.map((row) => {
+  let a = 0, c = row.length;
+  while (a < c && row[a] === 0) a++;
+  while (c > a && row[c - 1] === 0) c--;
+  return [a, c];
+});
 
 const DCT: Float64Array[] = Array.from({ length: N_MFCC }, (_x, k) =>
   Float64Array.from({ length: N_MELS }, (_y, n) => Math.cos(((Math.PI * k) / N_MELS) * (n + 0.5))));
@@ -119,7 +126,8 @@ function segmentMfcc(sig: Float32Array, sum: Float64Array, sumSq: Float64Array):
     for (let m = 0; m < N_MELS; m++) {
       let s = 0;
       const row = MEL_FB[m];
-      for (let k = 0; k <= FFT / 2; k++) s += p[k] * row[k];
+      const [a, c] = MEL_RANGE[m];
+      for (let k = a; k < c; k++) s += p[k] * row[k];
       MEL[m] = Math.log(Math.max(s, 1e-10));
     }
     for (let k = 1; k < N_MFCC; k++) {
@@ -133,26 +141,34 @@ function segmentMfcc(sig: Float32Array, sum: Float64Array, sumSq: Float64Array):
   return nFrames;
 }
 
-export function voiceStats(pcm: Float32Array, segments: Segment[]): { M: Float64Array[]; N: number[] } {
+/** c1..c12 sums of one segment's frames — enough to fingerprint its voice later. */
+export interface SegmentStats { sum: Float64Array; sumSq: Float64Array; n: number; }
+
+/** Statistics of one segment (seconds within `pcm`, 16 kHz). */
+export function segmentStats(pcm: Float32Array, startSec: number, endSec: number): SegmentStats {
   const D = N_MFCC - 1;
-  const means: Float64Array[] = [];
-  const N: number[] = [];
+  const a = Math.trunc(Math.max(0, startSec) * SR);
+  const b = Math.trunc(Math.max(startSec, endSec) * SR);
+  const sum = new Float64Array(D), sumSq = new Float64Array(D);
+  const n = segmentMfcc(pcm.subarray(Math.min(a, pcm.length), Math.min(b, pcm.length)), sum, sumSq);
+  return { sum, sumSq, n };
+}
+
+/** Per-recording normalisation of the segment means (the M38 voice fingerprint). */
+function statsToVoices(stats: SegmentStats[]): { M: Float64Array[]; N: number[] } {
+  const D = N_MFCC - 1;
   const s1 = new Float64Array(D), s2 = new Float64Array(D);
   let total = 0;
-  for (const seg of segments) {
-    const a = Math.trunc(Math.max(0, seg.start) * SR);
-    const b = Math.trunc(Math.max(seg.start, seg.end) * SR);
-    const sum = new Float64Array(D), sq = new Float64Array(D);
-    const n = segmentMfcc(pcm.subarray(Math.min(a, pcm.length), Math.min(b, pcm.length)), sum, sq);
-    means.push(n ? sum.map((x) => x / n) : new Float64Array(D));
-    N.push(n);
-    for (let j = 0; j < D; j++) { s1[j] += sum[j]; s2[j] += sq[j]; }
-    total += n;
-  }
-  if (!total) return { M: segments.map(() => new Float64Array(D)), N: segments.map(() => 0) };
+  for (const s of stats) { for (let j = 0; j < D; j++) { s1[j] += s.sum[j]; s2[j] += s.sumSq[j]; } total += s.n; }
+  if (!total) return { M: stats.map(() => new Float64Array(D)), N: stats.map(() => 0) };
   const mu = s1.map((x) => x / total);
   const sd = s2.map((x, j) => Math.sqrt(Math.max(x / total - mu[j] * mu[j], 1e-12)));
-  return { M: means.map((m) => m.map((x, j) => (x - mu[j]) / sd[j])), N };
+  const mean = (s: SegmentStats) => (s.n ? s.sum.map((x) => x / s.n) : new Float64Array(D));
+  return { M: stats.map((s) => mean(s).map((x, j) => (x - mu[j]) / sd[j])), N: stats.map((s) => s.n) };
+}
+
+export function voiceStats(pcm: Float32Array, segments: Segment[]): { M: Float64Array[]; N: number[] } {
+  return statsToVoices(segments.map((s) => segmentStats(pcm, s.start, s.end)));
 }
 
 /** RMS difference of normalised means divided by its standard error, per second of speech. */
@@ -171,8 +187,10 @@ function distances(M: Float64Array[], N: number[]): Float64Array[] {
   });
 }
 
-/** Average-linkage agglomerative clustering on a distance matrix (Lance–Williams). */
-function agglomerative(Dm: Float64Array[], threshold: number, maxK: number, signal?: AbortSignal): number[] {
+/** Average-linkage agglomerative clustering on a distance matrix (Lance–Williams).
+ *  Each row's nearest neighbour is kept, so a merge costs O(n) rather than a full
+ *  O(n²) scan; ties resolve exactly as the desktop's scan does (lowest i, then j). */
+export function agglomerative(Dm: Float64Array[], threshold: number, maxK: number, signal?: AbortSignal): number[] {
   const n = Dm.length;
   if (n === 0) return [];
   if (n === 1) return [0];
@@ -180,17 +198,32 @@ function agglomerative(Dm: Float64Array[], threshold: number, maxK: number, sign
   for (let i = 0; i < n; i++) D[i][i] = Infinity;
   const sizes = new Float64Array(n).fill(1);
   const members: number[][] = Array.from({ length: n }, (_x, i) => [i]);
+  const nnVal = new Float64Array(n), nnIdx = new Int32Array(n);
+  const rescan = (r: number) => {
+    let v = Infinity, at = 0;
+    const row = D[r];
+    for (let c = 0; c < n; c++) if (row[c] < v) { v = row[c]; at = c; }
+    nnVal[r] = v; nnIdx[r] = at;
+  };
+  for (let r = 0; r < n; r++) rescan(r);
   let k = n;
   while (k > 1) {
     if (signal?.aborted) throw new CancelledError("Transcription cancelled.");
     let bi = 0, bj = 1, best = Infinity;
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) if (D[i][j] < best) { best = D[i][j]; bi = i; bj = j; }
+    for (let r = 0; r < n; r++) if (nnVal[r] < best) { best = nnVal[r]; bi = r; bj = nnIdx[r]; }
     const i = Math.min(bi, bj), j = Math.max(bi, bj);
     if (best > threshold && k <= maxK) break;
     const si = sizes[i], sj = sizes[j];
     for (let c = 0; c < n; c++) { const v = (si * D[i][c] + sj * D[j][c]) / (si + sj); D[i][c] = v; D[c][i] = v; }
     D[i][i] = Infinity;
     for (let c = 0; c < n; c++) { D[j][c] = Infinity; D[c][j] = Infinity; }
+    nnVal[j] = Infinity;
+    rescan(i);
+    for (let c = 0; c < n; c++) {
+      if (c === i || c === j || !members[c].length) continue;
+      if (nnIdx[c] === i || nnIdx[c] === j) rescan(c);
+      else if (D[c][i] < nnVal[c] || (D[c][i] === nnVal[c] && i < nnIdx[c])) { nnVal[c] = D[c][i]; nnIdx[c] = i; }
+    }
     sizes[i] = si + sj;
     members[i].push(...members[j]);
     members[j] = [];
@@ -252,13 +285,31 @@ function clusterVoices(M: Float64Array[], N: number[], durations: number[], thre
 export async function diarize(pcm: Float32Array, segments: Segment[],
   opts: { maxSpeakers?: number; threshold?: number; signal?: AbortSignal } = {}): Promise<number[]> {
   if (segments.length <= 1 || !pcm.length) return segments.map(() => 0);
-  await Promise.resolve();                               // let the UI breathe before a long run
-  const { M, N } = voiceStats(pcm, segments);
-  if (opts.signal?.aborted) throw new CancelledError("Transcription cancelled.");
-  const durations = segments.map((s) => Math.max(0, s.end - s.start));
+  const stats: SegmentStats[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    if (i % YIELD_EVERY === 0) await yieldToUi(opts.signal);
+    stats.push(segmentStats(pcm, segments[i].start, segments[i].end));
+  }
+  await yieldToUi(opts.signal);
+  return diarizeStats(stats, segments.map((s) => Math.max(0, s.end - s.start)), opts);
+}
+
+/** Speakers from per-segment statistics (gathered from any number of audio windows). */
+export function diarizeStats(stats: SegmentStats[], durations: number[],
+  opts: { maxSpeakers?: number; threshold?: number; signal?: AbortSignal } = {}): number[] {
+  if (stats.length <= 1) return stats.map(() => 0);
+  const { M, N } = statsToVoices(stats);
   const labels = clusterVoices(M, N, durations, opts.threshold ?? VOICE_THRESHOLD, opts.maxSpeakers ?? 4, opts.signal);
   const remap = new Map<number, number>();
   return labels.map((l) => { if (!remap.has(l)) remap.set(l, remap.size); return remap.get(l)!; });
+}
+
+const YIELD_EVERY = 25;
+
+/** Let the UI run (a macrotask, not a microtask), then honour a cancel. */
+export async function yieldToUi(signal?: AbortSignal): Promise<void> {
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  if (signal?.aborted) throw new CancelledError("Transcription cancelled.");
 }
 
 /** Write "Speaker N" onto each segment; returns the number of speakers. */

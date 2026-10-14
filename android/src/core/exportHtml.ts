@@ -4,7 +4,7 @@ import data from "./data/desktop.json";
 import { normalizeStatus } from "./actionItems";
 import { type Design, getDesign } from "./designs";
 import { cleanText, parse, plain, runs } from "./mdBlocks";
-import type { CompanyProfile } from "./profiles";
+import { type CompanyProfile, sanitizeProfile } from "./profiles";
 import { hasArabic } from "./rtl";
 
 export const DEFAULT_ACCENT = "#8B1E1E";
@@ -76,8 +76,28 @@ function details(rows: Array<[string, string]>, d: Design): string {
     .map(([k, s]) => `<tr><th>${inline(k)}</th><td dir="auto">${v(s)}</td></tr>`).join("")}</table>`;
 }
 
+/** "A (Chair), B; C and D" -> ["A (Chair)", "B", "C", "D"]: commas inside
+ *  brackets don't split (desktop pdf_export._split_names). */
+export function splitNames(value: string): string[] {
+  const parts: string[] = [];
+  let buf = "";
+  let depth = 0;
+  for (const ch of value) {
+    if ("([{".includes(ch)) depth += 1;
+    else if (")]}".includes(ch)) depth = Math.max(depth - 1, 0);
+    if (",;،؛\n".includes(ch) && depth === 0) { parts.push(buf); buf = ""; } else buf += ch;
+  }
+  parts.push(buf);
+  const strip = (s: string) => s.replace(/^[ .]+|[ .]+$/g, "");
+  const names = parts.map(strip).filter(Boolean);
+  if (names.length > 1 && /\s+and\s+/.test(names[names.length - 1])) {
+    names.push(...names.pop()!.split(/\s+and\s+/).map((n) => n.trim()).filter(Boolean));
+  }
+  return names;
+}
+
 function people(key: string, value: string): string {
-  const names = isPlaceholder(value) ? [] : plain(value).split(/\s*(?:,|;|،|\n|•)\s*/).map((s) => s.trim()).filter(Boolean);
+  const names = isPlaceholder(value) ? [] : splitNames(plain(value));
   const body = names.length
     ? `<ul class="names">${names.map((n) => `<li dir="auto">${escapeHtml(n)}</li>`).join("\n")}</ul>`
     : `<p class="muted">${inline(value || "Not specified")}</p>`;
@@ -180,7 +200,7 @@ table.t th, table.t td { padding: 3pt 5pt; text-align: start; vertical-align: to
 export interface HtmlOptions { profile?: CompanyProfile | null; design?: string | null; logoDataUri?: string | null; }
 
 export function renderMinutesHtml(md: string, opts: HtmlOptions = {}): string {
-  const profile = opts.profile ?? null;
+  const profile = opts.profile ? sanitizeProfile(opts.profile) : null;   // choices reach CSS and class names
   const d = getDesign(opts.design ?? profile?.pdf_design);
   const accent = safeColor(profile?.accent_color);
   const blocks = parse(md ?? "");

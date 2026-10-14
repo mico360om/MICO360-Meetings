@@ -2,6 +2,7 @@
  *  MICO360 Connect/docs/API-Guide.md 2.6.7 exactly — see spec §5.1. */
 import data from "./data/desktop.json";
 import { CancelledError, type ProgressFn, REDUCE_NOTES_BUDGET, runMinutesPipeline } from "./pipeline";
+import { randomHex } from "./random";
 
 export const CONNECT_BASE_URL: string = data.connect.baseUrl;
 export const CONNECT_HTTPS_CANDIDATES: string[] = data.connect.httpsCandidates;
@@ -104,16 +105,8 @@ export class ConnectEndpoint {
 }
 export const defaultEndpoint = new ConnectEndpoint();
 
-function randomHex(n: number): string {
-  const bytes = new Uint8Array(n / 2);
-  const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
-  if (c?.getRandomValues) c.getRandomValues(bytes);
-  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 export function newRequestIds(): { idempotencyKey: string; correlationId: string } {
-  const u = randomHex(32);
+  const u = randomHex(16);
   return { idempotencyKey: `mico360-meetings-${u}`, correlationId: `MM-${u.slice(0, 24)}` };
 }
 
