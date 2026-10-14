@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# e2e run output
+/e2e/fake-connect-log.json

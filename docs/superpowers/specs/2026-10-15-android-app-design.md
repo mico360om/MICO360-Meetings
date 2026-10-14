@@ -167,6 +167,7 @@ The mobile client implements the same rules as the desktop `cloud_client.py` and
 | §6, §8 | `X-Mico-Model-Warning`, the body's `warning` and `X-Mico-Warning` are shown to the user after generation. |
 | §8 | Error messages use the server's text from either envelope, a hint when the body is empty, and the correlation id as "Reference for support". |
 | §9 | Encrypted endpoint: `https://ai.mico360.com:5311/v1` (the documented TLS port), then `:443`; never `https` on 5310. A `307/308` to HTTPS on the **same host** switches to it; any other redirect is not followed. |
+| §9 (measured) | React Native's `fetch` (OkHttp) follows redirects itself, so the client sees only the final response and refuses it when it came from another address. Measured on the API 34 emulator (2026-10-15, `android/e2e`): a `307` to another port was followed **without** the `Authorization` header (OkHttp drops it when scheme, host or port change), and the app showed "redirected the request to another address, which is not followed". The key therefore never reaches a different server. |
 
 ## 6. Errors and edge cases
 
