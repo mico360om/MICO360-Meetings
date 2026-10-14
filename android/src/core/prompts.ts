@@ -1,6 +1,7 @@
 /** Prompt templates, output styles and the prompt library (port of desktop
  *  core/prompts.py). All text comes from data/desktop.json. */
 import data from "./data/desktop.json";
+import { randomHex } from "./random";
 
 export const TRANSCRIPT_TOKEN: string = data.transcriptToken;
 const STYLES = new Map<string, string>(data.outputStyles as Array<[string, string]>);
@@ -49,15 +50,9 @@ export interface SavedPrompt {
   favorite: boolean;
 }
 
-function randomHex(n: number): string {
-  let s = "";
-  while (s.length < n) s += Math.floor(Math.random() * 16).toString(16);
-  return s;
-}
-
 export function promptId(name: string): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "prompt";
-  return `${slug}-${randomHex(6)}`;
+  return `${slug}-${randomHex(3)}`;
 }
 
 export function builtinText(name: string): string | null {
