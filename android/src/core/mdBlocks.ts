@@ -22,7 +22,7 @@ function block(kind: BlockKind, p: Partial<Block> = {}): Block {
 // C0 controls except \t \n \r, DEL, U+FFFE/U+FFFF and LONE surrogates (a valid
 // pair is an emoji and must survive).
 const CTRL_RE =
-  /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f￾￿]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+  /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\ufffe\uffff]|[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 
 export function cleanText(s: unknown): string {
   return (s === null || s === undefined ? "" : String(s)).replace(CTRL_RE, "");

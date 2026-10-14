@@ -16,3 +16,8 @@ it("src/core imports no React Native, Expo or native module", () => {
     expect(src, f).not.toMatch(/\\p\{/);
   }
 });
+
+it("src/core holds no invisible separators or non-characters as literal text (write them as escapes)", () => {
+  const banned = new RegExp("[" + String.fromCharCode(0x2028, 0x2029, 0xfeff, 0xfffe, 0xffff, 0) + "]");
+  for (const f of files(join(__dirname, "..", "src", "core"))) expect(readFileSync(f, "utf8"), f).not.toMatch(banned);
+});
