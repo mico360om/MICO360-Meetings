@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { useNavigation } from "expo-router";
 import { Alert } from "react-native";
 
 /** Save `value` 800 ms after the last change, and on leaving the screen. */
@@ -35,4 +36,24 @@ export function confirm(title: string, message: string, yes = "Continue", destru
     { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
     { text: yes, style: destructive ? "destructive" : "default", onPress: () => resolve(true) },
   ], { cancelable: true, onDismiss: () => resolve(false) }));
+}
+
+/** While `active`, leaving the screen (Android back, header back, gestures) asks first:
+ *  `onAttempt(leave)` decides, and calls `leave()` to go ahead. */
+export function useLeaveGuard(active: boolean | (() => boolean), onAttempt: (leave: () => void) => void): void {
+  const navigation = useNavigation();
+  const state = useRef({ active, onAttempt });
+  state.current = { active, onAttempt };
+  useEffect(() => {
+    type BeforeRemove = { preventDefault: () => void; data: { action: unknown } };
+    const nav = navigation as unknown as {
+      addListener: (e: "beforeRemove", f: (ev: BeforeRemove) => void) => () => void; dispatch: (a: unknown) => void;
+    };
+    return nav.addListener("beforeRemove", (e) => {
+      const a = state.current.active;
+      if (!(typeof a === "function" ? a() : a)) return;
+      e.preventDefault();
+      state.current.onAttempt(() => nav.dispatch(e.data.action));
+    });
+  }, [navigation]);
 }

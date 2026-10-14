@@ -51,22 +51,32 @@ export async function saveTranscript(db: Db, id: string, t: Transcript, source?:
   });
 }
 
-const running = new Set<string>();
+type Generated = { meeting: Meeting; warnings: string[] };
+const running = new Map<string, Promise<Generated>>();
+
+/** The generation still running for this meeting (a screen opened again can wait for it), or null. */
+export function generationInProgress(id: string): Promise<Generated> | null {
+  return running.get(id) ?? null;
+}
 
 /** Generate and save the minutes; one run per meeting at a time. */
-export async function generateForMeeting(db: Db, id: string, client: MinutesClient,
-  opts: { progress?: ProgressFn; signal?: AbortSignal } = {}): Promise<{ meeting: Meeting; warnings: string[] }> {
-  if (running.has(id)) throw new Error("Minutes are already being generated for this meeting.");
-  running.add(id);
-  try {
+export function generateForMeeting(db: Db, id: string, client: MinutesClient,
+  opts: { progress?: ProgressFn; signal?: AbortSignal } = {}): Promise<Generated> {
+  if (running.has(id)) return Promise.reject(new Error("Minutes are already being generated for this meeting."));
+  const run = generate(db, id, client, opts).finally(() => running.delete(id));
+  running.set(id, run);
+  return run;
+}
+
+async function generate(db: Db, id: string, client: MinutesClient,
+  opts: { progress?: ProgressFn; signal?: AbortSignal }): Promise<Generated> {
+  {
     const m = await getMeeting(db, id);
     if (!m) throw new Error("This meeting no longer exists.");
     const { text, style } = await templateFor(db, m);
     const r = await generateMinutesFor(m, text, style, client, await getSettings(db), opts);
     const meeting = await updateMeeting(db, id, { minutes: r.minutes, model: r.model });
     return { meeting, warnings: r.warnings };
-  } finally {
-    running.delete(id);
   }
 }
 

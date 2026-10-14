@@ -1,7 +1,7 @@
 /** Small device helpers the screens share: permissions, media import,
  *  the transcription adapters, and keeping reminders in step with the data. */
 import * as DocumentPicker from "expo-document-picker";
-import { File } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 import { Linking, PermissionsAndroid } from "react-native";
 import { randomHex } from "../core/random";
 import type { Db } from "../data/db";
@@ -48,4 +48,14 @@ export async function syncReminders(db: Db): Promise<void> {
     if (plans.length && !(await ensureNotificationPermission())) return;
     await scheduleReminders(plans);
   } catch { /* reminders are best effort; the Action Items tab still shows what is due */ }
+}
+
+const LOW_STORAGE_BYTES = 200 * 1024 * 1024;
+
+/** A warning when less than 200 MB is free (spec §6), else "". */
+export function lowStorageWarning(): string {
+  try {
+    const free = Paths.availableDiskSpace;
+    return free < LOW_STORAGE_BYTES ? `Only ${Math.max(0, Math.round(free / 1048576))} MB of storage is free on this phone. Recording or downloading may stop when it runs out.` : "";
+  } catch { return ""; }
 }

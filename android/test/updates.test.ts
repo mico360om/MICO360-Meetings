@@ -14,7 +14,7 @@ describe("update check", () => {
   it("offers a newer Android release from this repository", async () => {
     const seen: string[] = [];
     const r = await checkForUpdate(async (url) => { seen.push(url); return RELEASES; }, "1.0.0");
-    expect(seen).toEqual([RELEASES_URL]);
+    expect(seen).toEqual([`${RELEASES_URL}&page=1`]);
     expect(RELEASES_URL).toContain("/repos/mico360om/MICO360-Meetings/releases");
     expect(r).toMatchObject({ error: "", update: { version: "1.1.0", apkName: "MICO360Meetings-Android-1.1.0.apk" } });
   });
@@ -49,4 +49,14 @@ it("checks automatically at most once a day, and only when allowed", () => {
   expect(shouldAutoCheck({ ...DEFAULT_SETTINGS, lastUpdateCheck: now - 25 * 3600_000 }, now)).toBe(true);
   expect(shouldAutoCheck({ ...DEFAULT_SETTINGS, lastUpdateCheck: now - 3600_000 }, now)).toBe(false);
   expect(shouldAutoCheck({ ...DEFAULT_SETTINGS, autoCheckUpdates: false }, now)).toBe(false);
+});
+
+it("looks past a page full of desktop releases to find the Android one", async () => {
+  const desktop = Array.from({ length: 100 }, (_x, i) => rel(`v1.${i}.0`, ["Setup.exe"]));
+  const pages: Record<number, GithubRelease[]> = { 1: desktop, 2: [rel("android-v1.3.0", ["MICO360Meetings-Android-1.3.0.apk"])] };
+  const seen: string[] = [];
+  const r = await checkForUpdate(async (url) => { seen.push(url); return pages[Number(/[?&]page=(\d+)/.exec(url)![1])] ?? []; }, "1.0.0");
+  expect(r.update?.version).toBe("1.3.0");
+  expect(seen).toHaveLength(2);
+  expect(seen[0]).toContain("per_page=100");
 });

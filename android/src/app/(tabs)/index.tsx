@@ -35,6 +35,14 @@ export default function Meetings() {
     notifyChanged();
   };
 
+  const discardRecovered = () => Alert.alert("Delete the interrupted recording?", "The audio will be deleted.", [
+    { text: "Cancel", style: "cancel" },
+    { text: "Delete", style: "destructive", onPress: () => {
+      for (const uri of recovered) { const f = new File(uri); if (f.exists) f.delete(); }
+      setRecovered([]);
+    } },
+  ]);
+
   const remove = (m: Meeting) => Alert.alert("Delete meeting?", `"${m.title || "Untitled meeting"}" and its recording will be deleted.`, [
     { text: "Cancel", style: "cancel" },
     { text: "Delete", style: "destructive", onPress: async () => {
@@ -52,6 +60,7 @@ export default function Meetings() {
       <Screen>
         {recovered.length ? <Banner kind="warn" text={`${recovered.length} recording${recovered.length > 1 ? "s were" : " was"} interrupted. The audio was kept.`}
           action="Keep as draft" onAction={keepRecovered} /> : null}
+        {recovered.length ? <Button small kind="ghost" title="Delete it instead" label="Delete interrupted recording" onPress={discardRecovered} /> : null}
         <Field label="Search meetings" value={search} onChangeText={setSearch} placeholder="Title, attendees, words in the minutes" />
         <Chips>
           {(["all", "draft", "final"] as Filter[]).map((f) => (

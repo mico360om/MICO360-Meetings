@@ -9,6 +9,7 @@ import { saveTranscript } from "../../../services/meetingFlow";
 import { ModelMissing, transcribeMeetingAudio } from "../../../services/transcription";
 import { Banner, Button, ProgressBar, Screen, T } from "../../../ui/components";
 import { errorText, notifyChanged, useDb } from "../../../ui/data";
+import { confirm, useLeaveGuard } from "../../../ui/hooks";
 
 export default function Transcribe() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -18,9 +19,14 @@ export default function Transcribe() {
   const [missing, setMissing] = useState(false);
   const [running, setRunning] = useState(false);
   const ctl = useRef<AbortController | null>(null);
+  const busy = useRef(false);
+  useLeaveGuard(() => busy.current, (go) => {
+    void confirm("Stop transcribing?", "The transcription so far will be lost; the recording is kept and you can transcribe it later.", "Stop", true)
+      .then((yes) => { if (yes) { busy.current = false; ctl.current?.abort(); go(); } });
+  });
 
   const run = async () => {
-    setError(""); setMissing(false); setRunning(true);
+    setError(""); setMissing(false); setRunning(true); busy.current = true;
     ctl.current = new AbortController();
     try {
       const m = await getMeeting(db, id);
@@ -32,12 +38,13 @@ export default function Transcribe() {
       });
       await saveTranscript(db, id, t);
       notifyChanged();
+      busy.current = false;
       router.replace(`/meeting/${id}`);
     } catch (e) {
       if (e instanceof ModelMissing) setMissing(true);
       else if (e instanceof CancelledError) setError("Transcription cancelled. The recording is kept — you can transcribe it later.");
       else setError(errorText(e));
-    } finally { setRunning(false); }
+    } finally { setRunning(false); busy.current = false; }
   };
 
   useEffect(() => { void run(); return () => ctl.current?.abort(); // eslint-disable-next-line react-hooks/exhaustive-deps

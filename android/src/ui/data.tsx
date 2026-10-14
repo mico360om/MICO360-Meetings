@@ -1,6 +1,7 @@
 /** The app's database and a tiny change feed so every screen shows fresh data. */
 import { type SQLiteDatabase, SQLiteProvider, useSQLiteContext } from "expo-sqlite";
 import { useFocusEffect } from "expo-router";
+import { Alert } from "react-native";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Db } from "../data/db";
 import { migrate, seed } from "../data/schema";
@@ -19,7 +20,11 @@ export function asDb(db: SQLiteDatabase): Db {
 
 export function DbProvider({ children }: { children: ReactNode }) {
   return (
-    <SQLiteProvider databaseName="mico360-meetings.db" onInit={async (db) => {
+    <SQLiteProvider databaseName="mico360-meetings.db"
+      onError={(e) => Alert.alert("Your meetings couldn't be opened", `${e.message}
+
+Restart the app. If this keeps happening, contact info@mico360.com.`)}
+      onInit={async (db) => {
       await db.execAsync("PRAGMA journal_mode = WAL");
       await migrate(asDb(db));
       await seed(asDb(db));

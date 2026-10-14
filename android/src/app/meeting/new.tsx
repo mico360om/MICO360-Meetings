@@ -1,3 +1,4 @@
+import { File } from "expo-file-system";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
 import { Alert, View } from "react-native";
@@ -100,7 +101,10 @@ export default function NewMeeting() {
         <Button busy={busy} disabled={source === "paste" && !text.trim()}
           title={source === "record" ? "Start recording" : source === "import" ? "Transcribe the file" : "Continue"}
           label="Start meeting" onPress={start} />
-        <Button kind="ghost" title="Back" onPress={() => { setSource(null); setFile(null); }} />
+        <Button kind="ghost" title="Back" onPress={() => {
+          if (file) { const f = new File(file.uri); if (f.exists) f.delete(); }   // the copy made at import
+          setSource(null); setFile(null);
+        }} />
       </View>
     </Screen>
   );

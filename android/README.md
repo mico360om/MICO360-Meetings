@@ -52,7 +52,8 @@ An E2E build points at the fake server and must never be published.
 
 1. Once: create the signing key — `powershell -File android\tools\make-keystore.ps1` — and set the
    secrets it prints (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
-   `ANDROID_KEY_PASSWORD`). Back up the `.jks` and its passwords: every update must use the same key.
+   `ANDROID_KEY_PASSWORD` — the same value as the keystore password, since the PKCS12 keystore has one password).
+   Back up the `.jks` and its password: every update must use the same key.
 2. Once: set `MICO360_MOBILE_CONNECT_KEY` (a dedicated mobile application key from the MICO360 Connect
    console). Without it the release is Local-only and its notes must say so.
 3. Bump `APP_VERSION` and `VERSION_CODE` in `android/app.config.ts`; write

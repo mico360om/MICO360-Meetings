@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { View } from "react-native";
 import { type ModelId, type WhisperModel, WHISPER_MODELS } from "../../core/models";
+import { lowStorageWarning } from "../../native/device";
 import { deleteModel, downloadModel, installedModels } from "../../native/modelFiles";
 import { Banner, Button, Card, Chip, Chips, ProgressBar, Screen, Section, T } from "../../ui/components";
 import { errorText, useSettings } from "../../ui/data";
@@ -19,6 +20,8 @@ export default function TranscriptionSettings() {
 
   const download = async (m: WhisperModel) => {
     setError("");
+    const low = lowStorageWarning();
+    if (low && !(await confirm("Low storage", low, "Download anyway"))) return;
     ctl.current = new AbortController();
     setDownloading({ id: m.id, fraction: 0 });
     try {

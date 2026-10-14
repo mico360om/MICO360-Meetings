@@ -84,6 +84,7 @@ jobs:
 
       - name: Verify the signature and name the APK
         run: |
+          set -o pipefail
           apk=android/app/build/outputs/apk/release/app-release.apk
           bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           "$bt/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"

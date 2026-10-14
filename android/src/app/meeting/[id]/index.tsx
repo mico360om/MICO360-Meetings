@@ -11,7 +11,8 @@ import { getMeeting, type Meeting, updateMeeting } from "../../../data/meetings"
 import { getSettings, setSetting } from "../../../data/settings";
 import { cloudEnabled, makeCloudClient } from "../../../native/cloud";
 import { syncReminders } from "../../../native/device";
-import { generateForMeeting, renameSpeakers } from "../../../services/meetingFlow";
+import { generateForMeeting, generationInProgress, renameSpeakers } from "../../../services/meetingFlow";
+import { speakerText } from "../../../core/transcribeLong";
 import { Banner, Button, Card, Chip, Chips, Field, ProgressBar, Screen, Section, Spinner, T, rtlStyle } from "../../../ui/components";
 import { errorText, notifyChanged, useDb, useQuery } from "../../../ui/data";
 import { insertBlock, prefixLines, type Sel, TABLE_TEMPLATE, wrap } from "../../../ui/editing";
@@ -40,6 +41,8 @@ export default function MeetingScreen() {
   const [error, setError] = useState("");
   const [showDetails, setShowDetails] = useState(false);
   const ctl = useRef<AbortController | null>(null);
+  const busy = useRef(false);               // set synchronously: a second tap never starts a second run
+  const [genError, setGenError] = useState(false);
   const prompts = useQuery(listPrompts).data ?? [];
   const profiles = useQuery(listProfiles).data ?? [];
 
@@ -51,6 +54,15 @@ export default function MeetingScreen() {
       setTranscript(x.transcript);
       setMinutes(x.minutes);
       if (x.minutes.trim()) setView("minutes");
+      // Opened again while its minutes are still being generated: show it, and take the result.
+      const pending = generationInProgress(id);
+      if (pending) {
+        busy.current = true;
+        setGen({ value: null, text: "Generating the minutes…" });
+        pending.then((r) => { setM(r.meeting); setMinutes(r.meeting.minutes); setWarnings(r.warnings); setView("minutes"); })
+          .catch((e) => { setError(errorText(e)); setGenError(true); })
+          .finally(() => { busy.current = false; setGen(null); });
+      }
     }).catch((e) => setError(errorText(e)));
   }, [db, id]);
 
@@ -81,7 +93,12 @@ export default function MeetingScreen() {
   const undo = () => { const prev = history.current.pop(); if (prev !== undefined) setMinutes(prev); };
 
   const generate = async () => {
-    setError(""); setWarnings([]);
+    if (busy.current) return;
+    busy.current = true;
+    try { await runGenerate(); } finally { busy.current = false; }
+  };
+  const runGenerate = async () => {
+    setError(""); setWarnings([]); setGenError(false);
     if (!transcript.trim()) { setError("Add a transcript first — record, import or paste one."); return; }
     await transcriptSave.flush(); await detailsSave.flush();
     if (minutes.trim() && !(await confirm("Replace the minutes?", "The current minutes will be replaced by newly generated ones.", "Replace"))) return;
@@ -108,10 +125,13 @@ export default function MeetingScreen() {
       await syncReminders(db);
     } catch (e) {
       setError(e instanceof CancelledError ? "Generation cancelled. Completed parts are remembered — Generate again continues from them." : errorText(e));
+      setGenError(true);
     } finally { setGen(null); }
   };
 
   const applyNames = async () => {
+    if (transcript.trim() !== speakerText(m.segments).trim() && !(await confirm("Replace your transcript edits?",
+      "Speaker names are applied to the transcript as it came from the recording, so changes you typed into it will be replaced.", "Apply names", true))) return;
     try {
       const r = await renameSpeakers(db, id, names);
       setM(r); setTranscript(r.transcript); setNames({}); notifyChanged();
@@ -167,7 +187,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid 
         <Chip title="Preview" selected={view === "preview"} onPress={() => { void minutesSave.flush(); setView("preview"); }} label="Show preview" />
       </Chips>
 
-      {error ? <Banner kind="error" text={error} action={gen ? undefined : "Try again"} onAction={generate} /> : null}
+      {error ? <Banner kind="error" text={error} action={gen || !genError ? undefined : "Try again"} onAction={generate} /> : null}
       {warnings.map((w) => <Banner key={w} kind="warn" text={w} />)}
 
       {view === "transcript" ? (
@@ -196,7 +216,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid 
             {tool("Table", () => edit(insertBlock(minutes, sel, TABLE_TEMPLATE)))}
             {tool("Undo", undo)}
           </View></ScrollView>
-          <TextInput accessibilityLabel="Minutes editor" value={minutes} onChangeText={setMinutes} multiline textAlignVertical="top"
+          <TextInput accessibilityLabel="Minutes editor" value={minutes} onChangeText={setMinutes} multiline textAlignVertical="top" editable={!gen}
             selection={forcedSel} onSelectionChange={(e) => { setSel(e.nativeEvent.selection); setForcedSel(undefined); }}
             placeholder="Generate minutes, or write them here in Markdown." placeholderTextColor={c.muted}
             style={[{ minHeight: 320, backgroundColor: c.input, color: c.text, borderColor: c.border, borderWidth: 1, borderRadius: radius,
@@ -221,7 +241,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid 
             disabled={!cloudEnabled() || !transcript.trim()} />
           {!cloudEnabled() ? <T muted size={13}>Minutes need MICO360 Cloud, which isn't enabled in this build. You can still write them yourself.</T> : null}
           <Button kind="secondary" title="Export & share" label="Export and share" disabled={!minutes.trim()}
-            onPress={async () => { await minutesSave.flush(); router.push(`/meeting/${id}/export`); }} />
+            onPress={async () => { await minutesSave.flush(); await detailsSave.flush(); router.push(`/meeting/${id}/export`); }} />
           <Button kind="ghost" title={m.status === "final" ? "Mark as draft" : "Mark as final"} onPress={toggleFinal} />
         </View>
       )}

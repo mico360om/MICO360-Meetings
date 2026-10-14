@@ -103,3 +103,18 @@ describe("reminders", () => {
     expect(await F.reminderPlans(db, now)).toEqual([]);
   });
 });
+
+describe("coming back to a meeting while its minutes are generated", () => {
+  it("the running generation can be awaited, and is gone once finished", async () => {
+    const m = await createMeeting(db, { title: "T", transcript: "x" });
+    let open!: () => void;
+    const gate = new Promise<void>((r) => { open = r; });
+    const run = F.generateForMeeting(db, m.id, client("# Minutes", [], gate));
+    const pending = F.generationInProgress(m.id);
+    expect(pending).not.toBeNull();
+    open();
+    expect((await pending!).meeting.minutes).toBe("# Minutes");
+    await run;
+    expect(F.generationInProgress(m.id)).toBeNull();
+  });
+});
