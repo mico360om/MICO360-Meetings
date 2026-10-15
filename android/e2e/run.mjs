@@ -142,7 +142,7 @@ if (process.argv.includes("--device")) {
     await find(/Downloaded · in use/, 240000);
     await tap("Navigate up");
   });
-  await flow("record (silent emulator mic → muted-mic warning) → stop → transcribe", async () => {
+  await flow("record → stop → transcribe on the device", async () => {
     adb("shell", "pm", "grant", PKG, "android.permission.RECORD_AUDIO");
     await tap(/^Meetings tab/);
     await tap("New meeting");
