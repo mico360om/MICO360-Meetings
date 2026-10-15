@@ -1,5 +1,5 @@
 import { router } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, View } from "react-native";
 import { File } from "expo-file-system";
 import { createMeeting, deleteMeeting, listMeetings, type Meeting } from "../../data/meetings";
@@ -43,17 +43,38 @@ export default function Meetings() {
     } },
   ]);
 
-  const remove = (m: Meeting) => Alert.alert("Delete meeting?", `"${m.title || "Untitled meeting"}" and its recording will be deleted.`, [
-    { text: "Cancel", style: "cancel" },
-    { text: "Delete", style: "destructive", onPress: async () => {
-      try {
-        await deleteMeeting(db, m.id);
-        if (m.audioPath) { const f = new File(m.audioPath); if (f.exists) f.delete(); }
-        notifyChanged();
-        await syncReminders(db);
-      } catch (e) { Alert.alert("Couldn't delete", errorText(e)); }
-    } },
-  ]);
+  // Delete with Undo: the meeting disappears at once and is really deleted 6 s later
+  // (or when the next one is deleted, or when this screen goes away).
+  const [pending, setPending] = useState<Meeting | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<Meeting | null>(null);
+  const commit = async (m: Meeting) => {
+    try {
+      await deleteMeeting(db, m.id);
+      if (m.audioPath) { const f = new File(m.audioPath); if (f.exists) f.delete(); }
+      notifyChanged();
+      await syncReminders(db);
+    } catch (e) { Alert.alert("Couldn't delete", errorText(e)); }
+  };
+  const flushPending = () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    const m = pendingRef.current;
+    pendingRef.current = null;
+    setPending(null);
+    if (m) void commit(m);
+  };
+  const remove = (m: Meeting) => {
+    flushPending();
+    pendingRef.current = m;
+    setPending(m);
+    timer.current = setTimeout(flushPending, 6000);
+  };
+  const undo = () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+    pendingRef.current = null;
+    setPending(null);
+  };
+  useEffect(() => () => flushPending(), []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <View style={{ flex: 1 }}>
@@ -70,7 +91,8 @@ export default function Meetings() {
         {error ? <Banner kind="error" text={error} /> : null}
         {loading && !data ? <Spinner /> : null}
         {data && !data.length ? <Empty title={search ? "No meetings match" : "No meetings yet"} hint={search ? undefined : "Tap New meeting to record, import a file or paste a transcript."} /> : null}
-        {data?.map((m) => (
+        {pending ? <Banner kind="info" text={`"${pending.title || "Untitled meeting"}" was deleted.`} action="Undo" onAction={undo} /> : null}
+        {data?.filter((m) => m.id !== pending?.id).map((m) => (
           <Card key={m.id} label={`Open meeting ${m.title || "Untitled meeting"}`} onPress={() => router.push(`/meeting/${m.id}`)}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 8 }}>
               <T bold style={{ flex: 1 }} numberOfLines={1}>{m.title || "Untitled meeting"}</T>

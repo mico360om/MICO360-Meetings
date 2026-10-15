@@ -25,7 +25,10 @@ export const modelById = (id: ModelId): WhisperModel => WHISPER_MODELS.find((m) 
 export async function sha256Chunks(read: (offset: number, length: number) => Promise<Uint8Array>, size: number,
   chunk = 4 << 20): Promise<string> {
   const h = sha256.create();
-  for (let o = 0; o < size; o += chunk) h.update(await read(o, Math.min(chunk, size - o)));
+  for (let o = 0; o < size; o += chunk) {
+    h.update(await read(o, Math.min(chunk, size - o)));
+    await new Promise<void>((r) => setTimeout(r, 0));     // let the UI run between chunks
+  }
   return bytesToHex(h.digest());
 }
 

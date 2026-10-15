@@ -29,6 +29,7 @@ export function decodeWav16(bytes: Uint8Array): { pcm: Float32Array; rate: numbe
     if (id === "fmt ") { channels = v.getUint16(o + 10, true) || 1; rate = v.getUint32(o + 12, true); bits = v.getUint16(o + 22, true); }
     if (id === "data") {
       if (bits !== 16) throw new Error("Only 16-bit WAV is supported.");
+      if (rate !== SR) throw new Error(`Speaker identification needs 16 kHz audio; this file is ${rate} Hz.`);
       const len = Math.min(size, bytes.length - o - 8);
       const frames = Math.floor(len / 2 / channels);
       const pcm = new Float32Array(frames);

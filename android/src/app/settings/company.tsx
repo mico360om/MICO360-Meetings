@@ -45,22 +45,29 @@ export default function CompanyEditor() {
 
   const save = async () => {
     if (!p.name.trim()) { setError("Give the company a name."); return; }
+    if (p.accent_color.trim() && !/^#[0-9A-Fa-f]{6}$|^#[0-9A-Fa-f]{3}$/.test(p.accent_color.trim())) {
+      setError("The accent colour must look like #8B1E1E."); return;
+    }
     setBusy(true);
     try { await saveProfile(db, p); notifyChanged(); router.back(); } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   };
 
   const remove = async () => {
     if (!(await confirm(`Delete ${p.name}?`, "Meetings that use it will be exported without branding.", "Delete", true))) return;
-    await deleteProfile(db, p.id);
-    if (p.logo_path) await logoStore.remove(p.logo_path);
-    notifyChanged();
-    router.back();
+    try {
+      await deleteProfile(db, p.id);
+      if (p.logo_path) await logoStore.remove(p.logo_path);
+      notifyChanged();
+      router.back();
+    } catch (e) { setError(errorText(e)); }
   };
 
   const duplicate = async () => {
-    const copy = await duplicateProfile(db, p.id, logoStore);
-    notifyChanged();
-    if (copy) router.replace({ pathname: "/settings/company", params: { id: copy.id } });
+    try {
+      const copy = await duplicateProfile(db, p.id, logoStore);
+      notifyChanged();
+      if (copy) router.replace({ pathname: "/settings/company", params: { id: copy.id } });
+    } catch (e) { setError(errorText(e)); }
   };
 
   return (

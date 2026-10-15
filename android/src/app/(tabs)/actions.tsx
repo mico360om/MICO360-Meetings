@@ -1,6 +1,6 @@
 import { router } from "expo-router";
 import { useState } from "react";
-import { View } from "react-native";
+import { Pressable, View } from "react-native";
 import { type ActionItem, effectiveStatus, isOverdue, PRIORITIES, STATUS_CYCLE } from "../../core/actionItems";
 import { listActionItems, resetItem, saveItemEdits } from "../../data/actions";
 import { syncReminders } from "../../native/device";
@@ -45,10 +45,13 @@ export default function ActionItems() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("open");
   const [open, setOpen] = useState<string | null>(null);
+  const [owner, setOwner] = useState("");
   const [error, setError] = useState("");
   const { data, loading } = useQuery((d) => listActionItems(d, search), [search]);
 
+  const owners = [...new Set((data ?? []).map((i) => i.owner.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b)).slice(0, 12);
   const shown = (data ?? []).filter((i) => {
+    if (owner && i.owner.trim() !== owner) return false;
     const s = effectiveStatus(i);
     if (filter === "open") return s !== "Completed" && s !== "Cancelled";
     if (filter === "overdue") return isOverdue(i);
@@ -72,6 +75,12 @@ export default function ActionItems() {
         {([["open", "Open"], ["overdue", "Overdue"], ["done", "Completed"], ["all", "All"]] as Array<[Filter, string]>).map(([f, t]) =>
           <Chip key={f} title={t} selected={filter === f} onPress={() => setFilter(f)} label={`Filter ${t}`} />)}
       </Chips>
+      {owners.length > 1 ? (
+        <Chips>
+          <Chip title="Everyone" selected={!owner} onPress={() => setOwner("")} label="Owner everyone" />
+          {owners.map((o) => <Chip key={o} title={o} selected={owner === o} onPress={() => setOwner(owner === o ? "" : o)} label={`Owner ${o}`} />)}
+        </Chips>
+      ) : null}
       {error ? <Banner kind="error" text={error} /> : null}
       {loading && !data ? <Spinner /> : null}
       {data && !shown.length ? <Empty title="No action items here" hint="Action items come from the Action Items table in your minutes." /> : null}
@@ -83,7 +92,10 @@ export default function ActionItems() {
             <T muted size={13}>{[i.owner, i.deadline, i.priority].filter(Boolean).join(" · ")}</T>
             <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
               <T size={13} style={{ color: color(s) }}>{s}</T>
-              <T muted size={12} onPress={() => router.push(`/meeting/${i.meetingId}`)}>{i.meetingTitle || "Meeting"} ›</T>
+              <Pressable accessibilityRole="link" accessibilityLabel={`Open meeting ${i.meetingTitle || "Meeting"}`} hitSlop={8}
+                onPress={() => router.push(`/meeting/${i.meetingId}`)}>
+                <T muted size={12}>{i.meetingTitle || "Meeting"} ›</T>
+              </Pressable>
             </View>
             {i.notes ? <T size={13}>{i.notes}</T> : null}
             {open === i.okey ? <Editor item={i} onClose={() => setOpen(null)} /> : null}

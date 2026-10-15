@@ -4,7 +4,7 @@ import { View } from "react-native";
 import { DESIGNS } from "../../../core/designs";
 import { listProfiles } from "../../../data/library";
 import { getMeeting, type Meeting } from "../../../data/meetings";
-import { nativeExportDeps, shareFile } from "../../../native/exportFiles";
+import { saveToFolder, nativeExportDeps, shareFile } from "../../../native/exportFiles";
 import { type ExportFormat, exportMinutes } from "../../../services/exports";
 import { Banner, Button, Card, Chip, Chips, Screen, Section, Spinner, T } from "../../../ui/components";
 import { errorText, useDb, useQuery } from "../../../ui/data";
@@ -29,12 +29,12 @@ export default function ExportScreen() {
   const profile = profiles.find((p) => p.id === profileId) ?? null;
   const designKey = design ?? profile?.pdf_design ?? DESIGNS[0].key;
 
-  const share = async () => {
+  const run = async (to: "share" | "files") => {
     setBusy(true); setError(""); setDone("");
     try {
       const r = await exportMinutes(m, profile, format, nativeExportDeps, format === "pdf" ? designKey : null);
-      setDone(r.name);
-      await shareFile(r.uri, r.mime, `Share ${r.name}`);
+      if (to === "share") { await shareFile(r.uri, r.mime, `Share ${r.name}`); setDone(`${r.name} is ready.`); }
+      else { const where = await saveToFolder(r.uri, r.name, r.mime); if (where) setDone(`Saved ${r.name} to ${where}.`); }
     } catch (e) { setError(errorText(e)); } finally { setBusy(false); }
   };
 
@@ -64,8 +64,9 @@ export default function ExportScreen() {
         </Section>
       ) : null}
       {error ? <Banner kind="error" text={error} /> : null}
-      {done ? <Banner kind="success" text={`${done} is ready.`} /> : null}
-      <Button title="Share" label="Share export" busy={busy} onPress={share} />
+      {done ? <Banner kind="success" text={done} /> : null}
+      <Button title="Share" label="Share export" busy={busy} onPress={() => run("share")} />
+      <Button kind="secondary" title="Save to files" label="Save export to files" disabled={busy} onPress={() => run("files")} />
     </Screen>
   );
 }

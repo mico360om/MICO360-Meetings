@@ -40,3 +40,19 @@ export function fixBytes(f: WavFix): Uint8Array {
   new DataView(out.buffer).setUint32(0, f.value, true);
   return out;
 }
+
+/** Length of a PCM WAV in ms from its header (byte rate) and the file size; 0 when unknown. */
+export function wavDurationMs(head: Uint8Array, fileSize: number): number {
+  if (head.length < 12) return 0;
+  const v = new DataView(head.buffer, head.byteOffset, head.byteLength);
+  const tag = (o: number) => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
+  if (tag(0) !== "RIFF" || tag(8) !== "WAVE") return 0;
+  let o = 12, byteRate = 0;
+  while (o + 8 <= head.length) {
+    const size = v.getUint32(o + 4, true);
+    if (tag(o) === "fmt " && o + 20 <= head.length) byteRate = v.getUint32(o + 16, true);
+    if (tag(o) === "data") return byteRate ? Math.round(((fileSize - o - 8) / byteRate) * 1000) : 0;
+    o += 8 + size + (size % 2);
+  }
+  return 0;
+}

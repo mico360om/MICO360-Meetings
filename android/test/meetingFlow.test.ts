@@ -118,3 +118,17 @@ describe("coming back to a meeting while its minutes are generated", () => {
     expect(F.generationInProgress(m.id)).toBeNull();
   });
 });
+
+it("a default company that was deleted means no branding for new meetings", async () => {
+  const p = await saveProfile(db, { ...DEFAULT_PROFILE, name: "Gone" });
+  await setSetting(db, "defaultProfileId", p.id);
+  await deleteProfile(db, p.id);
+  expect((await F.newMeetingDefaults(db)).profileId).toBe("");
+});
+
+it("a transcription that found no speech is still marked as transcribed", async () => {
+  const m = await createMeeting(db, { audioPath: "file:///r.wav" });
+  const r = await F.saveTranscript(db, m.id, { text: "", language: "", segments: [], speakers: 0, durationMs: 0 });
+  expect(F.isTranscribed(r)).toBe(true);
+  expect(F.isTranscribed(m)).toBe(false);
+});

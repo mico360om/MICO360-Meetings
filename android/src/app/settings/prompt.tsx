@@ -18,7 +18,8 @@ export default function PromptEditor() {
     if (!id) { setP({ id: "", name: "", category: "General", text: `Write minutes for this meeting.\n\n${TRANSCRIPT_TOKEN}`, builtin: false, favorite: false }); return; }
     getPrompt(db, id).then((x) => setP(x)).catch((e) => setError(errorText(e)));
   }, [db, id]);
-  useEffect(() => { if (p) setV({ name: p.name, category: p.category, text: p.text }); }, [p]);
+  // Load the form once per prompt; reloading after Favourite/Restore must not wipe unsaved edits.
+  useEffect(() => { if (p) setV({ name: p.name, category: p.category, text: p.text }); }, [p?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
   if (!p) return <Screen>{error ? <Banner kind="error" text={error} /> : <Spinner />}</Screen>;
 
   const save = async () => {
@@ -34,7 +35,7 @@ export default function PromptEditor() {
     } catch (e) { setError(errorText(e)); }
   };
 
-  const act = async (f: () => Promise<unknown>) => { try { await f(); notifyChanged(); const x = p.id ? await getPrompt(db, p.id) : null; if (x) setP(x); } catch (e) { setError(errorText(e)); } };
+  const act = async (f: () => Promise<unknown>) => { try { await f(); notifyChanged(); const x = p.id ? await getPrompt(db, p.id) : null; if (x) { setP(x); if (x.text !== p.text) setV((cur) => ({ ...cur, text: x.text })); } } catch (e) { setError(errorText(e)); } };
 
   return (
     <Screen>

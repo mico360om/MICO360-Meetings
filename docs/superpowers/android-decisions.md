@@ -148,3 +148,24 @@ Compiled from the execution ledgers of the four Android plans (2026-10-15). Each
 - spec deviations - delete button+confirm instead of swipe/undo; Share only (no Save to files); no owner filter (search covers); e2e docs live in android/README.md.
 - accessibility of the action-item meeting link and Switch roles.
 - workflow NDK time / 20 s smoke wait unverified until the first tag.
+
+## Deferred items — resolved (2026-10-15, before the pull request)
+
+Every deferred minor above was closed in the final pass, test-first where the change is logic:
+
+- Part cache keyed by SHA-256 of model + prompt (as the desktop). Purity test now also bans `require()`, dynamic `import()`, Node built-ins, `Buffer` and `process`.
+- Export tests cover emoji (HTML and Word) and the refusal of a `data:text/html` logo.
+- `fetchTransport` refuses an already-cancelled request before any network call; `chunkChars: 0` means 6,000 (desktop `int(x or 6000)`); message numbers are grouped without `Intl`.
+- `decodeWav16` refuses non-16 kHz audio; insights use Python's `casefold()` (297-entry table exported from the desktop into `desktop.json`).
+- Imported WAV durations come from the header's byte rate; the model hash yields between chunks and the UI says "Verifying the download…".
+- Reminders are described as "around 09:00" (Android may defer an inexact alarm by a few minutes; exact alarms need a permission alarm apps get).
+- Built-in prompts coming back after deletion is kept on purpose: the desktop seeds built-ins by name too, and the delete dialog says so.
+- Preview HTML is built only when the Preview tab shows; Undo also restores typing (snapshot after a 2 s pause).
+- A deleted default company means no branding for new meetings; Favourite/Restore keep unsaved prompt edits; meeting types: delete confirms, names trimmed, clashes refused.
+- Company delete/duplicate report errors; the accent colour is validated; the update check reports errors and shows release notes as plain text.
+- Spec §3.4 parity: deleting a meeting offers **Undo** (button rather than a swipe gesture); Export has **Save to files** as well as Share; Action Items has an **owner** filter; `android/e2e/README.md` added.
+- Accessibility: the meeting link on an action item is a labelled link; settings switches carry the switch role.
+- The release smoke test waits up to 60 s for the app instead of a fixed 20 s.
+- Found on the emulator: a transcription that finds no speech now says so ("No speech was found…") instead of claiming the recording isn't transcribed.
+
+Verification: 215 unit tests, typecheck clean, JS bundle export OK, x86_64 release build, emulator E2E 8/8 including model download, recording and on-device transcription.

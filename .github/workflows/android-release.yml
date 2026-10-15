@@ -112,8 +112,7 @@ jobs:
           script: |
             adb install -r "dist/MICO360Meetings-Android-$VERSION.apk"
             adb shell am start -W -n com.mico360.meetings/.MainActivity
-            sleep 20
-            adb exec-out uiautomator dump /dev/tty | grep -q "Meetings tab"
+            for i in $(seq 1 30); do adb exec-out uiautomator dump /dev/tty | grep -q "Meetings tab" && exit 0; sleep 2; done; echo "::error::The app did not show its Meetings tab within 60 s"; exit 1
 
       - name: Publish the GitHub Release
         uses: softprops/action-gh-release@v2

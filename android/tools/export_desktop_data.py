@@ -42,6 +42,9 @@ data = {
     "placeholders": sorted(tasks._PLACEHOLDER),
     "insightsStopwords": sorted(insights._STOPWORDS),
     "arabicMarks": [cp for cp in range(0x0600, 0x0700) if insights._AR_MARKS_RE.match(chr(cp))],
+    # Python's str.casefold() where it differs from lower(): [code point, folded code points...]
+    "casefoldExtra": [[cp, *map(ord, chr(cp).casefold())] for cp in range(0x110000)
+                      if not 0xD800 <= cp <= 0xDFFF and chr(cp).casefold() != chr(cp).lower()],
     "statusOrder": insights.STATUS_ORDER,
     "pdfDesigns": [asdict(d) for d in pdf_designs.choices()],
     "defaultPdfDesign": profiles.DEFAULT_PDF_DESIGN,

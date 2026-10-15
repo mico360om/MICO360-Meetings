@@ -6,6 +6,7 @@ import { STYLE_NAMES } from "../../core/prompts";
 import { deleteMeetingType, listMeetingTypes, listProfiles, listPrompts, saveMeetingType } from "../../data/library";
 import { Banner, Button, Card, Chip, Chips, Field, Screen, Section, Spinner, T } from "../../ui/components";
 import { errorText, notifyChanged, useDb, useQuery } from "../../ui/data";
+import { confirm } from "../../ui/hooks";
 
 const BLANK: MeetingType = { name: "", prompt_name: "", style: "", profile_name: "" };
 
@@ -21,9 +22,14 @@ export default function MeetingTypes() {
   const save = async () => {
     if (!editing) return;
     setError("");
+    const name = editing.t.name.trim();
+    if (!name) { setError("Give the meeting type a name."); return; }
+    if (name.toLowerCase() !== editing.original.toLowerCase() && data.some((t) => t.name.toLowerCase() === name.toLowerCase())) {
+      setError(`There is already a meeting type called "${name}".`); return;
+    }
     try {
-      if (editing.original && editing.original !== editing.t.name.trim()) await deleteMeetingType(db, editing.original);
-      await saveMeetingType(db, editing.t);
+      if (editing.original && editing.original !== name) await deleteMeetingType(db, editing.original);
+      await saveMeetingType(db, { ...editing.t, name });
       setEditing(null);
       notifyChanged();
     } catch (e) { setError(errorText(e)); }
@@ -67,7 +73,7 @@ export default function MeetingTypes() {
           <T bold>{t.name}</T>
           <T muted size={13}>{[t.prompt_name, t.style, t.profile_name].filter(Boolean).join(" · ") || "Defaults"}</T>
           <View style={{ alignSelf: "flex-end" }}>
-            <Button small kind="ghost" title="Delete" label={`Delete meeting type ${t.name}`} onPress={async () => { await deleteMeetingType(db, t.name); notifyChanged(); }} />
+            <Button small kind="ghost" title="Delete" label={`Delete meeting type ${t.name}`} onPress={async () => { if (await confirm(`Delete "${t.name}"?`, "Meetings already created keep their settings.", "Delete", true)) { await deleteMeetingType(db, t.name); notifyChanged(); } }} />
           </View>
         </Card>
       ))}

@@ -79,3 +79,19 @@ describe("branded HTML for printing", () => {
     expect(renderPreviewHtml("## Hi\n- a")).toContain('<h2 dir="auto"');
   });
 });
+
+describe("exports carry emoji and refuse non-image logos", () => {
+  it("emoji survive in the HTML and the Word document", async () => {
+    const md = "# Minutes " + String.fromCodePoint(0x1f680) + "\n- Launch " + String.fromCodePoint(0x2705);
+    const html = renderMinutesHtml(md);
+    expect(html).toContain(String.fromCodePoint(0x1f680));
+    expect(html).toContain(String.fromCodePoint(0x2705));
+    const { buildDocxBase64 } = await import("../src/core/exportDocx");
+    const JSZip = (await import("jszip")).default;
+    const zip = await JSZip.loadAsync(Buffer.from(await buildDocxBase64(md), "base64"));
+    expect(await zip.file("word/document.xml")!.async("string")).toContain(String.fromCodePoint(0x1f680));
+  });
+  it("a logo that is not an image data URI is never embedded", () => {
+    expect(renderMinutesHtml(MD, { profile, logoDataUri: "data:text/html;base64,PHNjcmlwdD4=" })).not.toContain("data:text/html");
+  });
+});

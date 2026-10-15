@@ -51,7 +51,7 @@ export default function TranscriptionSettings() {
               <T muted size={13}>{has ? (active ? "Downloaded · in use" : "Downloaded") : "Not downloaded"}</T>
               {downloading?.id === m.id ? (
                 <View style={{ gap: 6 }}>
-                  <ProgressBar value={downloading.fraction} label={`Downloading… ${Math.round(downloading.fraction * 100)}%`} />
+                  <ProgressBar value={downloading.fraction} label={downloading.fraction >= 0.999 ? "Verifying the download…" : `Downloading… ${Math.round(downloading.fraction * 100)}%`} />
                   <Button small kind="secondary" title="Pause" label="Pause download" onPress={() => ctl.current?.abort()} />
                 </View>
               ) : (

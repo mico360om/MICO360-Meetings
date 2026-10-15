@@ -16,14 +16,16 @@ import { generateMinutesFor, type MinutesClient } from "./generation";
 /** Prompt, style and company for a new meeting: from its type, else the settings. */
 export async function newMeetingDefaults(db: Db, typeName?: string): Promise<Partial<Meeting>> {
   const s = await getSettings(db);
-  const out: Partial<Meeting> = { meetingType: "", promptName: s.defaultPromptName, style: s.defaultStyle, profileId: s.defaultProfileId };
+  const profiles = await listProfiles(db);
+  const defaultProfile = profiles.some((p) => p.id === s.defaultProfileId) ? s.defaultProfileId : "";   // a deleted company: no branding
+  const out: Partial<Meeting> = { meetingType: "", promptName: s.defaultPromptName, style: s.defaultStyle, profileId: defaultProfile };
   const t = typeName ? (await listMeetingTypes(db)).find((x) => x.name === typeName) : undefined;
   if (!t) return out;
   out.meetingType = t.name;
   if (t.prompt_name) out.promptName = t.prompt_name;
   if (t.style) out.style = t.style;
   if (t.profile_name) {
-    const p = (await listProfiles(db)).find((x) => x.name === t.profile_name);
+    const p = profiles.find((x) => x.name === t.profile_name);
     if (p) out.profileId = p.id;
   }
   return out;
@@ -44,9 +46,12 @@ export function profileFor(db: Db, m: Meeting): Promise<CompanyProfile | null> {
   return getProfile(db, m.profileId);
 }
 
+/** True once the meeting's audio went through transcription (even if it held no speech). */
+export const isTranscribed = (m: Pick<Meeting, "language" | "transcript">) => !!m.language || !!m.transcript.trim();
+
 export async function saveTranscript(db: Db, id: string, t: Transcript, source?: MeetingSource): Promise<Meeting> {
   return updateMeeting(db, id, {
-    transcript: t.text, segments: t.segments, language: t.language,
+    transcript: t.text, segments: t.segments, language: t.language || "auto",   // never empty after a run: marks it transcribed
     ...(t.durationMs > 0 ? { durationMs: t.durationMs } : {}), ...(source ? { source } : {}),
   });
 }

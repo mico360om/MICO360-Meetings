@@ -16,6 +16,9 @@ it("src/core, src/data and src/services import no React Native, Expo or native m
     const src = readFileSync(f, "utf8");
     expect(src, f).not.toMatch(/from\s+["'](react-native|expo[^"']*|react)["']/);
     expect(src, f).not.toMatch(/\\p\{/);
+    expect(src, f).not.toMatch(/\brequire\(|\bimport\(/);                                // no require() / dynamic import()
+    expect(src, f).not.toMatch(/from\s+["'](node:[^"']*|fs|path|os|crypto|child_process|stream|buffer)["']/);   // no Node built-ins
+    expect(src, f).not.toMatch(/\bBuffer\.|\bprocess\./);                       // Hermes has neither
   }
 });
 

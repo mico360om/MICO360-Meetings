@@ -37,3 +37,12 @@ export async function shareFile(uri: string, mimeType: string, dialogTitle: stri
   if (!(await Sharing.isAvailableAsync())) throw new Error("Sharing isn't available on this device.");
   await Sharing.shareAsync(uri, { mimeType, dialogTitle });
 }
+
+/** Let the user choose a folder (Downloads, Drive…) and copy the export there; null when cancelled. */
+export async function saveToFolder(uri: string, name: string, mimeType: string): Promise<string | null> {
+  let dir: Directory;
+  try { dir = await Directory.pickDirectoryAsync(); } catch { return null; }   // the user closed the picker
+  const target = dir.createFile(name, mimeType);
+  target.write(await new File(uri).bytes());
+  return decodeURIComponent(dir.uri.split("%3A").pop() ?? dir.name ?? "the folder");
+}

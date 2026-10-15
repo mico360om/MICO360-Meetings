@@ -36,7 +36,11 @@ export class CloudError extends Error {
   constructor(message: string) { super(message); this.name = "CloudError"; }
 }
 
+/** 32000 → "32,000" without depending on Intl (Hermes builds may lack it). */
+const grouped = (n: number) => String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
 export const fetchTransport: HttpTransport = async (req) => {
+  if (req.signal?.aborted) throw new CancelledError();
   const ctl = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => { timedOut = true; ctl.abort(); }, req.timeoutMs);
@@ -244,8 +248,8 @@ export class CloudClient {
     if (signal?.aborted) throw new CancelledError();
     if (!this.key) throw new CloudError("Minutes need MICO360 Cloud, which isn't enabled in this build.");
     if (prompt.length > MAX_PROMPT_CHARS) {
-      throw new CloudError(`This request is ${prompt.length.toLocaleString("en-US")} characters; MICO360 Cloud accepts at most ` +
-        `${MAX_PROMPT_CHARS.toLocaleString("en-US")}. Shorten the prompt template, or lower the chunk size in Settings so long meetings are split into smaller parts.`);
+      throw new CloudError(`This request is ${grouped(prompt.length)} characters; MICO360 Cloud accepts at most ` +
+        `${grouped(MAX_PROMPT_CHARS)}. Shorten the prompt template, or lower the chunk size in Settings so long meetings are split into smaller parts.`);
     }
     const body = JSON.stringify({ model: this.model, messages: [{ role: "user", content: prompt }], stream: false });
     const ids = newRequestIds();                      // the same for every retry of this call (§11)
@@ -293,10 +297,10 @@ export class CloudClient {
     this.warnings = [];
     const room = MAX_PROMPT_CHARS - (template ?? "").length - PROMPT_OVERHEAD;
     if (room < 1500) {
-      throw new CloudError(`The prompt template is ${(template ?? "").length.toLocaleString("en-US")} characters — too long for MICO360 Cloud, ` +
-        `which accepts ${MAX_PROMPT_CHARS.toLocaleString("en-US")} characters per request including the meeting text. Shorten the template.`);
+      throw new CloudError(`The prompt template is ${grouped((template ?? "").length)} characters — too long for MICO360 Cloud, ` +
+        `which accepts ${grouped(MAX_PROMPT_CHARS)} characters per request including the meeting text. Shorten the template.`);
     }
-    const chunk = Math.max(1500, Math.min(o.chunkChars ?? 6000, room));
+    const chunk = Math.max(1500, Math.min(o.chunkChars || 6000, room));    // 0 / unset → 6,000, as desktop int(x or 6000)
     const budget = Math.min(Math.max(REDUCE_NOTES_BUDGET, 2 * chunk), room);
     return runMinutesPipeline((p, s) => this.chat(p, s), {
       model: this.model, transcript, template, style: o.style, removeFillers: o.removeFillers,

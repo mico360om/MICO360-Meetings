@@ -11,7 +11,7 @@ import { getMeeting, type Meeting, updateMeeting } from "../../../data/meetings"
 import { getSettings, setSetting } from "../../../data/settings";
 import { cloudEnabled, makeCloudClient } from "../../../native/cloud";
 import { syncReminders } from "../../../native/device";
-import { generateForMeeting, generationInProgress, renameSpeakers } from "../../../services/meetingFlow";
+import { generateForMeeting, generationInProgress, isTranscribed, renameSpeakers } from "../../../services/meetingFlow";
 import { speakerText } from "../../../core/transcribeLong";
 import { Banner, Button, Card, Chip, Chips, Field, ProgressBar, Screen, Section, Spinner, T, rtlStyle } from "../../../ui/components";
 import { errorText, notifyChanged, useDb, useQuery } from "../../../ui/data";
@@ -35,6 +35,7 @@ export default function MeetingScreen() {
   const [sel, setSel] = useState<Sel>({ start: 0, end: 0 });
   const [forcedSel, setForcedSel] = useState<Sel | undefined>();   // only right after a toolbar edit
   const history = useRef<string[]>([]);
+  const lastSnap = useRef(0);               // typing is snapshotted for Undo after a 2 s pause
   const [names, setNames] = useState<Record<string, string>>({});
   const [gen, setGen] = useState<{ value: number | null; text: string } | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -91,6 +92,12 @@ export default function MeetingScreen() {
     setForcedSel(next.sel);
   };
   const undo = () => { const prev = history.current.pop(); if (prev !== undefined) setMinutes(prev); };
+  const typeMinutes = (t: string) => {
+    const now = Date.now();
+    if (now - lastSnap.current > 2000) { history.current.push(minutes); if (history.current.length > 50) history.current.shift(); }
+    lastSnap.current = now;
+    setMinutes(t);
+  };
 
   const generate = async () => {
     if (busy.current) return;
@@ -140,7 +147,7 @@ export default function MeetingScreen() {
 
   const toggleFinal = () => void save({ status: m.status === "final" ? "draft" : "final" });
 
-  const previewHtml = `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+  const previewHtml = view !== "preview" ? "" : `<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1">
 <style>body{font-family:Roboto,"Noto Sans","Noto Naskh Arabic",sans-serif;padding:14px;margin:0;color:${c.text};background:${c.card};line-height:1.45}
 table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid ${c.border};padding:4px 6px}</style></head>
 <body>${renderPreviewHtml(minutes, company?.accent_color ?? (dark ? "#D0605C" : null))}</body></html>`;
@@ -192,8 +199,9 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid 
 
       {view === "transcript" ? (
         <View style={{ gap: 10 }}>
-          {!transcript.trim() && m.audioPath ? (
-            <Banner text="This meeting has a recording that isn't transcribed yet." action="Transcribe" onAction={() => router.push(`/meeting/${id}/transcribe`)} />
+          {!transcript.trim() && m.audioPath ? (isTranscribed(m)
+            ? <Banner text="No speech was found in the recording. You can type or paste the transcript, or transcribe it again." action="Transcribe again" onAction={() => router.push(`/meeting/${id}/transcribe`)} />
+            : <Banner text="This meeting has a recording that isn't transcribed yet." action="Transcribe" onAction={() => router.push(`/meeting/${id}/transcribe`)} />
           ) : null}
           <Field label="Transcript" value={transcript} onChangeText={setTranscript} multiline style={{ minHeight: 260 }}
             placeholder="The transcript appears here. You can edit it before generating minutes." />
@@ -216,7 +224,7 @@ table{border-collapse:collapse;width:100%;font-size:13px}td,th{border:1px solid 
             {tool("Table", () => edit(insertBlock(minutes, sel, TABLE_TEMPLATE)))}
             {tool("Undo", undo)}
           </View></ScrollView>
-          <TextInput accessibilityLabel="Minutes editor" value={minutes} onChangeText={setMinutes} multiline textAlignVertical="top" editable={!gen}
+          <TextInput accessibilityLabel="Minutes editor" value={minutes} onChangeText={typeMinutes} multiline textAlignVertical="top" editable={!gen}
             selection={forcedSel} onSelectionChange={(e) => { setSel(e.nativeEvent.selection); setForcedSel(undefined); }}
             placeholder="Generate minutes, or write them here in Markdown." placeholderTextColor={c.muted}
             style={[{ minHeight: 320, backgroundColor: c.input, color: c.text, borderColor: c.border, borderWidth: 1, borderRadius: radius,

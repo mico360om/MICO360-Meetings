@@ -15,3 +15,9 @@ it("matches desktop compute_insights", () => {
 it("theme words: any script, stopwords and Arabic diacritics removed", () => {
   expect(themeWords("The meeting discussed BUDGET budgets; الْمِيزَانِيَّة على")).toEqual(["budget", "budgets", "الميزانية"]);
 });
+
+it("words match regardless of case the way the desktop's casefold does (ß, final sigma, ligatures)", () => {
+  expect(themeWords("Die Straße und STRASSE Straßen")).toEqual(["strasse", "strasse", "strassen"]);
+  expect(themeWords("ΟΔΟΣ οδος Οδός")).toEqual(["οδοσ", "οδοσ", "οδόσ"]);
+  expect(themeWords(String.fromCharCode(0xfb01) + "nancial FINANCIAL " + String.fromCharCode(0xfb02) + "ow")).toEqual(["financial", "financial", "flow"]);
+});

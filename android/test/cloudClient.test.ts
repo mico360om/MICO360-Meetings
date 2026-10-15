@@ -202,3 +202,28 @@ describe("request ids on a phone (Hermes has no WebCrypto)", () => {
     } finally { spy.mockRestore(); vi.unstubAllGlobals(); }
   });
 });
+
+describe("small gaps found in review", () => {
+  it("a chunk size of 0 means the default 6,000 characters, as on the desktop", async () => {
+    const s = server([OK]);
+    const sizes: number[] = [];
+    const t = async (r: HttpRequest) => { sizes.push(JSON.parse(r.body ?? "{}").messages?.[0]?.content?.length ?? 0); return s.transport(r); };
+    await client(s, { transport: t }).c.generateMinutes("word ".repeat(2000), "T [TRANSCRIPT_HERE]", { chunkChars: 0 });
+    expect(sizes.filter(Boolean).length).toBeLessThanOrEqual(3);   // 10,000 chars: two 6,000-char parts + a merge (1,500-char parts would need 7+)
+  });
+  it("numbers in messages are grouped without relying on Intl", async () => {
+    const s = server([OK]);
+    await expect(client(s).c.chat("x".repeat(40_000))).rejects.toThrow(/40,000 characters.*32,000/);
+  });
+  it("an already-cancelled request never reaches the network", async () => {
+    const { fetchTransport } = await import("../src/core/cloudClient");
+    const ctl = new AbortController(); ctl.abort();
+    let called = false;
+    const orig = globalThis.fetch;
+    globalThis.fetch = (async () => { called = true; throw new Error("network"); }) as typeof fetch;
+    try {
+      await expect(fetchTransport({ url: "http://x/", method: "GET", headers: {}, timeoutMs: 1000, signal: ctl.signal })).rejects.toBeInstanceOf(CancelledError);
+      expect(called).toBe(false);
+    } finally { globalThis.fetch = orig; }
+  });
+});

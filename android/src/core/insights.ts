@@ -13,11 +13,17 @@ export interface Insights {
 const STATUS_ORDER: string[] = data.statusOrder;
 const STOPWORDS = new Set<string>(data.insightsStopwords);
 const MARKS = new Set<number>(data.arabicMarks);
+const FOLD = new Map<number, string>((data.casefoldExtra as number[][]).map(([cp, ...to]) => [cp, String.fromCodePoint(...to)]));
+
+/** Python's str.casefold(): lower case, plus the folds lower() doesn't do (ß → ss, ς → σ, ligatures). */
+export function casefold(text: string): string {
+  return Array.from(text, (ch) => FOLD.get(ch.codePointAt(0)!) ?? ch.toLowerCase()).join("");
+}
 const WORD_RE = new RegExp(`[${LETTER}]+`, "gu");
 const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function themeWords(text: string): string[] {
-  const t = Array.from((text ?? "").toLowerCase()).filter((ch) => !MARKS.has(ch.codePointAt(0)!)).join("");
+  const t = Array.from(casefold(text ?? "")).filter((ch) => !MARKS.has(ch.codePointAt(0)!)).join("");
   const out: string[] = [];
   for (const m of t.matchAll(WORD_RE)) {
     const w = m[0];

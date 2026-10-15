@@ -92,3 +92,12 @@ describe("long recordings", () => {
     await expect(diarize(pcm, segments, { signal: ctl.signal })).rejects.toThrow(/cancelled/i);
   });
 });
+
+it("audio that isn't 16 kHz is refused with a clear message", () => {
+  const buf = new ArrayBuffer(44 + 4); const v = new DataView(buf);
+  const w = (o: number, s: string) => [...s].forEach((ch, i) => v.setUint8(o + i, ch.charCodeAt(0)));
+  w(0, "RIFF"); v.setUint32(4, 40, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true); v.setUint32(24, 44100, true); v.setUint32(28, 88200, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, 4, true);
+  expect(() => decodeWav16(new Uint8Array(buf))).toThrow(/16 kHz/);
+});

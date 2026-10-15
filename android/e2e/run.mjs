@@ -46,9 +46,13 @@ async function hideKeyboard() {
 async function type(q, text) {
   await hideKeyboard();                     // an open keyboard can cover the next field
   await scrollTo(q);
-  await tap(q, 20000, (n) => n.cls === "android.widget.EditText");   // the box, not its visible label
-  adb("shell", "input", "text", text.replace(/ /g, "%s"));
-  await sleep(400);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await tap(q, 20000, (n) => n.cls === "android.widget.EditText");   // the box, not its visible label
+    adb("shell", "input", "text", text.replace(/ /g, "%s"));
+    await sleep(400);
+    if (nodes(dump()).some((n) => n.cls === "android.widget.EditText" && unescape(n.text).includes(text))) return;
+  }
+  throw new Error(`typing "${text}" into ${q} did not arrive`);
 }
 async function scrollTo(q, tries = 6) {
   for (let i = 0; i < tries; i++) {

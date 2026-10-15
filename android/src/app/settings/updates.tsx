@@ -1,6 +1,7 @@
 import { Stack } from "expo-router";
 import { useRef, useState } from "react";
 import { Linking, Switch, View } from "react-native";
+import { buildTxt } from "../../core/exportText";
 import type { AndroidUpdate } from "../../core/updater";
 import { currentVersion, downloadUpdate, fetchJson, openInstaller } from "../../native/updates";
 import { checkForUpdate } from "../../services/updates";
@@ -19,10 +20,12 @@ export default function Updates() {
 
   const check = async () => {
     setState("checking"); setError("");
-    const r = await checkForUpdate(fetchJson, currentVersion());
-    await update("lastUpdateCheck", Date.now());
-    setFound(r.update); setError(r.error);
-    setState(r.update || r.error ? "idle" : "latest");
+    try {
+      const r = await checkForUpdate(fetchJson, currentVersion());
+      await update("lastUpdateCheck", Date.now());
+      setFound(r.update); setError(r.error);
+      setState(r.update || r.error ? "idle" : "latest");
+    } catch (e) { setError(errorText(e)); setState("idle"); }
   };
 
   const install = async () => {
@@ -47,7 +50,7 @@ export default function Updates() {
       {found ? (
         <Card>
           <T bold>Version {found.version} is available</T>
-          {found.notes ? <T size={13}>{found.notes.slice(0, 1200)}</T> : null}
+          {found.notes ? <T size={13}>{buildTxt(found.notes).slice(0, 1500)}</T> : null}
           {state === "downloading" ? (
             <View style={{ gap: 6 }}>
               <ProgressBar value={progress} label={`Downloading… ${Math.round(progress * 100)}%`} />

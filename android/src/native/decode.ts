@@ -3,6 +3,7 @@ import { streamAudioData } from "@siteed/audio-studio";
 import { File } from "expo-file-system";
 import { CancelledError } from "../core/pipeline";
 import type { AudioSource } from "../core/transcribeLong";
+import { wavDurationMs } from "../core/wav";
 
 export function fileSource(uri: string): AudioSource {
   return {
@@ -17,10 +18,11 @@ export function fileSource(uri: string): AudioSource {
   };
 }
 
-/** Our own recordings are 16 kHz mono 16-bit WAV: the length follows from the size.
- *  Other files report 0 (progress is shown without a percentage). */
+/** A WAV's length from its header; other files report 0 (progress is shown without a percentage). */
 export async function fileDurationMs(uri: string): Promise<number> {
   if (!uri.toLowerCase().endsWith(".wav")) return 0;
   const f = new File(uri);
-  return f.exists ? Math.max(0, Math.round(((f.size - 44) / 32000) * 1000)) : 0;
+  if (!f.exists) return 0;
+  const h = f.open();
+  try { return wavDurationMs(h.readBytes(Math.min(4096, f.size)), f.size); } finally { h.close(); }
 }

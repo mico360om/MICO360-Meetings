@@ -61,3 +61,15 @@ describe("stream data that arrives as base64 PCM16", () => {
     expect(new SilenceWatch(1).feed(pcm16FromBase64(Buffer.from(new Int16Array(16000).buffer).toString("base64")), 16000)).toBe(true);
   });
 });
+
+describe("duration of a WAV from its header", () => {
+  it("uses the file's own byte rate (any sample rate or channel count)", async () => {
+    const { wavDurationMs } = await import("../src/core/wav");
+    const w = wav(16000, 32000, 36 + 32000);                      // 1 s of 16 kHz mono
+    expect(wavDurationMs(w.subarray(0, 4096), w.length)).toBe(1000);
+    const stereo = w.slice();
+    new DataView(stereo.buffer).setUint32(28, 176400, true);        // 44.1 kHz stereo 16-bit: 176,400 bytes/s
+    expect(wavDurationMs(stereo.subarray(0, 4096), 44 + 176400 * 2)).toBe(2000);
+    expect(wavDurationMs(new Uint8Array([1, 2, 3]), 3)).toBe(0);
+  });
+});

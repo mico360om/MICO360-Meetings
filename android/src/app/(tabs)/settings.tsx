@@ -11,7 +11,7 @@ export default function Settings() {
   const db = useDb();
   const c = usePalette();
   const { settings, update } = useSettings();
-  const toggle = (on: boolean, flip: () => void) => <Switch value={on} onValueChange={flip} trackColor={{ true: c.accent }} thumbColor={c.card} />;
+  const toggle = (on: boolean, flip: () => void) => <Switch value={on} onValueChange={flip} trackColor={{ true: c.accent }} thumbColor={c.card} accessibilityRole="switch" />;
   const fillers = () => void update("removeFillers", !settings.removeFillers);
   const reminders = async () => { await update("reminders", !settings.reminders); await syncReminders(db); };
   return (
@@ -34,7 +34,7 @@ export default function Settings() {
       </Section>
       <Section title="Reminders">
         <Card>
-          <Row title="Action item reminders" detail="The day before and on the day, at 09:00" label="Action item reminders"
+          <Row title="Action item reminders" detail="The day before and on the day, around 09:00" label="Action item reminders"
             onPress={reminders} right={toggle(settings.reminders, () => void reminders())} />
         </Card>
       </Section>

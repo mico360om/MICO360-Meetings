@@ -2,6 +2,8 @@
  *  short transcripts in one request; long ones condensed per part, merged
  *  hierarchically when the notes are too long, then reduced with the SAME
  *  template. Finished parts are cached so a retry resumes where it stopped. */
+import { sha256 } from "@noble/hashes/sha2.js";
+import { bytesToHex, utf8ToBytes } from "@noble/hashes/utils.js";
 import { chunkText, cleanTranscript } from "./cleaning";
 import { DEFAULT_STYLE, buildChunkPrompt, buildGenerationPrompt, buildMergeNotesPrompt, buildReducePrompt } from "./prompts";
 
@@ -131,7 +133,7 @@ export async function runMinutesPipeline(chat: ChatFn, o: PipelineOptions): Prom
     const note = i === 1 ? " (the first request can take up to a minute)" : "";
     o.progress?.(0.1 + (0.65 * (i - 1)) / n, `Analyzing part ${i} of ${n}…${note}`);
     const p = buildChunkPrompt(chunks[i - 1], i, n);
-    const key = o.model + "\x00" + p;
+    const key = bytesToHex(sha256(utf8ToBytes(o.model + "\x00" + p)));   // 64 chars, not the ~30 KB prompt (desktop keys by SHA-256 too)
     let part = cacheGet(key);
     if (part === undefined) {
       part = await chat(p, o.signal);
