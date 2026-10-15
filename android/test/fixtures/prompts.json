@@ -1,0 +1,79 @@
+{
+ "generation": [
+  {
+   "template": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]",
+   "style": "Formal Minutes",
+   "transcript": "Plain text",
+   "output": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\nPlain text\n\nStyle instruction: Write complete, formal minutes covering every section in full sentences."
+  },
+  {
+   "template": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]",
+   "style": "Formal Minutes",
+   "transcript": "Cost $& and $1 and {idx} [TRANSCRIPT_HERE]",
+   "output": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\nCost $& and $1 and {idx} [TRANSCRIPT_HERE]\n\nStyle instruction: Write complete, formal minutes covering every section in full sentences."
+  },
+  {
+   "template": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]",
+   "style": "Unknown style",
+   "transcript": "Plain text",
+   "output": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\nPlain text"
+  },
+  {
+   "template": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]",
+   "style": "Unknown style",
+   "transcript": "Cost $& and $1 and {idx} [TRANSCRIPT_HERE]",
+   "output": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\nCost $& and $1 and {idx} [TRANSCRIPT_HERE]"
+  },
+  {
+   "template": "No token template",
+   "style": "Formal Minutes",
+   "transcript": "Plain text",
+   "output": "No token template\n\nTranscript:\nPlain text\n\nStyle instruction: Write complete, formal minutes covering every section in full sentences."
+  },
+  {
+   "template": "No token template",
+   "style": "Formal Minutes",
+   "transcript": "Cost $& and $1 and {idx} [TRANSCRIPT_HERE]",
+   "output": "No token template\n\nTranscript:\nCost $& and $1 and {idx} [TRANSCRIPT_HERE]\n\nStyle instruction: Write complete, formal minutes covering every section in full sentences."
+  },
+  {
+   "template": "No token template",
+   "style": "Unknown style",
+   "transcript": "Plain text",
+   "output": "No token template\n\nTranscript:\nPlain text"
+  },
+  {
+   "template": "No token template",
+   "style": "Unknown style",
+   "transcript": "Cost $& and $1 and {idx} [TRANSCRIPT_HERE]",
+   "output": "No token template\n\nTranscript:\nCost $& and $1 and {idx} [TRANSCRIPT_HERE]"
+  },
+  {
+   "template": "A [TRANSCRIPT_HERE] B [TRANSCRIPT_HERE]",
+   "style": "Formal Minutes",
+   "transcript": "Plain text",
+   "output": "A Plain text B Plain text\n\nStyle instruction: Write complete, formal minutes covering every section in full sentences."
+  },
+  {
+   "template": "A [TRANSCRIPT_HERE] B [TRANSCRIPT_HERE]",
+   "style": "Formal Minutes",
+   "transcript": "Cost $& and $1 and {idx} [TRANSCRIPT_HERE]",
+   "output": "A Cost $& and $1 and {idx} [TRANSCRIPT_HERE] B Cost $& and $1 and {idx} [TRANSCRIPT_HERE]\n\nStyle instruction: Write complete, formal minutes covering every section in full sentences."
+  },
+  {
+   "template": "A [TRANSCRIPT_HERE] B [TRANSCRIPT_HERE]",
+   "style": "Unknown style",
+   "transcript": "Plain text",
+   "output": "A Plain text B Plain text"
+  },
+  {
+   "template": "A [TRANSCRIPT_HERE] B [TRANSCRIPT_HERE]",
+   "style": "Unknown style",
+   "transcript": "Cost $& and $1 and {idx} [TRANSCRIPT_HERE]",
+   "output": "A Cost $& and $1 and {idx} [TRANSCRIPT_HERE] B Cost $& and $1 and {idx} [TRANSCRIPT_HERE]"
+  }
+ ],
+ "reduce": "T [This meeting was long, so it was processed in parts. Below are factual notes extracted from each consecutive part, in order. Treat them as the transcript: merge them into one coherent result and do not add anything that is not in the notes.]\n\nnotes $&\n\nStyle instruction: Write a concise summary. Keep Meeting Summary to 3-4 sentences and use brief bullets. Still include all headings.",
+ "merge": "You are condensing notes from a long meeting that was processed in parts. Below are factual notes for parts 2 to 5 of 9, in order. Merge them into ONE set of concise notes in the same order. Keep every key point, decision, action item (with owner and deadline if given), risk and open issue; remove only exact repetition. Do not invent anything and do not write minutes yet — output notes only.\n\nNotes:\nn {first}",
+ "chunk": "You are summarizing PART of a longer meeting transcript. Extract only what is actually stated: key points, decisions, action items (with owner/deadline if given), risks, and open issues. Do not invent anything. Be concise and factual.\n\nTranscript part 3 of 7:\npart $1"
+}

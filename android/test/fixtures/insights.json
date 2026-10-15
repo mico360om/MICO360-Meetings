@@ -1,0 +1,197 @@
+{
+ "meetings": [
+  {
+   "id": "1",
+   "title": "Budget",
+   "createdAt": 1791187200000,
+   "minutes": "# Meeting Minutes\n**Meeting Title:** Budget review\n**Date and Time:** 5 Oct 2026\n**Attendees:** Ali, Sara\n\n## Purpose of Meeting\nPlan Q4.\nSecond line.\nbudget budget forecast forecast forecast"
+  },
+  {
+   "id": "2",
+   "title": "اجتماع",
+   "createdAt": 1790582400000,
+   "minutes": "# محضر\nالميزانية الميزانية التسويق"
+  },
+  {
+   "id": "3",
+   "title": "Ops",
+   "createdAt": 1785744000000,
+   "minutes": "Logistics warehouse logistics"
+  }
+ ],
+ "items": [
+  {
+   "task": "A",
+   "owner": "Ali",
+   "deadline": "2026-10-01",
+   "status": "Pending",
+   "meeting_id": 1,
+   "meeting_title": "Budget",
+   "meeting_date": "2026-10-05",
+   "priority": "",
+   "notes": "",
+   "okey": "1:0cc175b9c0:0",
+   "occ": 0
+  },
+  {
+   "task": "B",
+   "owner": "Ali",
+   "deadline": "2026-10-30",
+   "status": "In Progress",
+   "meeting_id": 1,
+   "meeting_title": "Budget",
+   "meeting_date": "2026-10-05",
+   "priority": "",
+   "notes": "",
+   "okey": "1:92eb5ffee6:0",
+   "occ": 0
+  },
+  {
+   "task": "C",
+   "owner": "Sara",
+   "deadline": "",
+   "status": "Completed",
+   "meeting_id": 2,
+   "meeting_title": "x",
+   "meeting_date": "2026-09-28",
+   "priority": "",
+   "notes": "",
+   "okey": "2:4a8a08f09d:0",
+   "occ": 0
+  },
+  {
+   "task": "D",
+   "owner": "tbd",
+   "deadline": "",
+   "status": "Cancelled",
+   "meeting_id": 2,
+   "meeting_title": "x",
+   "meeting_date": "2026-09-28",
+   "priority": "",
+   "notes": "",
+   "okey": "2:8277e0910d:0",
+   "occ": 0
+  },
+  {
+   "task": "E",
+   "owner": "Sara",
+   "deadline": "1 Oct",
+   "status": "Pending",
+   "meeting_id": 3,
+   "meeting_title": "Ops",
+   "meeting_date": "2026-08-03",
+   "priority": "",
+   "notes": "",
+   "okey": "3:e1671797c5:0",
+   "occ": 0
+  }
+ ],
+ "today": "2026-10-15",
+ "result": {
+  "totalMeetings": 3,
+  "totalItems": 5,
+  "openItems": 3,
+  "overdueItems": 2,
+  "completionRate": 0.25,
+  "statusCounts": {
+   "Overdue": 2,
+   "In Progress": 1,
+   "Completed": 1,
+   "Cancelled": 1
+  },
+  "byOwner": [
+   [
+    "Ali",
+    2
+   ],
+   [
+    "Sara",
+    1
+   ]
+  ],
+  "cadence": [
+   [
+    "24 Aug",
+    0
+   ],
+   [
+    "31 Aug",
+    0
+   ],
+   [
+    "07 Sep",
+    0
+   ],
+   [
+    "14 Sep",
+    0
+   ],
+   [
+    "21 Sep",
+    0
+   ],
+   [
+    "28 Sep",
+    1
+   ],
+   [
+    "05 Oct",
+    1
+   ],
+   [
+    "12 Oct",
+    0
+   ]
+  ],
+  "keywords": [
+   [
+    "budget",
+    3
+   ],
+   [
+    "forecast",
+    3
+   ],
+   [
+    "الميزانية",
+    2
+   ],
+   [
+    "logistics",
+    2
+   ],
+   [
+    "title",
+    1
+   ],
+   [
+    "sara",
+    1
+   ],
+   [
+    "purpose",
+    1
+   ],
+   [
+    "plan",
+    1
+   ],
+   [
+    "second",
+    1
+   ],
+   [
+    "line",
+    1
+   ],
+   [
+    "التسويق",
+    1
+   ],
+   [
+    "warehouse",
+    1
+   ]
+  ]
+ }
+}

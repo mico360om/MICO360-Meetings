@@ -1,0 +1,126 @@
+name: Android Release
+
+# Tag an Android version to build, test and publish the signed APK, e.g.:
+#   git tag android-v1.0.0 && git push origin android-v1.0.0
+# Desktop releases use tags v* (release.yml); this workflow never touches them,
+# and publishes with make_latest: false so the desktop updater keeps seeing
+# the desktop release as "latest".
+on:
+  push:
+    tags: [ "android-v*" ]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write          # create the GitHub Release
+    # Only yes/no flags are job-wide; each secret is passed solely to the step that uses it.
+    env:
+      HAS_CONNECT_KEY: ${{ secrets.MICO360_MOBILE_CONNECT_KEY != '' || secrets.MICO360_CONNECT_API_KEY != '' }}
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches the app version
+        run: |
+          ver=$(sed -nE 's/^export const APP_VERSION = "([^"]+)";/\1/p' app.config.ts)
+          if [ "$GITHUB_REF_NAME" != "android-v$ver" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match APP_VERSION ($ver) in android/app.config.ts."; exit 1
+          fi
+          echo "VERSION=$ver" >> "$GITHUB_ENV"
+
+      - name: Check release notes
+        run: |
+          notes="../build/RELEASE_NOTES_${GITHUB_REF_NAME}.md"
+          test -f "$notes" || { echo "::error::Missing $notes"; exit 1; }
+          if [ "$HAS_CONNECT_KEY" != "true" ] && ! grep -q "Local-only" "$notes"; then
+            echo "::error::No MICO360 Connect key is set, so this is a Local-only release; the release notes must say 'Local-only'."; exit 1
+          fi
+
+      - name: Require the release signing key
+        if: ${{ env.HAS_KEYSTORE != 'true' }}
+        run: |
+          echo "::error::ANDROID_KEYSTORE_BASE64 is not set. Create the key with android/tools/make-keystore.ps1 and store the secrets; a debug-signed APK is never published."
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: android/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Generate the native project
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Decode the signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+
+      # The Cloud key is read by app.config.ts while Gradle bundles the app config;
+      # the signing values are read by app/build.gradle. Both only in this step.
+      - name: Build the signed APK
+        working-directory: android/android
+        env:
+          MICO360_MOBILE_CONNECT_KEY: ${{ secrets.MICO360_MOBILE_CONNECT_KEY }}
+          MICO360_CONNECT_API_KEY: ${{ secrets.MICO360_CONNECT_API_KEY }}
+          MICO360_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          MICO360_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MICO360_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MICO360_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_reactNativeArchitectures: arm64-v8a,armeabi-v7a,x86_64
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Verify the signature and name the APK
+        run: |
+          set -o pipefail
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$bt/apksigner" verify --print-certs "$apk" | tee "$RUNNER_TEMP/certs.txt"
+          if grep -q "CN=Android Debug" "$RUNNER_TEMP/certs.txt"; then echo "::error::The APK is debug-signed."; exit 1; fi
+          rm -f "$RUNNER_TEMP/release.jks"
+          mkdir -p dist
+          name="MICO360Meetings-Android-$VERSION.apk"
+          cp "$apk" "dist/$name"
+          (cd dist && sha256sum "$name" > "$name.sha256" && cat "$name.sha256")
+
+      - name: Enable KVM for the emulator
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Smoke test on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          working-directory: android
+          script: |
+            adb install -r "dist/MICO360Meetings-Android-$VERSION.apk"
+            adb shell am start -W -n com.mico360.meetings/.MainActivity
+            for i in $(seq 1 30); do adb exec-out uiautomator dump /dev/tty | grep -q "Meetings tab" && exit 0; sleep 2; done; echo "::error::The app did not show its Meetings tab within 60 s"; exit 1
+
+      - name: Publish the GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MICO360 Meetings for Android ${{ env.VERSION }}
+          body_path: build/RELEASE_NOTES_${{ github.ref_name }}.md
+          make_latest: false
+          prerelease: false
+          files: |
+            android/dist/MICO360Meetings-Android-${{ env.VERSION }}.apk
+            android/dist/MICO360Meetings-Android-${{ env.VERSION }}.apk.sha256

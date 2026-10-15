@@ -1,0 +1,63 @@
+{
+ "items": [
+  {
+   "task": "Send report, final",
+   "owner": "Ali",
+   "deadline": "10 Oct",
+   "status": "Pending",
+   "meeting_id": 1,
+   "meeting_title": "Budget; Q4",
+   "meeting_date": "2026-10-05",
+   "priority": "High",
+   "notes": "",
+   "okey": "1:583827a6fa:0",
+   "occ": 0
+  },
+  {
+   "task": "Send report, final",
+   "owner": "Ali",
+   "deadline": "10 Oct",
+   "status": "Pending",
+   "meeting_id": 1,
+   "meeting_title": "Budget; Q4",
+   "meeting_date": "2026-10-05",
+   "priority": "",
+   "notes": "",
+   "okey": "1:583827a6fa:0",
+   "occ": 0
+  },
+  {
+   "task": "إرسال التقرير النهائي إلى الإدارة العليا قبل نهاية الأسبوع القادم",
+   "owner": "علي",
+   "deadline": "2026-10-20",
+   "status": "in progress",
+   "meeting_id": 2,
+   "meeting_title": "اجتماع",
+   "meeting_date": "2026-10-06",
+   "priority": "",
+   "notes": "",
+   "okey": "2:d7be8af72c:0",
+   "occ": 0
+  },
+  {
+   "task": "No date",
+   "owner": "",
+   "deadline": "tbd",
+   "status": "Pending",
+   "meeting_id": 3,
+   "meeting_title": "",
+   "meeting_date": "2026-10-06",
+   "priority": "",
+   "notes": "",
+   "okey": "3:fc90ff917e:0",
+   "occ": 0
+  }
+ ],
+ "ics": "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//MICO360//Meetings//EN\r\nCALSCALE:GREGORIAN\r\nMETHOD:PUBLISH\r\nX-WR-CALNAME:MICO360 Action Items\r\nBEGIN:VEVENT\r\nUID:ede0a87d5e7f8d0e4536e2fe@mico360\r\nDTSTART;VALUE=DATE:20261010\r\nDTEND;VALUE=DATE:20261011\r\nSUMMARY:[Ali] Send report\\, final\r\nDESCRIPTION:Owner: Ali\\nMeeting: Budget\\; Q4\\nPriority: High\\nStatus: Pendi\r\n ng\r\nTRANSP:TRANSPARENT\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Reminder: Send report\\, final\r\nTRIGGER:-P1D\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:ede0a87d5e7f8d0e4536e2fe-2@mico360\r\nDTSTART;VALUE=DATE:20261010\r\nDTEND;VALUE=DATE:20261011\r\nSUMMARY:[Ali] Send report\\, final\r\nDESCRIPTION:Owner: Ali\\nMeeting: Budget\\; Q4\\nStatus: Pending\r\nTRANSP:TRANSPARENT\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Reminder: Send report\\, final\r\nTRIGGER:-P1D\r\nEND:VALARM\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:eff0d67ccdeb8896a65442fa@mico360\r\nDTSTART;VALUE=DATE:20261020\r\nDTEND;VALUE=DATE:20261021\r\nSUMMARY:[علي] إرسال التقرير النهائي إلى الإدا\r\n رة العليا قبل نهاية الأسبوع القادم\r\nDESCRIPTION:Owner: علي\\nMeeting: اجتماع\\nStatus: In Progress\r\nTRANSP:TRANSPARENT\r\nBEGIN:VALARM\r\nACTION:DISPLAY\r\nDESCRIPTION:Reminder: إرسال التقرير النهائي إلى ال\r\n إدارة العليا قبل نهاية الأسبوع القادم\r\nTRIGGER:-P1D\r\nEND:VALARM\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+ "uids": [
+  "ede0a87d5e7f8d0e4536e2fe@mico360",
+  "ede0a87d5e7f8d0e4536e2fe@mico360",
+  "eff0d67ccdeb8896a65442fa@mico360",
+  "052baaf7e4922c971ce68953@mico360"
+ ]
+}

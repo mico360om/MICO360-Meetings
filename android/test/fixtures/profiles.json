@@ -1,0 +1,151 @@
+{
+ "coerce": [
+  {
+   "key": "logo_position",
+   "value": "Centre",
+   "output": "center"
+  },
+  {
+   "key": "logo_position",
+   "value": "middle",
+   "output": "center"
+  },
+  {
+   "key": "page_number_position",
+   "value": "Bottom Right",
+   "output": "footer-right"
+  },
+  {
+   "key": "page_number_position",
+   "value": "top_center",
+   "output": "header-center"
+  },
+  {
+   "key": "pdf_design",
+   "value": "MODERN",
+   "output": "modern"
+  },
+  {
+   "key": "pdf_design",
+   "value": "fancy",
+   "output": "classic"
+  },
+  {
+   "key": "accent_color",
+   "value": "#abc",
+   "output": "#abc"
+  },
+  {
+   "key": "accent_color",
+   "value": "red;}</style><script>",
+   "output": "#8B1E1E"
+  },
+  {
+   "key": "show_page_numbers",
+   "value": "no",
+   "output": false
+  },
+  {
+   "key": "show_page_numbers",
+   "value": "",
+   "output": true
+  },
+  {
+   "key": "show_page_numbers",
+   "value": true,
+   "output": true
+  },
+  {
+   "key": "logo_width_mm",
+   "value": "120",
+   "output": 90.0
+  },
+  {
+   "key": "logo_width_mm",
+   "value": "abc",
+   "output": 35.0
+  },
+  {
+   "key": "logo_width_mm",
+   "value": 5,
+   "output": 10.0
+  },
+  {
+   "key": "phone",
+   "value": 96824123456.0,
+   "output": "96824123456"
+  },
+  {
+   "key": "phone",
+   "value": null,
+   "output": ""
+  },
+  {
+   "key": "name",
+   "value": "  Acme  ",
+   "output": "Acme"
+  },
+  {
+   "key": "page_number_format",
+   "value": "  ",
+   "output": "Page {n} of {total}"
+  },
+  {
+   "key": "footer_alignment",
+   "value": "RIGHT",
+   "output": "right"
+  }
+ ],
+ "normHeader": [
+  {
+   "input": "Company Name",
+   "output": "name"
+  },
+  {
+   "input": " Phone ",
+   "output": "phone"
+  },
+  {
+   "input": "Logo-File",
+   "output": "logo_path"
+  },
+  {
+   "input": "Accent Colour",
+   "output": "accent_color"
+  },
+  {
+   "input": "design",
+   "output": "pdf_design"
+  },
+  {
+   "input": "unknown col",
+   "output": "unknown_col"
+  }
+ ],
+ "normalize": [
+  {
+   "input": {
+    "Company": "Acme",
+    "Tel": "1",
+    "junk": 2
+   },
+   "output": {
+    "name": "Acme",
+    "phone": "1"
+   }
+  },
+  {
+   "input": {
+    "name": "",
+    "phone": null
+   },
+   "output": {}
+  },
+  {
+   "input": {
+    "id": "x"
+   },
+   "output": {}
+  }
+ ]
+}

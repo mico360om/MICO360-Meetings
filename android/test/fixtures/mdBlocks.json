@@ -1,0 +1,458 @@
+{
+ "parse": [
+  {
+   "input": "# Meeting Minutes\n**Meeting Title:** Budget review\n**Date and Time:** 5 Oct 2026\n**Attendees:** Ali, Sara\n\n## Purpose of Meeting\nPlan Q4.\nSecond line.",
+   "blocks": [
+    {
+     "kind": "h1",
+     "text": "Meeting Minutes",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 1,
+     "start": 1
+    },
+    {
+     "kind": "kv",
+     "text": "Budget review",
+     "key": "Meeting Title",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "kv",
+     "text": "5 Oct 2026",
+     "key": "Date and Time",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "kv",
+     "text": "Ali, Sara",
+     "key": "Attendees",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "h2",
+     "text": "Purpose of Meeting",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 2,
+     "start": 1
+    },
+    {
+     "kind": "para",
+     "text": "Plan Q4. Second line.",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| Send report | Ali | 10 Oct | Pending |\n| Fix `a|b` pipe | Sara | 2026-10-12 | Done |\n| Escaped \\| pipe | Omar | | In progress |",
+   "blocks": [
+    {
+     "kind": "h2",
+     "text": "Action Items",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 2,
+     "start": 1
+    },
+    {
+     "kind": "table",
+     "text": "",
+     "key": "",
+     "items": [],
+     "headers": [
+      "Task",
+      "Responsible Person",
+      "Deadline",
+      "Status"
+     ],
+     "rows": [
+      [
+       "Send report",
+       "Ali",
+       "10 Oct",
+       "Pending"
+      ],
+      [
+       "Fix `a|b` pipe",
+       "Sara",
+       "2026-10-12",
+       "Done"
+      ],
+      [
+       "Escaped | pipe",
+       "Omar",
+       "",
+       "In progress"
+      ]
+     ],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "Task | Owner\n---|---\nNo leading pipe | Me\n\nAfter table",
+   "blocks": [
+    {
+     "kind": "table",
+     "text": "",
+     "key": "",
+     "items": [],
+     "headers": [
+      "Task",
+      "Owner"
+     ],
+     "rows": [
+      [
+       "No leading pipe",
+       "Me"
+      ]
+     ],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "para",
+     "text": "After table",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "- one\n- **two** bold\n* three\n\n1. first\n2) second\n7. seventh\n\n---\n\nPara with **bold** and `code`.",
+   "blocks": [
+    {
+     "kind": "bullet",
+     "text": "",
+     "key": "",
+     "items": [
+      "one",
+      "**two** bold",
+      "three"
+     ],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "olist",
+     "text": "",
+     "key": "",
+     "items": [
+      "first",
+      "second",
+      "seventh"
+     ],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "para",
+     "text": "Para with **bold** and `code`.",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "### Deep ###\n#### Deeper\n###### Six\n####### Seven is text",
+   "blocks": [
+    {
+     "kind": "h3",
+     "text": "Deep",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 3,
+     "start": 1
+    },
+    {
+     "kind": "h3",
+     "text": "Deeper",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 4,
+     "start": 1
+    },
+    {
+     "kind": "h3",
+     "text": "Six",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 6,
+     "start": 1
+    },
+    {
+     "kind": "para",
+     "text": "####### Seven is text",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "# محضر الاجتماع\n**عنوان الاجتماع:** الميزانية\n- بند أول\n| المهمة | المسؤول | الحالة |\n| --- | --- | --- |\n| إرسال التقرير | علي | قيد التنفيذ |",
+   "blocks": [
+    {
+     "kind": "h1",
+     "text": "محضر الاجتماع",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 1,
+     "start": 1
+    },
+    {
+     "kind": "kv",
+     "text": "الميزانية",
+     "key": "عنوان الاجتماع",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "bullet",
+     "text": "",
+     "key": "",
+     "items": [
+      "بند أول"
+     ],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "table",
+     "text": "",
+     "key": "",
+     "items": [],
+     "headers": [
+      "المهمة",
+      "المسؤول",
+      "الحالة"
+     ],
+     "rows": [
+      [
+       "إرسال التقرير",
+       "علي",
+       "قيد التنفيذ"
+      ]
+     ],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "Line with \u000b vertical tab and \u0007 bell and emoji 😀 kept\n| Header only |\n| --- |",
+   "blocks": [
+    {
+     "kind": "para",
+     "text": "Line with  vertical tab and  bell and emoji 😀 kept",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "table",
+     "text": "",
+     "key": "",
+     "items": [],
+     "headers": [
+      "Header only"
+     ],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "| # | Task | Owner |\n| --- | --- | --- |\n| 1 | Extra | cell | Bob |",
+   "blocks": [
+    {
+     "kind": "table",
+     "text": "",
+     "key": "",
+     "items": [],
+     "headers": [
+      "#",
+      "Task",
+      "Owner"
+     ],
+     "rows": [
+      [
+       "1",
+       "Extra | cell",
+       "Bob"
+      ]
+     ],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "Don`t | split\n| A | B |\n|---|---|\n| x | y |",
+   "blocks": [
+    {
+     "kind": "para",
+     "text": "Don`t | split",
+     "key": "",
+     "items": [],
+     "headers": [],
+     "rows": [],
+     "level": 0,
+     "start": 1
+    },
+    {
+     "kind": "table",
+     "text": "",
+     "key": "",
+     "items": [],
+     "headers": [
+      "A",
+      "B"
+     ],
+     "rows": [
+      [
+       "x",
+       "y"
+      ]
+     ],
+     "level": 0,
+     "start": 1
+    }
+   ]
+  },
+  {
+   "input": "",
+   "blocks": []
+  }
+ ],
+ "runs": [
+  {
+   "input": "plain",
+   "runs": [
+    [
+     "plain",
+     false
+    ]
+   ]
+  },
+  {
+   "input": "**bold** start",
+   "runs": [
+    [
+     "bold",
+     true
+    ],
+    [
+     " start",
+     false
+    ]
+   ]
+  },
+  {
+   "input": "mid **b** end",
+   "runs": [
+    [
+     "mid ",
+     false
+    ],
+    [
+     "b",
+     true
+    ],
+    [
+     " end",
+     false
+    ]
+   ]
+  },
+  {
+   "input": "**a****b**",
+   "runs": [
+    [
+     "a",
+     true
+    ],
+    [
+     "b",
+     true
+    ]
+   ]
+  },
+  {
+   "input": "un**closed",
+   "runs": [
+    [
+     "un**closed",
+     false
+    ]
+   ]
+  }
+ ],
+ "clean": [
+  {
+   "input": "a\u0000b\u000bc\td\nef",
+   "output": "abc\td\nef"
+  },
+  {
+   "input": "ok ￾",
+   "output": "ok "
+  }
+ ]
+}

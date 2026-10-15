@@ -1,0 +1,2058 @@
+{
+  "transcriptToken": "[TRANSCRIPT_HERE]",
+  "minutesStructure": "Use EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n",
+  "baseTemplate": "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]",
+  "outputStyles": [
+    [
+      "Formal Minutes",
+      "Write complete, formal minutes covering every section in full sentences."
+    ],
+    [
+      "Short Summary",
+      "Write a concise summary. Keep Meeting Summary to 3-4 sentences and use brief bullets. Still include all headings."
+    ],
+    [
+      "Detailed Minutes",
+      "Write thorough, detailed minutes. Expand discussion points and capture nuance, context, and rationale for each decision."
+    ],
+    [
+      "Action Item Report",
+      "Focus on actionable outcomes. Keep narrative sections brief but make the Action Items table comprehensive with clear owners, deadlines and status."
+    ],
+    [
+      "Executive Summary",
+      "Write for executives: a tight summary, the key decisions, top risks, and the most important action items. Keep it scannable."
+    ]
+  ],
+  "defaultStyle": "Formal Minutes",
+  "chunkSummaryPrompt": "You are summarizing PART of a longer meeting transcript. Extract only what is actually stated: key points, decisions, action items (with owner/deadline if given), risks, and open issues. Do not invent anything. Be concise and factual.\n\nTranscript part {idx} of {total}:\n[TRANSCRIPT_HERE]",
+  "reduceNotesPrefix": "[This meeting was long, so it was processed in parts. Below are factual notes extracted from each consecutive part, in order. Treat them as the transcript: merge them into one coherent result and do not add anything that is not in the notes.]\n\n",
+  "mergeNotesPrompt": "You are condensing notes from a long meeting that was processed in parts. Below are factual notes for parts {first} to {last} of {total}, in order. Merge them into ONE set of concise notes in the same order. Keep every key point, decision, action item (with owner and deadline if given), risk and open issue; remove only exact repetition. Do not invent anything and do not write minutes yet — output notes only.\n\nNotes:\n[TRANSCRIPT_HERE]",
+  "builtinPrompts": [
+    [
+      "Formal Minutes",
+      "Formal Meeting",
+      "You are a professional meeting secretary. Convert the following meeting transcript into accurate and formal minutes of meeting. Do not invent names, dates, decisions, or action items. If information is missing, write 'Not specified'. Clearly mark unclear speakers or unclear audio as '[unclear]'. Organize the output clearly using headings and bullet points.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Board Meeting Minutes",
+      "Formal Meeting",
+      "You are the company secretary recording formal board minutes. Be precise and neutral. Record attendees, quorum, motions proposed, who moved/seconded, the vote outcome, and resolutions passed. Do not invent anything; use 'Not specified' if missing.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Project Kickoff Minutes",
+      "Project Meeting",
+      "You are documenting a project kickoff. Capture project goals, scope, milestones, owners, dependencies, risks and the agreed next steps. Do not invent details.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Project Status / Standup",
+      "Project Meeting",
+      "Summarise this status/standup meeting. For each person/workstream capture: what was done, what's next, and any blockers. Then list overall decisions, risks and action items with owners and deadlines. Be concise; do not invent.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Sprint Retrospective",
+      "Project Meeting",
+      "Summarise this retrospective under three headings — 'What went well', 'What didn't go well', and 'Improvements / Actions' (with owners). Keep the standard minutes sections too. Only use what is stated.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Client Meeting Recap",
+      "Client Meeting",
+      "You are writing a professional client meeting recap. Capture the client's needs, questions raised, commitments made by each side, decisions, and clear next steps with owners and dates. Polite, professional tone. Do not invent.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Sales Discovery Call Notes",
+      "Client Meeting",
+      "Summarise this sales discovery call. Capture: prospect/company, pain points, budget/authority/need/timeline if mentioned, objections, and agreed next steps. Do not fabricate figures or names.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Internal Team Meeting Notes",
+      "Internal Meeting",
+      "Summarise this internal team meeting clearly and informally but professionally. Capture discussion points, decisions, and action items with owners and deadlines. Use 'Not specified' where unknown.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "One-on-One Notes",
+      "Internal Meeting",
+      "Summarise this one-on-one meeting. Capture topics discussed, feedback given, agreements, and follow-up actions with dates. Keep it concise and respectful.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Interview Notes Summary",
+      "Internal Meeting",
+      "Summarise this interview. Capture the candidate/role, key questions and answers, strengths, concerns, and a recommendation if one was stated. Be objective; do not infer beyond what was said.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Brainstorming Session Summary",
+      "Internal Meeting",
+      "Summarise this brainstorming session. Group the ideas by theme, note which were favoured, and list any agreed next steps or owners. Capture every distinct idea mentioned without inventing new ones.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Action Item Report",
+      "Action Items",
+      "Focus only on outcomes. Produce a thorough Action Items table (Task, Responsible Person, Deadline, Status) plus a short list of Decisions Made. Keep narrative sections brief. Do not invent owners or dates; use 'Not specified'.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Decision Log",
+      "Action Items",
+      "Extract only the DECISIONS made in this meeting. For each decision give: the decision, who made/approved it, the rationale if stated, and any follow-up action. Then add a brief Action Items table. Do not invent decisions.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Executive Summary",
+      "Summary",
+      "Write a tight executive summary for leadership: the purpose, the 3-5 most important points, key decisions, top risks, and the most important action items. Scannable, no fluff. Do not invent.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Short Summary",
+      "Summary",
+      "Write a concise summary of the meeting: 3-4 sentence overview, brief bullet key points, decisions, and action items. Keep every heading but stay brief.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Stakeholder Update",
+      "Project Meeting",
+      "Summarise this meeting as a stakeholder update: progress since last time, current status (on track / at risk), key decisions, blockers needing help, and next milestones with dates. Concise and executive-friendly. Do not invent.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Daily Standup Bullets",
+      "Project Meeting",
+      "Produce brief standup notes. For each person/workstream: Yesterday, Today, Blockers. Then a short combined list of blockers and action items with owners. Keep it to tight bullets; do not invent.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Vendor / Supplier Meeting Notes",
+      "Client Meeting",
+      "Summarise this vendor/supplier meeting. Capture: vendor, products/services discussed, pricing or terms mentioned, commitments by each side, SLAs, risks, and next steps with owners and dates. Do not invent figures.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Customer Feedback Session",
+      "Client Meeting",
+      "Summarise this customer feedback session. Group feedback into themes (likes, pain points, feature requests), note severity/frequency if stated, and list follow-up actions with owners. Only use what was said.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Performance Review Notes",
+      "Internal Meeting",
+      "Summarise this performance/review discussion professionally and objectively. Capture: achievements, strengths, areas to improve, goals agreed, and follow-up actions with dates. Do not infer beyond what was discussed.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "All-Hands / Town Hall Summary",
+      "Internal Meeting",
+      "Summarise this all-hands/town-hall for staff who missed it. Capture announcements, key updates by area, decisions, Q&A highlights, and any actions for the team. Clear and upbeat but factual.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Training / Workshop Notes",
+      "Internal Meeting",
+      "Summarise this training/workshop. Capture topics covered, key learnings, exercises or demos, questions raised, resources mentioned, and any follow-up actions for attendees. Do not invent content.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Risk & Issues Review",
+      "Action Items",
+      "Focus on risks and issues. For each: description, impact, likelihood/severity if stated, owner, and mitigation/next step. Then a short Action Items table. Only use what is stated; mark unknowns 'Not specified'.\n\nUse EXACTLY these Markdown headings (omit none; write 'Not specified' when unknown):\n\n# Meeting Minutes\n**Meeting Title:** ...\n**Date and Time:** ...\n**Attendees:** ...\n\n## Purpose of Meeting\n...\n\n## Meeting Summary\n...\n\n## Key Discussion Points\n- ...\n\n## Decisions Made\n- ...\n\n## Action Items\n| Task | Responsible Person | Deadline | Status |\n| --- | --- | --- | --- |\n| ... | ... | ... | Pending |\n\n## Pending Issues\n- ...\n\n## Risks or Concerns\n- ...\n\n## Next Meeting Notes\n...\n\n## Closing Summary\n...\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Follow-up Email Draft",
+      "Summary",
+      "Write a short, professional follow-up email that could be sent after this meeting. Use this structure: Subject line; a one-line thank-you; 3-5 bullet recap of what was discussed/decided; a clear list of next steps with owners and dates; a polite closing. Do not invent names, dates or commitments.\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ],
+    [
+      "Key Takeaways (TL;DR)",
+      "Summary",
+      "Give the meeting's key takeaways as a tight bulleted TL;DR (5-8 bullets max) covering the most important points, decisions and next steps. No headings, no fluff, only what was actually said.\n\nTranscript:\n[TRANSCRIPT_HERE]"
+    ]
+  ],
+  "promptCategories": [
+    "Formal Meeting",
+    "Project Meeting",
+    "Client Meeting",
+    "Internal Meeting",
+    "Action Items",
+    "Summary"
+  ],
+  "meetingTypes": [
+    {
+      "name": "Formal / Board",
+      "prompt_name": "Board Meeting Minutes",
+      "style": "Formal Minutes",
+      "profile_name": ""
+    },
+    {
+      "name": "Project / Standup",
+      "prompt_name": "Daily Standup Bullets",
+      "style": "Short Summary",
+      "profile_name": ""
+    },
+    {
+      "name": "Client Call",
+      "prompt_name": "Client Meeting Recap",
+      "style": "Formal Minutes",
+      "profile_name": ""
+    },
+    {
+      "name": "Internal Team",
+      "prompt_name": "Internal Team Meeting Notes",
+      "style": "Detailed Minutes",
+      "profile_name": ""
+    },
+    {
+      "name": "Action Items Only",
+      "prompt_name": "Action Item Report",
+      "style": "Action Item Report",
+      "profile_name": ""
+    },
+    {
+      "name": "Executive Summary",
+      "prompt_name": "Executive Summary",
+      "style": "Executive Summary",
+      "profile_name": ""
+    }
+  ],
+  "fillers": [
+    "um",
+    "umm",
+    "ummm",
+    "uhm",
+    "uh",
+    "uhh",
+    "uhhh",
+    "erm",
+    "hmm",
+    "hmmm",
+    "hm",
+    "mmm"
+  ],
+  "stutterWords": [
+    "the",
+    "a",
+    "an",
+    "i",
+    "and",
+    "to",
+    "of",
+    "we",
+    "but",
+    "or",
+    "our",
+    "your",
+    "their",
+    "for",
+    "with",
+    "this",
+    "they",
+    "he",
+    "she",
+    "if"
+  ],
+  "statusCycle": [
+    "Pending",
+    "In Progress",
+    "Completed",
+    "Cancelled"
+  ],
+  "statusSynonyms": {
+    "done": "Completed",
+    "complete": "Completed",
+    "completed": "Completed",
+    "closed": "Completed",
+    "resolved": "Completed",
+    "finished": "Completed",
+    "cancelled": "Cancelled",
+    "canceled": "Cancelled",
+    "dropped": "Cancelled",
+    "in progress": "In Progress",
+    "in-progress": "In Progress",
+    "wip": "In Progress",
+    "ongoing": "In Progress",
+    "doing": "In Progress",
+    "started": "In Progress",
+    "pending": "Pending",
+    "open": "Pending",
+    "to do": "Pending",
+    "todo": "Pending",
+    "to-do": "Pending",
+    "not started": "Pending",
+    "new": "Pending",
+    "": "Pending"
+  },
+  "prioritySynonyms": {
+    "high": "High",
+    "urgent": "High",
+    "critical": "High",
+    "h": "High",
+    "p1": "High",
+    "medium": "Medium",
+    "med": "Medium",
+    "normal": "Medium",
+    "m": "Medium",
+    "p2": "Medium",
+    "low": "Low",
+    "l": "Low",
+    "minor": "Low",
+    "p3": "Low"
+  },
+  "placeholders": [
+    "",
+    "-",
+    "...",
+    "n/a",
+    "na",
+    "not specified",
+    "tbd",
+    "—",
+    "…"
+  ],
+  "insightsStopwords": [
+    "about",
+    "action",
+    "agenda",
+    "all",
+    "also",
+    "and",
+    "any",
+    "are",
+    "attendees",
+    "been",
+    "being",
+    "but",
+    "can",
+    "could",
+    "date",
+    "deadline",
+    "decision",
+    "decisions",
+    "did",
+    "discussed",
+    "discussion",
+    "does",
+    "done",
+    "each",
+    "for",
+    "from",
+    "get",
+    "got",
+    "has",
+    "have",
+    "here",
+    "how",
+    "into",
+    "item",
+    "items",
+    "just",
+    "like",
+    "made",
+    "make",
+    "many",
+    "may",
+    "meeting",
+    "might",
+    "minutes",
+    "more",
+    "most",
+    "much",
+    "must",
+    "need",
+    "needs",
+    "new",
+    "next",
+    "not",
+    "note",
+    "notes",
+    "one",
+    "only",
+    "our",
+    "out",
+    "over",
+    "pending",
+    "person",
+    "point",
+    "points",
+    "responsible",
+    "review",
+    "reviewed",
+    "shall",
+    "should",
+    "some",
+    "specified",
+    "status",
+    "such",
+    "summary",
+    "task",
+    "tasks",
+    "team",
+    "than",
+    "that",
+    "the",
+    "their",
+    "them",
+    "then",
+    "there",
+    "they",
+    "this",
+    "time",
+    "two",
+    "under",
+    "update",
+    "updates",
+    "very",
+    "want",
+    "was",
+    "well",
+    "were",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "will",
+    "with",
+    "would",
+    "you",
+    "your",
+    "أن",
+    "أو",
+    "أي",
+    "إلى",
+    "إن",
+    "اجتماع",
+    "الاجتماع",
+    "البند",
+    "البنود",
+    "التاريخ",
+    "التنفيذ",
+    "التي",
+    "الحالة",
+    "الحضور",
+    "الذي",
+    "الذين",
+    "القرارات",
+    "المحضر",
+    "المراجعة",
+    "المسؤول",
+    "الملخص",
+    "المناقشة",
+    "المهام",
+    "المهمة",
+    "الموعد",
+    "النقاط",
+    "النهائي",
+    "الوقت",
+    "الى",
+    "ان",
+    "او",
+    "اي",
+    "بعد",
+    "بعض",
+    "بنود",
+    "بين",
+    "تحديث",
+    "تكون",
+    "تلك",
+    "تم",
+    "ثم",
+    "حتى",
+    "حول",
+    "خلال",
+    "ذلك",
+    "سيتم",
+    "على",
+    "عليه",
+    "عليها",
+    "عن",
+    "عند",
+    "غير",
+    "فيه",
+    "فيها",
+    "قبل",
+    "قد",
+    "قرارات",
+    "قيد",
+    "كان",
+    "كانت",
+    "كل",
+    "كما",
+    "لدى",
+    "لقد",
+    "لكن",
+    "له",
+    "لها",
+    "محدد",
+    "محضر",
+    "مع",
+    "ملخص",
+    "مناقشة",
+    "منه",
+    "منها",
+    "مهام",
+    "نحن",
+    "نقاط",
+    "هذا",
+    "هذه",
+    "هم",
+    "هو",
+    "هي",
+    "وقد",
+    "ولكن",
+    "يتم",
+    "يكون"
+  ],
+  "arabicMarks": [
+    1552,
+    1553,
+    1554,
+    1555,
+    1556,
+    1557,
+    1558,
+    1559,
+    1560,
+    1561,
+    1562,
+    1600,
+    1611,
+    1612,
+    1613,
+    1614,
+    1615,
+    1616,
+    1617,
+    1618,
+    1619,
+    1620,
+    1621,
+    1622,
+    1623,
+    1624,
+    1625,
+    1626,
+    1627,
+    1628,
+    1629,
+    1630,
+    1631,
+    1648,
+    1750,
+    1751,
+    1752,
+    1753,
+    1754,
+    1755,
+    1756,
+    1757,
+    1758,
+    1759,
+    1760,
+    1761,
+    1762,
+    1763,
+    1764,
+    1765,
+    1766,
+    1767,
+    1768,
+    1769,
+    1770,
+    1771,
+    1772,
+    1773
+  ],
+  "casefoldExtra": [
+    [
+      181,
+      956
+    ],
+    [
+      223,
+      115,
+      115
+    ],
+    [
+      329,
+      700,
+      110
+    ],
+    [
+      383,
+      115
+    ],
+    [
+      496,
+      106,
+      780
+    ],
+    [
+      837,
+      953
+    ],
+    [
+      912,
+      953,
+      776,
+      769
+    ],
+    [
+      944,
+      965,
+      776,
+      769
+    ],
+    [
+      962,
+      963
+    ],
+    [
+      976,
+      946
+    ],
+    [
+      977,
+      952
+    ],
+    [
+      981,
+      966
+    ],
+    [
+      982,
+      960
+    ],
+    [
+      1008,
+      954
+    ],
+    [
+      1009,
+      961
+    ],
+    [
+      1013,
+      949
+    ],
+    [
+      1415,
+      1381,
+      1410
+    ],
+    [
+      5024,
+      5024
+    ],
+    [
+      5025,
+      5025
+    ],
+    [
+      5026,
+      5026
+    ],
+    [
+      5027,
+      5027
+    ],
+    [
+      5028,
+      5028
+    ],
+    [
+      5029,
+      5029
+    ],
+    [
+      5030,
+      5030
+    ],
+    [
+      5031,
+      5031
+    ],
+    [
+      5032,
+      5032
+    ],
+    [
+      5033,
+      5033
+    ],
+    [
+      5034,
+      5034
+    ],
+    [
+      5035,
+      5035
+    ],
+    [
+      5036,
+      5036
+    ],
+    [
+      5037,
+      5037
+    ],
+    [
+      5038,
+      5038
+    ],
+    [
+      5039,
+      5039
+    ],
+    [
+      5040,
+      5040
+    ],
+    [
+      5041,
+      5041
+    ],
+    [
+      5042,
+      5042
+    ],
+    [
+      5043,
+      5043
+    ],
+    [
+      5044,
+      5044
+    ],
+    [
+      5045,
+      5045
+    ],
+    [
+      5046,
+      5046
+    ],
+    [
+      5047,
+      5047
+    ],
+    [
+      5048,
+      5048
+    ],
+    [
+      5049,
+      5049
+    ],
+    [
+      5050,
+      5050
+    ],
+    [
+      5051,
+      5051
+    ],
+    [
+      5052,
+      5052
+    ],
+    [
+      5053,
+      5053
+    ],
+    [
+      5054,
+      5054
+    ],
+    [
+      5055,
+      5055
+    ],
+    [
+      5056,
+      5056
+    ],
+    [
+      5057,
+      5057
+    ],
+    [
+      5058,
+      5058
+    ],
+    [
+      5059,
+      5059
+    ],
+    [
+      5060,
+      5060
+    ],
+    [
+      5061,
+      5061
+    ],
+    [
+      5062,
+      5062
+    ],
+    [
+      5063,
+      5063
+    ],
+    [
+      5064,
+      5064
+    ],
+    [
+      5065,
+      5065
+    ],
+    [
+      5066,
+      5066
+    ],
+    [
+      5067,
+      5067
+    ],
+    [
+      5068,
+      5068
+    ],
+    [
+      5069,
+      5069
+    ],
+    [
+      5070,
+      5070
+    ],
+    [
+      5071,
+      5071
+    ],
+    [
+      5072,
+      5072
+    ],
+    [
+      5073,
+      5073
+    ],
+    [
+      5074,
+      5074
+    ],
+    [
+      5075,
+      5075
+    ],
+    [
+      5076,
+      5076
+    ],
+    [
+      5077,
+      5077
+    ],
+    [
+      5078,
+      5078
+    ],
+    [
+      5079,
+      5079
+    ],
+    [
+      5080,
+      5080
+    ],
+    [
+      5081,
+      5081
+    ],
+    [
+      5082,
+      5082
+    ],
+    [
+      5083,
+      5083
+    ],
+    [
+      5084,
+      5084
+    ],
+    [
+      5085,
+      5085
+    ],
+    [
+      5086,
+      5086
+    ],
+    [
+      5087,
+      5087
+    ],
+    [
+      5088,
+      5088
+    ],
+    [
+      5089,
+      5089
+    ],
+    [
+      5090,
+      5090
+    ],
+    [
+      5091,
+      5091
+    ],
+    [
+      5092,
+      5092
+    ],
+    [
+      5093,
+      5093
+    ],
+    [
+      5094,
+      5094
+    ],
+    [
+      5095,
+      5095
+    ],
+    [
+      5096,
+      5096
+    ],
+    [
+      5097,
+      5097
+    ],
+    [
+      5098,
+      5098
+    ],
+    [
+      5099,
+      5099
+    ],
+    [
+      5100,
+      5100
+    ],
+    [
+      5101,
+      5101
+    ],
+    [
+      5102,
+      5102
+    ],
+    [
+      5103,
+      5103
+    ],
+    [
+      5104,
+      5104
+    ],
+    [
+      5105,
+      5105
+    ],
+    [
+      5106,
+      5106
+    ],
+    [
+      5107,
+      5107
+    ],
+    [
+      5108,
+      5108
+    ],
+    [
+      5109,
+      5109
+    ],
+    [
+      5112,
+      5104
+    ],
+    [
+      5113,
+      5105
+    ],
+    [
+      5114,
+      5106
+    ],
+    [
+      5115,
+      5107
+    ],
+    [
+      5116,
+      5108
+    ],
+    [
+      5117,
+      5109
+    ],
+    [
+      7296,
+      1074
+    ],
+    [
+      7297,
+      1076
+    ],
+    [
+      7298,
+      1086
+    ],
+    [
+      7299,
+      1089
+    ],
+    [
+      7300,
+      1090
+    ],
+    [
+      7301,
+      1090
+    ],
+    [
+      7302,
+      1098
+    ],
+    [
+      7303,
+      1123
+    ],
+    [
+      7304,
+      42571
+    ],
+    [
+      7830,
+      104,
+      817
+    ],
+    [
+      7831,
+      116,
+      776
+    ],
+    [
+      7832,
+      119,
+      778
+    ],
+    [
+      7833,
+      121,
+      778
+    ],
+    [
+      7834,
+      97,
+      702
+    ],
+    [
+      7835,
+      7777
+    ],
+    [
+      7838,
+      115,
+      115
+    ],
+    [
+      8016,
+      965,
+      787
+    ],
+    [
+      8018,
+      965,
+      787,
+      768
+    ],
+    [
+      8020,
+      965,
+      787,
+      769
+    ],
+    [
+      8022,
+      965,
+      787,
+      834
+    ],
+    [
+      8064,
+      7936,
+      953
+    ],
+    [
+      8065,
+      7937,
+      953
+    ],
+    [
+      8066,
+      7938,
+      953
+    ],
+    [
+      8067,
+      7939,
+      953
+    ],
+    [
+      8068,
+      7940,
+      953
+    ],
+    [
+      8069,
+      7941,
+      953
+    ],
+    [
+      8070,
+      7942,
+      953
+    ],
+    [
+      8071,
+      7943,
+      953
+    ],
+    [
+      8072,
+      7936,
+      953
+    ],
+    [
+      8073,
+      7937,
+      953
+    ],
+    [
+      8074,
+      7938,
+      953
+    ],
+    [
+      8075,
+      7939,
+      953
+    ],
+    [
+      8076,
+      7940,
+      953
+    ],
+    [
+      8077,
+      7941,
+      953
+    ],
+    [
+      8078,
+      7942,
+      953
+    ],
+    [
+      8079,
+      7943,
+      953
+    ],
+    [
+      8080,
+      7968,
+      953
+    ],
+    [
+      8081,
+      7969,
+      953
+    ],
+    [
+      8082,
+      7970,
+      953
+    ],
+    [
+      8083,
+      7971,
+      953
+    ],
+    [
+      8084,
+      7972,
+      953
+    ],
+    [
+      8085,
+      7973,
+      953
+    ],
+    [
+      8086,
+      7974,
+      953
+    ],
+    [
+      8087,
+      7975,
+      953
+    ],
+    [
+      8088,
+      7968,
+      953
+    ],
+    [
+      8089,
+      7969,
+      953
+    ],
+    [
+      8090,
+      7970,
+      953
+    ],
+    [
+      8091,
+      7971,
+      953
+    ],
+    [
+      8092,
+      7972,
+      953
+    ],
+    [
+      8093,
+      7973,
+      953
+    ],
+    [
+      8094,
+      7974,
+      953
+    ],
+    [
+      8095,
+      7975,
+      953
+    ],
+    [
+      8096,
+      8032,
+      953
+    ],
+    [
+      8097,
+      8033,
+      953
+    ],
+    [
+      8098,
+      8034,
+      953
+    ],
+    [
+      8099,
+      8035,
+      953
+    ],
+    [
+      8100,
+      8036,
+      953
+    ],
+    [
+      8101,
+      8037,
+      953
+    ],
+    [
+      8102,
+      8038,
+      953
+    ],
+    [
+      8103,
+      8039,
+      953
+    ],
+    [
+      8104,
+      8032,
+      953
+    ],
+    [
+      8105,
+      8033,
+      953
+    ],
+    [
+      8106,
+      8034,
+      953
+    ],
+    [
+      8107,
+      8035,
+      953
+    ],
+    [
+      8108,
+      8036,
+      953
+    ],
+    [
+      8109,
+      8037,
+      953
+    ],
+    [
+      8110,
+      8038,
+      953
+    ],
+    [
+      8111,
+      8039,
+      953
+    ],
+    [
+      8114,
+      8048,
+      953
+    ],
+    [
+      8115,
+      945,
+      953
+    ],
+    [
+      8116,
+      940,
+      953
+    ],
+    [
+      8118,
+      945,
+      834
+    ],
+    [
+      8119,
+      945,
+      834,
+      953
+    ],
+    [
+      8124,
+      945,
+      953
+    ],
+    [
+      8126,
+      953
+    ],
+    [
+      8130,
+      8052,
+      953
+    ],
+    [
+      8131,
+      951,
+      953
+    ],
+    [
+      8132,
+      942,
+      953
+    ],
+    [
+      8134,
+      951,
+      834
+    ],
+    [
+      8135,
+      951,
+      834,
+      953
+    ],
+    [
+      8140,
+      951,
+      953
+    ],
+    [
+      8146,
+      953,
+      776,
+      768
+    ],
+    [
+      8147,
+      953,
+      776,
+      769
+    ],
+    [
+      8150,
+      953,
+      834
+    ],
+    [
+      8151,
+      953,
+      776,
+      834
+    ],
+    [
+      8162,
+      965,
+      776,
+      768
+    ],
+    [
+      8163,
+      965,
+      776,
+      769
+    ],
+    [
+      8164,
+      961,
+      787
+    ],
+    [
+      8166,
+      965,
+      834
+    ],
+    [
+      8167,
+      965,
+      776,
+      834
+    ],
+    [
+      8178,
+      8060,
+      953
+    ],
+    [
+      8179,
+      969,
+      953
+    ],
+    [
+      8180,
+      974,
+      953
+    ],
+    [
+      8182,
+      969,
+      834
+    ],
+    [
+      8183,
+      969,
+      834,
+      953
+    ],
+    [
+      8188,
+      969,
+      953
+    ],
+    [
+      43888,
+      5024
+    ],
+    [
+      43889,
+      5025
+    ],
+    [
+      43890,
+      5026
+    ],
+    [
+      43891,
+      5027
+    ],
+    [
+      43892,
+      5028
+    ],
+    [
+      43893,
+      5029
+    ],
+    [
+      43894,
+      5030
+    ],
+    [
+      43895,
+      5031
+    ],
+    [
+      43896,
+      5032
+    ],
+    [
+      43897,
+      5033
+    ],
+    [
+      43898,
+      5034
+    ],
+    [
+      43899,
+      5035
+    ],
+    [
+      43900,
+      5036
+    ],
+    [
+      43901,
+      5037
+    ],
+    [
+      43902,
+      5038
+    ],
+    [
+      43903,
+      5039
+    ],
+    [
+      43904,
+      5040
+    ],
+    [
+      43905,
+      5041
+    ],
+    [
+      43906,
+      5042
+    ],
+    [
+      43907,
+      5043
+    ],
+    [
+      43908,
+      5044
+    ],
+    [
+      43909,
+      5045
+    ],
+    [
+      43910,
+      5046
+    ],
+    [
+      43911,
+      5047
+    ],
+    [
+      43912,
+      5048
+    ],
+    [
+      43913,
+      5049
+    ],
+    [
+      43914,
+      5050
+    ],
+    [
+      43915,
+      5051
+    ],
+    [
+      43916,
+      5052
+    ],
+    [
+      43917,
+      5053
+    ],
+    [
+      43918,
+      5054
+    ],
+    [
+      43919,
+      5055
+    ],
+    [
+      43920,
+      5056
+    ],
+    [
+      43921,
+      5057
+    ],
+    [
+      43922,
+      5058
+    ],
+    [
+      43923,
+      5059
+    ],
+    [
+      43924,
+      5060
+    ],
+    [
+      43925,
+      5061
+    ],
+    [
+      43926,
+      5062
+    ],
+    [
+      43927,
+      5063
+    ],
+    [
+      43928,
+      5064
+    ],
+    [
+      43929,
+      5065
+    ],
+    [
+      43930,
+      5066
+    ],
+    [
+      43931,
+      5067
+    ],
+    [
+      43932,
+      5068
+    ],
+    [
+      43933,
+      5069
+    ],
+    [
+      43934,
+      5070
+    ],
+    [
+      43935,
+      5071
+    ],
+    [
+      43936,
+      5072
+    ],
+    [
+      43937,
+      5073
+    ],
+    [
+      43938,
+      5074
+    ],
+    [
+      43939,
+      5075
+    ],
+    [
+      43940,
+      5076
+    ],
+    [
+      43941,
+      5077
+    ],
+    [
+      43942,
+      5078
+    ],
+    [
+      43943,
+      5079
+    ],
+    [
+      43944,
+      5080
+    ],
+    [
+      43945,
+      5081
+    ],
+    [
+      43946,
+      5082
+    ],
+    [
+      43947,
+      5083
+    ],
+    [
+      43948,
+      5084
+    ],
+    [
+      43949,
+      5085
+    ],
+    [
+      43950,
+      5086
+    ],
+    [
+      43951,
+      5087
+    ],
+    [
+      43952,
+      5088
+    ],
+    [
+      43953,
+      5089
+    ],
+    [
+      43954,
+      5090
+    ],
+    [
+      43955,
+      5091
+    ],
+    [
+      43956,
+      5092
+    ],
+    [
+      43957,
+      5093
+    ],
+    [
+      43958,
+      5094
+    ],
+    [
+      43959,
+      5095
+    ],
+    [
+      43960,
+      5096
+    ],
+    [
+      43961,
+      5097
+    ],
+    [
+      43962,
+      5098
+    ],
+    [
+      43963,
+      5099
+    ],
+    [
+      43964,
+      5100
+    ],
+    [
+      43965,
+      5101
+    ],
+    [
+      43966,
+      5102
+    ],
+    [
+      43967,
+      5103
+    ],
+    [
+      64256,
+      102,
+      102
+    ],
+    [
+      64257,
+      102,
+      105
+    ],
+    [
+      64258,
+      102,
+      108
+    ],
+    [
+      64259,
+      102,
+      102,
+      105
+    ],
+    [
+      64260,
+      102,
+      102,
+      108
+    ],
+    [
+      64261,
+      115,
+      116
+    ],
+    [
+      64262,
+      115,
+      116
+    ],
+    [
+      64275,
+      1396,
+      1398
+    ],
+    [
+      64276,
+      1396,
+      1381
+    ],
+    [
+      64277,
+      1396,
+      1387
+    ],
+    [
+      64278,
+      1406,
+      1398
+    ],
+    [
+      64279,
+      1396,
+      1389
+    ]
+  ],
+  "statusOrder": [
+    "Overdue",
+    "Pending",
+    "In Progress",
+    "Completed",
+    "Cancelled"
+  ],
+  "pdfDesigns": [
+    {
+      "key": "classic",
+      "name": "Classic",
+      "blurb": "Brand-coloured letterhead rule and headings, a shaded details panel and tables with a solid brand-colour header.",
+      "font": "sans",
+      "body": 10.5,
+      "lead": 15.0,
+      "cell": 9.0,
+      "title_size": 20.0,
+      "title_align": "left",
+      "h2_size": 13.0,
+      "gap": 1.0,
+      "letterhead": "rule",
+      "logo_max_mm": 20.0,
+      "name_max": 14.0,
+      "name_accent": true,
+      "top_band_mm": 0.0,
+      "heading": "rule",
+      "details": "panel",
+      "table": "fill",
+      "status_color": true,
+      "signatures": false
+    },
+    {
+      "key": "modern",
+      "name": "Modern",
+      "blurb": "A brand-colour strip across the page, headings on tinted bars, meeting details as cards and light, airy tables.",
+      "font": "sans",
+      "body": 10.5,
+      "lead": 15.0,
+      "cell": 9.0,
+      "title_size": 22.0,
+      "title_align": "left",
+      "h2_size": 13.0,
+      "gap": 1.0,
+      "letterhead": "hairline",
+      "logo_max_mm": 20.0,
+      "name_max": 14.0,
+      "name_accent": false,
+      "top_band_mm": 4.0,
+      "heading": "bar",
+      "details": "cards",
+      "table": "tint",
+      "status_color": true,
+      "signatures": false
+    },
+    {
+      "key": "formal",
+      "name": "Formal",
+      "blurb": "Serif type, centred title, numbered capital headings, fully ruled tables and a signature block — for board and official minutes.",
+      "font": "serif",
+      "body": 11.0,
+      "lead": 15.5,
+      "cell": 9.5,
+      "title_size": 18.0,
+      "title_align": "center",
+      "h2_size": 12.0,
+      "gap": 1.0,
+      "letterhead": "double",
+      "logo_max_mm": 20.0,
+      "name_max": 14.0,
+      "name_accent": true,
+      "top_band_mm": 0.0,
+      "heading": "numbered",
+      "details": "grid",
+      "table": "grid",
+      "status_color": false,
+      "signatures": true
+    },
+    {
+      "key": "compact",
+      "name": "Compact",
+      "blurb": "Smaller type and tighter spacing with no colour fills — long minutes in fewer pages, and light on printer ink.",
+      "font": "sans",
+      "body": 9.5,
+      "lead": 13.0,
+      "cell": 8.5,
+      "title_size": 16.0,
+      "title_align": "left",
+      "h2_size": 11.5,
+      "gap": 0.7,
+      "letterhead": "hairline",
+      "logo_max_mm": 13.0,
+      "name_max": 12.0,
+      "name_accent": true,
+      "top_band_mm": 0.0,
+      "heading": "plain",
+      "details": "inline",
+      "table": "lines",
+      "status_color": true,
+      "signatures": false
+    }
+  ],
+  "defaultPdfDesign": "classic",
+  "profileDefaults": {
+    "id": "",
+    "name": "New Company",
+    "address": "",
+    "phone": "",
+    "email": "",
+    "website": "",
+    "logo_path": "",
+    "logo_position": "left",
+    "logo_width_mm": 35.0,
+    "footer_text": "",
+    "footer_alignment": "center",
+    "show_page_numbers": true,
+    "page_number_position": "footer-right",
+    "page_number_format": "Page {n} of {total}",
+    "accent_color": "#8B1E1E",
+    "pdf_design": "classic"
+  },
+  "statusColors": {
+    "Completed": "#16A34A",
+    "In Progress": "#B8760F",
+    "Pending": "#6C6269",
+    "Cancelled": "#8A8088",
+    "Overdue": "#DC2626",
+    "Blocked": "#DC2626"
+  },
+  "pdfTitleKeys": [
+    "meeting name",
+    "meeting subject",
+    "meeting title",
+    "subject",
+    "title",
+    "العنوان",
+    "الموضوع",
+    "عنوان الاجتماع",
+    "موضوع الاجتماع"
+  ],
+  "pdfPeopleKeys": [
+    "absent",
+    "absentees",
+    "apologies",
+    "attendance",
+    "attendee",
+    "attendees",
+    "invitees",
+    "members present",
+    "participants",
+    "present",
+    "regrets",
+    "الحاضرون",
+    "الحضور",
+    "الغائبون",
+    "المشاركون",
+    "المعتذرون"
+  ],
+  "pdfStatusHeaders": [
+    "state",
+    "status",
+    "الحالة"
+  ],
+  "pdfPlaceholders": [
+    "-",
+    "...",
+    "n/a",
+    "na",
+    "none",
+    "not specified",
+    "tbd",
+    "غير محدد",
+    "—",
+    "…"
+  ],
+  "signaturesEn": [
+    "Minutes recorded by",
+    "Approved by",
+    "Name",
+    "Signature",
+    "Date"
+  ],
+  "signaturesAr": [
+    "أعد المحضر",
+    "اعتمد المحضر",
+    "الاسم",
+    "التوقيع",
+    "التاريخ"
+  ],
+  "connect": {
+    "baseUrl": "http://ai.mico360.com:5310/v1",
+    "httpsCandidates": [
+      "https://ai.mico360.com:5311/v1",
+      "https://ai.mico360.com/v1"
+    ],
+    "defaultModel": "llama3.1:latest"
+  }
+}
