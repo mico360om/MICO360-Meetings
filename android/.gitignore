@@ -42,3 +42,6 @@ yarn-error.*
 
 # e2e run output
 /e2e/fake-connect-log.json
+
+# Claude Code project settings (local only; the release gate refuses any tracked settings.json)
+/.claude/
